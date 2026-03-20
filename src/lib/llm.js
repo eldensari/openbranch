@@ -1,6 +1,6 @@
-/* ═══════ LLM API — BYOK mode ═══════
- * 브라우저에서 직접 API 호출. Electron IPC 없음.
- * Anthropic, OpenAI, Gemini 지원.
+/* ═══════ LLM API — BYOK + Free mode ═══════
+ * API 키 있으면 브라우저에서 직접 호출 (BYOK).
+ * API 키 없으면 /.netlify/functions/chat 경유 (무료, rate limited).
  */
 
 export function detectProvider(key) {
@@ -12,7 +12,31 @@ export function detectProvider(key) {
   return null;
 }
 
-export async function callLLM(apiKey, messages) {
+async function callFree(messages) {
+  const res = await fetch("/.netlify/functions/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, model: "claude-sonnet-4-20250514" }),
+    signal: AbortSignal.timeout(120000),
+  });
+
+  if (res.status === 429) {
+    const data = await res.json().catch(() => ({}));
+    const err = new Error(data.message || "Rate limit reached.");
+    err.code = "RATE_LIMIT";
+    throw err;
+  }
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Server error " + res.status);
+  }
+
+  const d = await res.json();
+  return d.content?.[0]?.text || "";
+}
+
+async function callBYOK(apiKey, messages) {
   const key = apiKey.trim().replace(/[^\x20-\x7E]/g, "");
   const provider = detectProvider(key);
   if (!provider) throw new Error("Unknown API key format.");
@@ -61,11 +85,27 @@ export async function callLLM(apiKey, messages) {
   throw new Error("Unsupported provider.");
 }
 
+export async function callLLM(apiKey, messages) {
+  if (apiKey && apiKey.trim()) {
+    return callBYOK(apiKey, messages);
+  }
+  return callFree(messages);
+}
+
 export async function validateKey(key) {
   try {
-    await callLLM(key, [{ role: "user", content: "hello" }]);
+    await callBYOK(key, [{ role: "user", content: "hello" }]);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };
   }
+}
+
+export async function submitWaitlist(email) {
+  const res = await fetch("/.netlify/functions/waitlist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  return res.json();
 }

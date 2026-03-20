@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
-import { callLLM, detectProvider } from "./lib/llm";
+import { callLLM, detectProvider, submitWaitlist } from "./lib/llm";
 
 /* ═══════ THEME ═══════ */
 const LIGHT = {
@@ -355,6 +355,9 @@ export default function App() {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
   const hasKey = !!apiKey.trim();
+  const [rateLimited, setRateLimited] = useState(false);
+  const [waitlistEmail, setWaitlistEmail] = useState("");
+  const [waitlistStatus, setWaitlistStatus] = useState(null); // null | "sending" | "done" | "error"
 
   const [commits, setCommits] = useState([]);
   const [headId, setHeadId] = useState(null);
@@ -482,6 +485,7 @@ export default function App() {
         setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
         save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
       } catch (e) {
+        if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
         const cm = mkCommit(null, msg, "Error: " + e.message, "main");
         const nc = [cm];
         setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
@@ -509,6 +513,7 @@ export default function App() {
             setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
             save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
           } catch (e) {
+            if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
             const cm = mkCommit(null, msg, "Error: " + e.message, "main");
             const nc = [cm];
             setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
@@ -530,6 +535,7 @@ export default function App() {
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
       save(msg.slice(0, 40), nc, cm.id, br);
     } catch (e) {
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
       const cm = mkCommit(pid, msg, "Error: " + e.message, br);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
     } finally { setThinking(false); }
@@ -596,6 +602,7 @@ export default function App() {
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
       save(null, nc, cm.id, branch);
     } catch (e) {
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setSel([]); setThinking(false); return; }
       const cm = mkCommit(headId, msg, "Merge error: " + e.message, branch);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
     } finally { setThinking(false); }
@@ -666,10 +673,10 @@ export default function App() {
             <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "2px 0 4px" }}>
               <input autoFocus type="password" value={keyDraft} onChange={e => setKeyDraft(e.target.value)}
                 placeholder="sk-ant-... or sk-..."
-                onKeyDown={e => { if (e.key === "Enter") { setApiKey(keyDraft.trim()); storage.set("apiKey", keyDraft.trim()); setShowKeyInput(false); } if (e.key === "Escape") setShowKeyInput(false); }}
+                onKeyDown={e => { if (e.key === "Enter") { setApiKey(keyDraft.trim()); storage.set("apiKey", keyDraft.trim()); setShowKeyInput(false); setRateLimited(false); } if (e.key === "Escape") setShowKeyInput(false); }}
                 style={{ width: "100%", boxSizing: "border-box", padding: "5px 6px", fontSize: 9, borderRadius: 4, border: "0.5px solid " + t.border, background: t.bg, color: t.text, fontFamily: "monospace" }} />
               <div style={{ display: "flex", gap: 3 }}>
-                <button onClick={() => { setApiKey(keyDraft.trim()); storage.set("apiKey", keyDraft.trim()); setShowKeyInput(false); }}
+                <button onClick={() => { setApiKey(keyDraft.trim()); storage.set("apiKey", keyDraft.trim()); setShowKeyInput(false); setRateLimited(false); }}
                   style={{ flex: 1, padding: "3px", fontSize: 8, fontWeight: 600, borderRadius: 3, background: t.accent, color: t.accentText, border: "none", cursor: "pointer" }}>Save</button>
                 <button onClick={() => setShowKeyInput(false)}
                   style={{ flex: 1, padding: "3px", fontSize: 8, borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
@@ -762,6 +769,42 @@ export default function App() {
           <span style={{ fontSize: 11, color: t.mergeText, fontWeight: 500 }}>Merging {sel.length} into {branch}</span>
           <button onClick={() => { setMm(false); setSel([]); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
         </div>}
+
+        {/* Rate limit banner */}
+        {rateLimited && !hasKey && (
+          <div style={{ padding: "10px 14px", borderTop: "0.5px solid " + t.border, background: dark ? "#2a1a0e" : "#fef9ef" }}>
+            <div style={{ fontSize: 12, fontWeight: 500, color: dark ? "#f0c060" : "#854F0B", marginBottom: 6 }}>
+              You've reached the free message limit. Enter your API key to continue, or leave your email for updates.
+            </div>
+            {waitlistStatus === "done" ? (
+              <div style={{ fontSize: 11, color: "#1D9E75", fontWeight: 500 }}>{"\u2713"} You're on the list! We'll reach out soon.</div>
+            ) : (
+              <div style={{ display: "flex", gap: 6 }}>
+                <input value={waitlistEmail} onChange={e => setWaitlistEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  onKeyDown={e => { if (e.key === "Enter" && waitlistEmail.trim()) {
+                    setWaitlistStatus("sending");
+                    submitWaitlist(waitlistEmail.trim()).then(r => setWaitlistStatus(r.ok ? "done" : "error")).catch(() => setWaitlistStatus("error"));
+                  }}}
+                  style={{ flex: 1, padding: "6px 8px", fontSize: 11, borderRadius: 6, border: "0.5px solid " + t.border, background: t.bg, color: t.text }} />
+                <button onClick={() => {
+                    if (!waitlistEmail.trim()) return;
+                    setWaitlistStatus("sending");
+                    submitWaitlist(waitlistEmail.trim()).then(r => setWaitlistStatus(r.ok ? "done" : "error")).catch(() => setWaitlistStatus("error"));
+                  }}
+                  disabled={waitlistStatus === "sending" || !waitlistEmail.trim()}
+                  style={{ padding: "6px 12px", fontSize: 11, fontWeight: 500, borderRadius: 6, background: t.accent, color: t.accentText, border: "none", cursor: "pointer", opacity: waitlistStatus === "sending" ? 0.5 : 1 }}>
+                  {waitlistStatus === "sending" ? "..." : "Notify me"}
+                </button>
+              </div>
+            )}
+            {waitlistStatus === "error" && <div style={{ fontSize: 10, color: "#c00", marginTop: 4 }}>Something went wrong. Try again.</div>}
+            <button onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); setRateLimited(false); }}
+              style={{ fontSize: 10, color: t.textSub, background: "none", border: "none", cursor: "pointer", marginTop: 6, padding: 0, textDecoration: "underline" }}>
+              Enter API key instead
+            </button>
+          </div>
+        )}
 
         {/* Input */}
         <div style={{ padding: "8px 12px", borderTop: "0.5px solid " + t.border, display: "flex", gap: 6, alignItems: "center" }}>
