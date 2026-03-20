@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
 import { callLLM, detectProvider, submitWaitlist } from "./lib/llm";
+import herbIcon from "./assets/herb.svg";
 
 /* ═══════ THEME ═══════ */
 const LIGHT = {
@@ -706,7 +707,7 @@ export default function App() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "7px 12px", borderBottom: "0.5px solid " + t.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>OpenBranch</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: t.text, display: "flex", alignItems: "center", gap: 4 }}><img src={herbIcon} alt="" style={{ width: 16, height: 16 }} /> OpenBranch</span>
             {names.length > 0 && <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 3, background: bCol(names, branch) + "18", color: bCol(names, branch), fontWeight: 500, fontFamily: "monospace" }}>{branch}</span>}
             {parentRef && <span onClick={goToParent} style={{ fontSize: 8, color: "#378ADD", cursor: "pointer" }}>{"\u2197"} from: {parentRef.convTitle?.slice(0, 20)}</span>}
           </div>
@@ -717,7 +718,7 @@ export default function App() {
           {thread.length === 0 && !pending && !newFromRef && (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <div style={{ textAlign: "center", maxWidth: 520 }}>
-                <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 6, letterSpacing: "-0.5px", color: t.text }}>OpenBranch</div>
+                <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 6, letterSpacing: "-0.5px", color: t.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><img src={herbIcon} alt="OpenBranch" style={{ width: 36, height: 36 }} /> OpenBranch</div>
                 <div style={{ fontSize: 13, color: t.textSub, marginBottom: 24 }}>Expand your chat. Merge your ideas.</div>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
                   {["Should I learn Rust or Go for backend?", "Help me plan a startup strategy", "Compare pros and cons of remote work"].map(q => (
