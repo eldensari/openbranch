@@ -92,6 +92,59 @@ export async function callLLM(apiKey, messages) {
   return callFree(messages);
 }
 
+export async function summarizeThread(apiKey, thread) {
+  const conversationText = thread.map(c =>
+    "User: " + c.prompt + "\nAssistant: " + (c.response || "(no response)")
+  ).join("\n\n");
+
+  const prompt = "Summarize the following conversation in 300 words or less. Focus on key decisions, conclusions, and context that would be useful for continuing the conversation. Use third-person narrative.\n\n---\n\n" + conversationText;
+  const messages = [{ role: "user", content: prompt }];
+
+  if (!apiKey || !apiKey.trim()) {
+    // Free tier via netlify function — request Haiku model.
+    const res = await fetch("/.netlify/functions/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, model: "claude-haiku-4-5" }),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (res.status === 429) {
+      const data = await res.json().catch(() => ({}));
+      const err = new Error(data.message || "Rate limit reached.");
+      err.code = "RATE_LIMIT";
+      throw err;
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Server error " + res.status);
+    }
+    const d = await res.json();
+    return d.content?.[0]?.text || "";
+  }
+
+  const key = apiKey.trim().replace(/[^\x20-\x7E]/g, "");
+  const provider = detectProvider(key);
+  if (provider?.id === "anthropic") {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({ model: "claude-haiku-4-5", max_tokens: 1024, messages }),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
+    const d = await res.json();
+    return d.content?.[0]?.text || "";
+  }
+
+  // OpenAI / Gemini: Haiku is unavailable — fall back to provider's default model via callLLM.
+  return callLLM(apiKey, messages);
+}
+
 export async function validateKey(key) {
   try {
     await callBYOK(key, [{ role: "user", content: "hello" }]);
