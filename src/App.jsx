@@ -111,6 +111,15 @@ function mkId() { return "c" + (++cc) + "_" + Math.random().toString(36).slice(2
 function mkCommit(parentId, prompt, response, branch, mergeIds) {
   return { id: mkId(), parentId, mergeIds: mergeIds || [], prompt, response, branch, ts: Date.now() };
 }
+function buildMsgs(thread, finalUserMsg) {
+  const msgs = [];
+  thread.forEach(c => {
+    msgs.push({ role: "user", content: c.prompt });
+    if (c.response) msgs.push({ role: "assistant", content: c.response });
+  });
+  msgs.push({ role: "user", content: finalUserMsg });
+  return msgs;
+}
 function getThread(commits, hid) {
   const t = []; let id = hid; const v = new Set();
   while (id && !v.has(id)) { v.add(id); const c = commits.find(x => x.id === id); if (!c) break; t.unshift(c); id = c.parentId; }
@@ -134,12 +143,16 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
     vnodes.push({ vid: "ghost", cid: null, type: "ghost", branch: "main", label: parentRef.promptSummary || "Parent conversation", parentVid: null, mergeVids: [] });
   }
   sorted.forEach(cm => {
-    vnodes.push({ vid: cm.id + "_p", cid: cm.id, type: "p", branch: cm.branch, label: cm.prompt || "", parentVid: cm.parentId ? cm.parentId + "_r" : (hasParent ? "ghost" : null), mergeVids: (cm.mergeIds || []).map(m => m + "_r") });
-    const aiSum = cm.response ? cm.response.replace(/\*\*/g, "").replace(/\n/g, " ").trim() : "...";
-    vnodes.push({ vid: cm.id + "_r", cid: cm.id, type: "r", branch: cm.branch, label: aiSum, parentVid: cm.id + "_p", mergeVids: [] });
+    const aiSum = cm.response ? cm.response.replace(/\*\*/g, "").replace(/\n/g, " ").trim() : "";
+    vnodes.push({
+      vid: cm.id, cid: cm.id, type: "commit", branch: cm.branch,
+      label: { prompt: cm.prompt || "", response: aiSum },
+      parentVid: cm.parentId || (hasParent ? "ghost" : null),
+      mergeVids: cm.mergeIds || [],
+    });
     if (childRefs) {
       childRefs.filter(cr => cr.commitId === cm.id).forEach(cr => {
-        vnodes.push({ vid: "child_" + cr.convId, cid: null, type: "child", branch: cm.branch, label: cr.convTitle, parentVid: cm.id + "_r", mergeVids: [], childConvId: cr.convId });
+        vnodes.push({ vid: "child_" + cr.convId, cid: null, type: "child", branch: cm.branch, label: cr.convTitle, parentVid: cm.id, mergeVids: [], childConvId: cr.convId });
       });
     }
   });
@@ -260,8 +273,7 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
           const col = bCol(names, n.branch);
           const cm = commits.find(c => c.id === n.cid);
           const cur = cm?.id === headId;
-          const isPr = n.type === "p";
-          const isMrg = (cm?.mergeIds || []).length > 0 && isPr;
+          const isMrg = (cm?.mergeIds || []).length > 0;
           const sel = selected?.includes(n.cid);
           const hov = hoveredCid === n.cid;
           const r = cur ? 5 : (isMrg ? 5 : nR);
@@ -270,16 +282,19 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
           return (
             <g key={n.vid} style={{ cursor: "pointer", opacity: nodeOn ? 1 : 0.12, transition: dimTrans }}
               onClick={e => { e.stopPropagation(); setCtx(null); if (mergeMode) { onToggleSel(n.cid); return; } if (cm) onCheckout(cm.id, cm.branch); }}
-              onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY, cid: n.cid, isPrompt: isPr }); }}>
+              onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY, cid: n.cid }); }}>
               {(cur || sel || hov) && <circle cx={p.x} cy={p.y} r={hov ? 11 : 9} fill={sel ? "#BA7517" : col} opacity={hov ? 0.25 : 0.15} />}
               {isMrg
                 ? <rect x={p.x - r} y={p.y - r} width={r * 2} height={r * 2} rx={2} fill={col} stroke={col} strokeWidth="1.5" />
-                : <circle cx={p.x} cy={p.y} r={r} fill={isPr ? t.bg : col} stroke={sel ? "#BA7517" : col} strokeWidth={cur ? 2.5 : (hov ? 2.5 : 1.5)} />}
+                : <circle cx={p.x} cy={p.y} r={r} fill={t.bg} stroke={sel ? "#BA7517" : col} strokeWidth={cur ? 2.5 : (hov ? 2.5 : 1.5)} />}
               {sel && <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff">{"\u2713"}</text>}
-              <text x={lX} y={p.y - 2} fontSize="9" fontWeight={(cur || hov) ? "600" : "400"} fill={(cur || hov) ? col : isPr ? t.text : t.textSub} style={{ fontFamily: "system-ui" }}>
-                {isMrg ? "\u2B85 " : ""}{trunc(n.label, maxChars)}
+              <text x={lX} y={p.y - 2} fontSize="9" fontWeight={(cur || hov) ? "600" : "400"} fill={(cur || hov) ? col : t.text} style={{ fontFamily: "system-ui" }}>
+                {isMrg ? "\u2B85 " : ""}{trunc(n.label.prompt, maxChars)}
               </text>
-              <text x={lX} y={p.y + 9} fontSize="7" fill={t.textMuted} style={{ fontFamily: "monospace" }}>
+              <text x={lX} y={p.y + 9} fontSize="9" fill={t.textSub} style={{ fontFamily: "system-ui" }}>
+                {trunc(n.label.response, maxChars)}
+              </text>
+              <text x={lX} y={p.y + 19} fontSize="7" fill={t.textMuted} style={{ fontFamily: "monospace" }}>
                 {n.branch} {n.cid.slice(0, 7)}
               </text>
             </g>
@@ -465,9 +480,7 @@ export default function App() {
 
       setPending(msg); setThinking(true);
       try {
-        const msgs = [];
-        parentThread.forEach(c => { msgs.push({ role: "user", content: c.prompt }); if (c.response) msgs.push({ role: "assistant", content: c.response }); });
-        msgs.push({ role: "user", content: msg });
+        const msgs = buildMsgs(parentThread, msg);
         const resp = await callLLM(apiKey, msgs);
         const cm = mkCommit(null, msg, resp, "main");
         const nc = [cm];
@@ -522,8 +535,7 @@ export default function App() {
     setPending(msg); setThinking(true);
     try {
       const th = getThread(cRef.current, pid);
-      const msgs = []; th.forEach(c => { msgs.push({ role: "user", content: c.prompt }); if (c.response) msgs.push({ role: "assistant", content: c.response }); });
-      msgs.push({ role: "user", content: msg });
+      const msgs = buildMsgs(th, msg);
       const resp = await callLLM(apiKey, msgs);
       const cm = mkCommit(pid, msg, resp, br);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
