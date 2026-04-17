@@ -445,7 +445,7 @@ export default function App() {
   const showGraph = graph || commits.length > 0;
 
   // ─── SEND ───
-  const send = async () => {
+  const send = async (forkBranch = false) => {
     if (!input.trim() || thinking) return;
     const msg = input.trim(); setInput("");
     let pid = headId, br = branch;
@@ -512,6 +512,11 @@ export default function App() {
         pid = ec.parentId; br = "branch-" + names.length; setBranch(br);
       }
       setEditId(null); setGraph(true);
+    }
+
+    if (forkBranch && headId) {
+      br = "branch-" + names.length;
+      setBranch(br);
     }
 
     setPending(msg); setThinking(true);
@@ -798,9 +803,24 @@ export default function App() {
         {/* Input */}
         <div style={{ padding: "8px 12px", borderTop: "0.5px solid " + t.border, display: "flex", gap: 6, alignItems: "center" }}>
           <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); mm && sel.length ? merge() : send(); } }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (mm && sel.length) { merge(); return; }
+                const forkBranch = e.metaKey || e.ctrlKey;
+                send(forkBranch);
+              }
+            }}
             placeholder={editId ? "Edit your question..." : newFromRef ? "Start new conversation..." : mm ? "Merge instruction..." : "Message..."}
             style={{ flex: 1, padding: "10px 12px", fontSize: 13, borderRadius: 8, border: editId ? "1.5px solid " + t.userText : newFromRef ? "1.5px solid #378ADD" : mm ? "1.5px solid #BA7517" : "0.5px solid " + t.border, background: t.bg, color: t.text }} />
+          {!(mm && sel.length) && (
+            <button onClick={() => send(true)}
+              disabled={thinking || !input.trim() || !headId || mm || !!editId || !!newFromRef}
+              title="Send as new branch (Cmd/Ctrl+Enter)"
+              style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: "transparent", color: t.text, border: "0.5px solid " + t.border, cursor: "pointer", opacity: thinking || !input.trim() || !headId || mm || !!editId || !!newFromRef ? 0.4 : 1 }}>
+              🌿 Branch
+            </button>
+          )}
           <button onClick={() => mm && sel.length ? merge() : send()} disabled={thinking || !input.trim() || (mm && !sel.length)}
             style={{ padding: "10px 16px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: editId ? t.userText : newFromRef ? "#378ADD" : mm ? "#854F0B" : t.accent, color: t.accentText, border: "none", cursor: "pointer", opacity: thinking || !input.trim() ? 0.4 : 1 }}>
             {editId ? "Edit" : newFromRef ? "New" : mm ? "Merge" : "Send"}
