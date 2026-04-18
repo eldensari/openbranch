@@ -108,38 +108,14 @@ const GitHubIcon = () => (
 /* ═══════ DATA ═══════ */
 let cc = 100; // start high to avoid conflicts with demo IDs
 function mkId() { return "c" + (++cc) + "_" + Math.random().toString(36).slice(2, 5); }
-function mkCommit(parentId, prompt, response, branch, mergeIds, extras) {
-  const e = extras || {};
+function mkCommit(parentId, prompt, response, branch, mergeIds) {
   return {
     id: mkId(), parentId, mergeIds: mergeIds || [], prompt, response, branch, ts: Date.now(),
-    isSessionStart: !!e.isSessionStart,
-    priorSummary: e.priorSummary || null,
   };
 }
 function buildMsgs(thread, finalUserMsg) {
-  // Find last session boundary with a cached summary.
-  let lastBoundaryIdx = -1;
-  for (let i = thread.length - 1; i >= 0; i--) {
-    if (thread[i].isSessionStart) { lastBoundaryIdx = i; break; }
-  }
   const msgs = [];
-  const boundary = lastBoundaryIdx > 0 ? thread[lastBoundaryIdx] : null;
-  const useSummary = boundary && boundary.priorSummary;
-  if (useSummary) {
-    msgs.push({
-      role: "user",
-      content: "[Earlier conversation summary]\n\n" + boundary.priorSummary + "\n\n[End of summary. Continuing from here.]",
-    });
-    msgs.push({
-      role: "assistant",
-      content: "Understood. I have the context from the earlier conversation. Please continue.",
-    });
-  }
-  // If summary available: include boundary commit + everything after.
-  // Otherwise (no boundary, or stale null summary): include full thread.
-  const start = useSummary ? lastBoundaryIdx : 0;
-  for (let i = start; i < thread.length; i++) {
-    const c = thread[i];
+  for (const c of thread) {
     msgs.push({ role: "user", content: c.prompt });
     if (c.response) msgs.push({ role: "assistant", content: c.response });
   }
@@ -154,13 +130,148 @@ function getThread(commits, hid) {
 function bNames(c) { return [...new Set(c.map(x => x.branch))]; }
 function bHead(c, b) { const bc = c.filter(x => x.branch === b); return bc.length ? bc[bc.length - 1] : null; }
 
+// Find the root ancestor by walking parentRef chain. Cycle-safe.
+function findRootConv(conv, allConvs) {
+  const seen = new Set();
+  let cur = conv;
+  while (cur && cur.parentRef?.convId && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    const parent = allConvs.find(c => c.id === cur.parentRef.convId);
+    if (!parent) break;
+    cur = parent;
+  }
+  return cur;
+}
+
+// Auto-generated handoff label from the root conv's first commit prompt.
+// 30 chars, whitespace normalized. Empty → "unnamed".
+function getAutoLabelName(rootConv) {
+  const firstCommit = rootConv?.commits?.[0];
+  if (!firstCommit?.prompt) return "unnamed";
+  const normalized = firstCommit.prompt.replace(/\s+/g, " ").trim().slice(0, 30);
+  return normalized || "unnamed";
+}
+
+// Display label for a branch. Unified across sidebar + graph tabs.
+// 1. branchTitles override (user rename)
+// 2. "main" stays literal (well-known)
+// 3. First commit prompt on that branch
+// 4. Fallback to branch identifier (should be rare)
+function getBranchLabel(commits, branchName, branchTitles) {
+  const custom = branchTitles?.[branchName];
+  if (custom) return custom;
+  if (branchName === "main") return "main";
+  const firstOnBranch = (commits || []).filter(c => c.branch === branchName).sort((a, b) => a.ts - b.ts)[0];
+  const prompt = firstOnBranch?.prompt;
+  if (!prompt) return branchName;
+  return prompt.replace(/\s+/g, " ").trim();
+}
+
+// Build a hierarchical list of non-main branches. Each branch's parent is determined
+// by the branch of its first commit's parentId. Output: [{ branch, depth, label }, ...]
+// walked depth-first, ordered by first commit ts at each level.
+function buildBranchTree(commits) {
+  if (!commits.length) return [];
+  const byBranch = {};
+  for (const c of commits) (byBranch[c.branch] || (byBranch[c.branch] = [])).push(c);
+
+  const info = {};
+  for (const [name, list] of Object.entries(byBranch)) {
+    const first = list.reduce((a, b) => a.ts < b.ts ? a : b);
+    const parentCm = first.parentId ? commits.find(c => c.id === first.parentId) : null;
+    const parentBranch = parentCm && parentCm.branch !== name ? parentCm.branch : null;
+    info[name] = { name, firstCommit: first, parentBranch, children: [] };
+  }
+  for (const b of Object.values(info)) {
+    if (b.parentBranch && info[b.parentBranch]) info[b.parentBranch].children.push(b.name);
+  }
+  for (const b of Object.values(info)) {
+    b.children.sort((x, y) => info[x].firstCommit.ts - info[y].firstCommit.ts);
+  }
+
+  const result = [];
+  const visited = new Set();
+  const walk = (name, depth) => {
+    if (visited.has(name)) return;
+    visited.add(name);
+    if (name !== "main") {
+      const prompt = info[name].firstCommit?.prompt || name;
+      result.push({ branch: name, depth, label: prompt.replace(/\s+/g, " ").trim() });
+    }
+    for (const child of info[name].children) walk(child, depth + 1);
+  };
+
+  if (info["main"]) walk("main", 0);
+  // Orphans (branches whose parent branch is missing) start at depth 1
+  for (const b of Object.values(info)) if (!visited.has(b.name)) walk(b.name, 1);
+
+  return result;
+}
+
+// DFS order within a section: parent → children, siblings sorted by u asc.
+// Indent rule: only when a parent has 2+ children (a real fork) do its children
+// step in by one. Only-child chains stay flat at the parent's depth.
+// A section-local root has no parent inside the section.
+// Returns [{ conv, depth }, ...]. Cycle-safe.
+function orderSectionItems(members) {
+  if (!members.length) return [];
+  const idSet = new Set(members.map(c => c.id));
+  const children = {};
+  const roots = [];
+  for (const cv of members) {
+    const pid = cv.parentRef?.convId;
+    if (pid && idSet.has(pid)) (children[pid] || (children[pid] = [])).push(cv);
+    else roots.push(cv);
+  }
+  const cmpU = (a, b) => (a.u || "").localeCompare(b.u || "");
+  roots.sort(cmpU);
+  for (const pid of Object.keys(children)) children[pid].sort(cmpU);
+  const result = [];
+  const seen = new Set();
+  const walk = (cv, depth) => {
+    if (seen.has(cv.id)) return;
+    seen.add(cv.id);
+    result.push({ conv: cv, depth });
+    const kids = children[cv.id] || [];
+    const childDepth = kids.length >= 2 ? depth + 1 : depth;
+    for (const kid of kids) walk(kid, childDepth);
+  };
+  for (const r of roots) walk(r, 0);
+  // Orphans (cycle members unreachable from roots) — append at depth 0.
+  for (const cv of members) if (!seen.has(cv.id)) result.push({ conv: cv, depth: 0 });
+  return result;
+}
+
+// Sidebar sections grouped by conversation labels.
+// Unlabeled convs go into a separate flat area (no header).
+// Multi-labeled convs appear in every matching section.
+function buildLabelSections(convs) {
+  if (!convs.length) return { unlabeled: [], sections: [] };
+  const unlabeled = [];
+  const byLabel = {};
+  for (const cv of convs) {
+    const labels = cv.labels || [];
+    if (labels.length === 0) unlabeled.push(cv);
+    else for (const label of labels) (byLabel[label] || (byLabel[label] = [])).push(cv);
+  }
+  const cmpU = (a, b) => (a.u || "").localeCompare(b.u || "");
+  unlabeled.sort(cmpU);
+  const sections = Object.keys(byLabel).sort().map(label => ({
+    label,
+    items: orderSectionItems(byLabel[label]),
+  }));
+  return { unlabeled, sections };
+}
+
 /* ═══════ COLORS ═══════ */
 const BC = ["#1D9E75", "#378ADD", "#D85A30", "#D4537E", "#7F77DD", "#BA7517", "#E24B4A", "#639922"];
 function bCol(names, b) { return BC[names.indexOf(b) % BC.length] || "#888"; }
 
 /* ═══════ GIT GRAPH ═══════ */
-function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew, onDelete, mergeMode, selected, onToggleSel, parentRef, onGoToParent, childRefs, onGoToChild, hoveredCid, panelW, t }) {
+function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew, onDelete, mergeMode, selected, onToggleSel, parentRef, onGoToParent, childRefs, onGoToChild, hoveredCid, panelW, t, branchTitles, onEditLabel }) {
   const [ctx, setCtx] = useState(null);
+  const [editingNodeId, setEditingNodeId] = useState(null);
+  const [labelDraft, setLabelDraft] = useState("");
   const hasParent = !!parentRef;
   const sorted = [...commits].sort((a, b) => a.ts - b.ts);
 
@@ -169,10 +280,8 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
     vnodes.push({ vid: "ghost", cid: null, type: "ghost", branch: "main", label: parentRef.promptSummary || "Parent conversation", parentVid: null, mergeVids: [] });
   }
   sorted.forEach(cm => {
-    const aiSum = cm.response ? cm.response.replace(/\*\*/g, "").replace(/\n/g, " ").trim() : "";
     vnodes.push({
       vid: cm.id, cid: cm.id, type: "commit", branch: cm.branch,
-      label: { prompt: cm.prompt || "", response: aiSum },
       parentVid: cm.parentId || (hasParent ? "ghost" : null),
       mergeVids: cm.mergeIds || [],
     });
@@ -210,7 +319,7 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
   const vidOnPath = vid => { const v = vnodeMap[vid]; return !v || v.type === "ghost" || cidOnPath(v.cid); };
   const dimTrans = "opacity 0.2s ease";
 
-  const lW = 22, rH = 36, pL = 18, nR = 6;
+  const lW = 22, rH = 24, pL = 18, nR = 6;
   const lX = pL + Math.max(names.length, 1) * lW + 10;
   const W = panelW || 280, H = vnodes.length * rH + 30;
   const maxChars = Math.max(12, Math.floor((W - lX - 20) / 5.5));
@@ -227,9 +336,12 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
       <div style={{ padding: "6px 8px", display: "flex", flexWrap: "wrap", gap: 3, borderBottom: "0.5px solid " + t.border, position: "sticky", top: 0, background: t.graphBg, zIndex: 2 }}>
         {names.map(b => {
           const c = bCol(names, b), act = b === activeBranch;
+          const raw = getBranchLabel(commits, b, branchTitles);
+          const label = raw.length > 14 ? raw.slice(0, 14) + ".." : raw;
           return <button key={b} onClick={() => { const h = bHead(commits, b); if (h) onCheckout(h.id, b); }}
-            style={{ fontSize: 8, padding: "2px 7px", borderRadius: 3, cursor: "pointer", fontFamily: "monospace", fontWeight: act ? 600 : 400, background: act ? c + "20" : "transparent", color: c, border: act ? "1px solid " + c + "50" : "0.5px solid " + t.border }}>
-            {b}{act ? " \u25CF" : ""}
+            title={raw}
+            style={{ fontSize: 8, padding: "2px 7px", borderRadius: 3, cursor: "pointer", fontWeight: act ? 600 : 400, background: act ? c + "20" : "transparent", color: c, border: act ? "1px solid " + c + "50" : "0.5px solid " + t.border }}>
+            {label}{act ? " \u25CF" : ""}
           </button>;
         })}
       </div>
@@ -270,11 +382,8 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
             return (
               <g key={n.vid} style={{ cursor: "pointer" }} onClick={e => { e.stopPropagation(); onGoToParent(); }}>
                 <circle cx={p.x} cy={p.y} r={5} fill="none" stroke={t.textMuted} strokeWidth="1.5" strokeDasharray="3 2" />
-                <text x={lX} y={p.y - 2} fontSize="9" fill={t.textMuted} fontStyle="italic" style={{ fontFamily: "system-ui" }}>
+                <text x={lX} y={p.y + 3} fontSize="9" fill={t.textMuted} fontStyle="italic" style={{ fontFamily: "system-ui" }}>
                   {trunc(n.label, maxChars)}
-                </text>
-                <text x={lX} y={p.y + 9} fontSize="7" fill={t.textMuted} style={{ fontFamily: "monospace" }}>
-                  {"\u2197 go to parent chat"}
                 </text>
               </g>
             );
@@ -286,11 +395,8 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
             return (
               <g key={n.vid} style={{ cursor: "pointer", opacity: nodeOn ? 1 : 0.12, transition: dimTrans }} onClick={e => { e.stopPropagation(); onGoToChild(n.childConvId); }}>
                 <circle cx={p.x} cy={p.y} r={5} fill="none" stroke={t.textMuted} strokeWidth="1.5" strokeDasharray="3 2" />
-                <text x={lX} y={p.y - 2} fontSize="9" fill={t.textMuted} fontStyle="italic" style={{ fontFamily: "system-ui" }}>
+                <text x={lX} y={p.y + 3} fontSize="9" fill={t.textMuted} fontStyle="italic" style={{ fontFamily: "system-ui" }}>
                   {"\u2198 " + trunc(n.label, maxChars - 2)}
-                </text>
-                <text x={lX} y={p.y + 9} fontSize="7" fill={t.textMuted} style={{ fontFamily: "monospace" }}>
-                  go to child chat
                 </text>
               </g>
             );
@@ -300,30 +406,41 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
           const cm = commits.find(c => c.id === n.cid);
           const cur = cm?.id === headId;
           const isMrg = (cm?.mergeIds || []).length > 0;
-          const isSessionStart = cm?.isSessionStart === true;
           const sel = selected?.includes(n.cid);
           const hov = hoveredCid === n.cid;
           const r = cur ? 5 : (isMrg ? 5 : nR);
+          const isEditing = editingNodeId === n.cid;
+          const displayText = cm?.displayLabel || (cm?.prompt || "").replace(/\s+/g, " ").trim();
 
           const nodeOn = cidOnPath(n.cid);
           return (
             <g key={n.vid} style={{ cursor: "pointer", opacity: nodeOn ? 1 : 0.12, transition: dimTrans }}
-              onClick={e => { e.stopPropagation(); setCtx(null); if (mergeMode) { onToggleSel(n.cid); return; } if (cm) onCheckout(cm.id, cm.branch); }}
+              onClick={e => { if (isEditing) return; e.stopPropagation(); setCtx(null); if (mergeMode) { onToggleSel(n.cid); return; } if (cm) onCheckout(cm.id, cm.branch); }}
+              onDoubleClick={e => { e.stopPropagation(); if (!cm) return; setLabelDraft(cm.displayLabel || (cm.prompt || "").replace(/\s+/g, " ").trim()); setEditingNodeId(n.cid); }}
               onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY, cid: n.cid }); }}>
               {(cur || sel || hov) && <circle cx={p.x} cy={p.y} r={hov ? 11 : 9} fill={sel ? "#BA7517" : col} opacity={hov ? 0.25 : 0.15} />}
               {isMrg
                 ? <rect x={p.x - r} y={p.y - r} width={r * 2} height={r * 2} rx={2} fill={col} stroke={col} strokeWidth="1.5" />
-                : <circle cx={p.x} cy={p.y} r={r} fill={isSessionStart ? col : t.bg} stroke={sel ? "#BA7517" : col} strokeWidth={cur ? 2.5 : (hov ? 2.5 : 1.5)} />}
+                : <circle cx={p.x} cy={p.y} r={r} fill={t.bg} stroke={sel ? "#BA7517" : col} strokeWidth={cur ? 2.5 : (hov ? 2.5 : 1.5)} />}
               {sel && <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff">{"\u2713"}</text>}
-              <text x={lX} y={p.y - 2} fontSize="9" fontWeight={(cur || hov) ? "600" : "400"} fill={(cur || hov) ? col : t.text} style={{ fontFamily: "system-ui" }}>
-                {isMrg ? "\u2B85 " : ""}{trunc(n.label.prompt, maxChars)}
-              </text>
-              <text x={lX} y={p.y + 9} fontSize="9" fill={t.textSub} style={{ fontFamily: "system-ui" }}>
-                {trunc(n.label.response, maxChars)}
-              </text>
-              <text x={lX} y={p.y + 19} fontSize="7" fill={t.textMuted} style={{ fontFamily: "monospace" }}>
-                {n.branch} {n.cid.slice(0, 7)}
-              </text>
+              {isEditing ? (
+                <foreignObject x={lX - 4} y={p.y - 9} width={Math.max(60, W - lX)} height={18} onClick={e => e.stopPropagation()}>
+                  <input autoFocus
+                    value={labelDraft}
+                    onChange={e => setLabelDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") { onEditLabel?.(n.cid, labelDraft); setEditingNodeId(null); }
+                      if (e.key === "Escape") setEditingNodeId(null);
+                    }}
+                    onBlur={() => { onEditLabel?.(n.cid, labelDraft); setEditingNodeId(null); }}
+                    onClick={e => e.stopPropagation()}
+                    style={{ width: "100%", fontSize: 9, padding: "1px 4px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text, fontFamily: "system-ui" }} />
+                </foreignObject>
+              ) : (
+                <text x={lX} y={p.y + 3} fontSize="9" fontWeight={(cur || hov) ? "600" : "400"} fill={(cur || hov) ? col : t.text} style={{ fontFamily: "system-ui" }}>
+                  {isMrg ? "\u2B85 " : ""}{trunc(displayText, maxChars)}
+                </text>
+              )}
             </g>
           );
         })}
@@ -402,7 +519,10 @@ export default function App() {
   const [hoveredCid, setHoveredCid] = useState(null);
   const [chatMenu, setChatMenu] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
+  const [renamingBranch, setRenamingBranch] = useState(null); // { convId, branch } | null
+  const [renamingLabel, setRenamingLabel] = useState(null); // string | null (section label being renamed)
   const [renameVal, setRenameVal] = useState("");
+  const [collapsedSections, setCollapsedSections] = useState(() => new Set());
   const dragging = useRef(false);
   const endRef = useRef(null);
   const inputRef = useRef(null);
@@ -450,23 +570,157 @@ export default function App() {
     }
   }, [scrollTarget, headId]);
 
-  const save = (title, cm, hid, br, pRef, forceNewId) => {
+  const save = (title, cm, hid, br, pRef, forceNewId, labels) => {
     const id = forceNewId || convId || "conv:" + Date.now();
-    const existing = convs.find(c => c.id === id);
+    // `convs` state can be a stale closure snapshot inside async flows
+    // (e.g., the second save() in the newFromRef branch runs after await callLLM
+    // and doesn't see the first save()'s addition). Fall back to storage so
+    // labels/branchTitles/title from the prior save are preserved.
+    let existing = convs.find(c => c.id === id);
+    if (!existing) {
+      const stored = storage.get(id);
+      if (stored?.value) { try { existing = JSON.parse(stored.value); } catch {} }
+    }
     const finalTitle = existing?.title || title || (cm.length > 0 ? cm[0].prompt?.slice(0, 40) : "Untitled");
-    const cv = { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, u: new Date().toISOString() };
+    const finalLabels = labels !== undefined ? labels : (existing?.labels || []);
+    const cv = { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: finalLabels, u: new Date().toISOString() };
     storage.set(id, JSON.stringify(cv));
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
   };
 
   const load = cv => {
-    setCommits(cv.commits || []); setHeadId(cv.headId); setBranch(cv.branch || "main");
+    const commits = cv.commits || [];
+    setCommits(commits); setHeadId(cv.headId); setBranch(cv.branch || "main");
     setConvId(cv.id); setParentRef(cv.parentRef || null);
-    cc = Math.max(cc, (cv.commits || []).length + 10);
+    cc = Math.max(cc, commits.length + 10);
     setMm(false); setSel([]); setEditId(null); setPending(null); setNewFromRef(null);
   };
-  const del = id => { storage.del(id); setConvs(p => p.filter(c => c.id !== id)); if (convId === id) { setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); } };
+  // Cascade delete: remove conv + all descendant convs (parentRef chain).
+  const del = id => {
+    const toDelete = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of convs) {
+        if (!toDelete.has(c.id) && c.parentRef && toDelete.has(c.parentRef.convId)) {
+          toDelete.add(c.id); grew = true;
+        }
+      }
+    }
+    for (const x of toDelete) storage.del(x);
+    setConvs(p => p.filter(c => !toDelete.has(c.id)));
+    if (toDelete.has(convId)) {
+      setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); setBranch("main");
+    }
+  };
+  const countChildConvs = (id) => {
+    const set = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of convs) {
+        if (!set.has(c.id) && c.parentRef && set.has(c.parentRef.convId)) {
+          set.add(c.id); grew = true;
+        }
+      }
+    }
+    return set.size - 1;
+  };
+  const getBranchDescendantNames = (cms, bName) => {
+    if (!cms.length) return [];
+    const byBranch = {};
+    for (const c of cms) (byBranch[c.branch] || (byBranch[c.branch] = [])).push(c);
+    const parentOf = {};
+    for (const [name, list] of Object.entries(byBranch)) {
+      const first = list.reduce((a, b) => a.ts < b.ts ? a : b);
+      const parentCm = first.parentId ? cms.find(c => c.id === first.parentId) : null;
+      parentOf[name] = parentCm && parentCm.branch !== name ? parentCm.branch : null;
+    }
+    const set = new Set([bName]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const name of Object.keys(byBranch)) {
+        if (!set.has(name) && parentOf[name] && set.has(parentOf[name])) {
+          set.add(name); grew = true;
+        }
+      }
+    }
+    set.delete(bName);
+    return Array.from(set);
+  };
+  // Rename only affects the sidebar label via branchTitles map.
+  // commit.branch (technical identifier) is untouched.
+  // Empty title clears the override (restores prompt-summary default).
+  const renameBranch = (cvId, bName, newTitle) => {
+    const cv = convs.find(c => c.id === cvId);
+    if (!cv) return;
+    const trimmed = (newTitle || "").trim();
+    const titles = { ...(cv.branchTitles || {}) };
+    if (!trimmed) delete titles[bName];
+    else titles[bName] = trimmed;
+    const updated = { ...cv, branchTitles: titles, u: new Date().toISOString() };
+    storage.set(cvId, JSON.stringify(updated));
+    setConvs(p => p.map(c => c.id === cvId ? updated : c));
+  };
+  // Rename a label across every conv that uses it. Dedupes if the new name
+  // already exists on a conv. Empty / unchanged → no-op.
+  const renameLabel = (oldName, newName) => {
+    const trimmed = (newName || "").trim();
+    if (!trimmed || trimmed === oldName) return;
+    const updatedMap = {};
+    for (const cv of convs) {
+      const labels = cv.labels || [];
+      if (!labels.includes(oldName)) continue;
+      const newLabels = [...new Set(labels.map(l => l === oldName ? trimmed : l))];
+      const u = { ...cv, labels: newLabels, u: new Date().toISOString() };
+      storage.set(cv.id, JSON.stringify(u));
+      updatedMap[cv.id] = u;
+    }
+    if (Object.keys(updatedMap).length) {
+      setConvs(prev => prev.map(c => updatedMap[c.id] || c));
+    }
+  };
+  // Delete a label from every conv that has it. Conv itself is untouched.
+  const deleteLabel = (label) => {
+    const updatedMap = {};
+    for (const cv of convs) {
+      const labels = cv.labels || [];
+      if (!labels.includes(label)) continue;
+      const u = { ...cv, labels: labels.filter(l => l !== label), u: new Date().toISOString() };
+      storage.set(cv.id, JSON.stringify(u));
+      updatedMap[cv.id] = u;
+    }
+    if (Object.keys(updatedMap).length) {
+      setConvs(prev => prev.map(c => updatedMap[c.id] || c));
+    }
+  };
+  const deleteBranchCascade = (cvId, bName) => {
+    const cv = convs.find(c => c.id === cvId);
+    if (!cv) return;
+    const oldCommits = cv.commits || [];
+    const toRemoveSet = new Set([bName, ...getBranchDescendantNames(oldCommits, bName)]);
+    const newCommits = oldCommits.filter(c => !toRemoveSet.has(c.branch));
+    let newBranch = cv.branch;
+    let newHeadId = cv.headId;
+    if (toRemoveSet.has(cv.branch)) {
+      newBranch = newCommits.find(c => c.branch === "main") ? "main" : (bNames(newCommits)[0] || "main");
+    }
+    if (!newCommits.find(c => c.id === newHeadId)) {
+      const leaf = bHead(newCommits, newBranch);
+      newHeadId = leaf?.id || null;
+    }
+    const titles = { ...(cv.branchTitles || {}) };
+    for (const removed of toRemoveSet) delete titles[removed];
+    const updated = { ...cv, commits: newCommits, branch: newBranch, headId: newHeadId, branchTitles: titles, u: new Date().toISOString() };
+    storage.set(cvId, JSON.stringify(updated));
+    setConvs(p => p.map(c => c.id === cvId ? updated : c));
+    if (cvId === convId) {
+      setCommits(newCommits); cRef.current = newCommits;
+      setBranch(newBranch); setHeadId(newHeadId);
+    }
+  };
   const renameConv = (id, newTitle) => {
     const cv = convs.find(c => c.id === id);
     if (!cv || !newTitle.trim()) return;
@@ -483,13 +737,65 @@ export default function App() {
     convId: cv.id, commitId: cv.parentRef.commitId, convTitle: cv.title || "Untitled",
   })) : [];
 
+  const sidebarSections = buildLabelSections(convs);
+  const toggleSection = (key) => {
+    setCollapsedSections(p => {
+      const n = new Set(p);
+      if (n.has(key)) n.delete(key); else n.add(key);
+      return n;
+    });
+  };
+
   // Auto-show graph when conversation has commits
   const showGraph = graph || commits.length > 0;
 
+  // Compute an auto-label from the root ancestor of `parentConv` (first commit,
+  // 30 chars, via getAutoLabelName) and propagate it up the entire parentRef
+  // chain. Skips ancestors that already have the same label (additive only).
+  // Returns the autoLabel string, or null if no parentConv. Used by both the
+  // Handoff (newFromRef) and Branch paths so the two share identical semantics.
+  const propagateAutoLabel = (parentConv) => {
+    if (!parentConv) return null;
+    const rootConv = findRootConv(parentConv, convs);
+    const autoLabel = rootConv ? getAutoLabelName(rootConv) : null;
+    if (!autoLabel) return null;
+    const ancestorChain = [];
+    const seen = new Set();
+    let curAnc = parentConv;
+    while (curAnc && !seen.has(curAnc.id)) {
+      seen.add(curAnc.id);
+      ancestorChain.push(curAnc);
+      const p = curAnc.parentRef?.convId ? convs.find(c => c.id === curAnc.parentRef.convId) : null;
+      if (!p) break;
+      curAnc = p;
+    }
+    const updatedMap = {};
+    for (const c of ancestorChain) {
+      if (!(c.labels || []).includes(autoLabel)) {
+        const updated = { ...c, labels: [...(c.labels || []), autoLabel], u: new Date().toISOString() };
+        storage.set(c.id, JSON.stringify(updated));
+        updatedMap[c.id] = updated;
+      }
+    }
+    if (Object.keys(updatedMap).length) {
+      setConvs(prev => prev.map(c => updatedMap[c.id] || c));
+    }
+    return autoLabel;
+  };
+
   // ─── SEND ───
-  const send = async (forkBranch = false, startNewSession = false) => {
+  const send = async (forkBranch = false) => {
     if (!input.trim() || thinking) return;
-    const msg = input.trim(); setInput("");
+    const msg = input.trim();
+
+    // Slash commands
+    if (msg === "/new" && headId) {
+      setInput("");
+      startNew(headId);
+      return;
+    }
+
+    setInput("");
     let pid = headId, br = branch;
 
     // Auto-show graph on first message
@@ -497,17 +803,40 @@ export default function App() {
 
     if (newFromRef) {
       const parentThread = newFromRef.thread || [];
-      const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary };
+
+      // Generate handoff summary (skip if thread is too short)
+      let summary = null;
+      if (parentThread.length >= 3) {
+        setThinking(true);
+        try {
+          summary = await summarizeThread(apiKey, parentThread);
+        } catch (err) {
+          console.error("Summary failed, continuing without:", err);
+        }
+      }
+
+      const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary };
       const newId = "conv:" + Date.now();
+
+      // Auto-label: derived from root ancestor's first prompt, propagated up
+      // the entire parentRef chain. See propagateAutoLabel() for details.
+      const parentConv = convs.find(c => c.id === newFromRef.convId);
+      const autoLabel = propagateAutoLabel(parentConv);
 
       setCommits([]); cRef.current = [];
       setHeadId(null); setBranch("main"); setConvId(newId);
       setParentRef(pRef); setNewFromRef(null); setGraph(true);
-      save(msg.slice(0, 40), [], null, "main", pRef, newId);
+      save(msg.slice(0, 40), [], null, "main", pRef, newId, autoLabel ? [autoLabel] : []);
 
       setPending(msg); setThinking(true);
       try {
-        const msgs = buildMsgs(parentThread, msg);
+        const msgs = summary
+          ? [
+              { role: "user", content: `[Previous conversation summary]\n\n${summary}` },
+              { role: "assistant", content: "Understood, continuing from here." },
+              { role: "user", content: msg },
+            ]
+          : buildMsgs(parentThread, msg);
         const resp = await callLLM(apiKey, msgs);
         const cm = mkCommit(null, msg, resp, "main");
         const nc = [cm];
@@ -550,19 +879,6 @@ export default function App() {
           return;
         }
         pid = ec.parentId; br = "branch-" + names.length; setBranch(br);
-
-        // Invalidate priorSummary for boundaries on the edited commit's branch
-        // that sit after it in time. Conservative heuristic; exact DAG-based
-        // invalidation can replace this later.
-        const invalidated = cRef.current.map(c =>
-          (c.isSessionStart && c.priorSummary && c.branch === ec.branch && c.ts > ec.ts)
-            ? { ...c, priorSummary: null }
-            : c
-        );
-        if (invalidated.some((c, i) => c !== cRef.current[i])) {
-          cRef.current = invalidated;
-          setCommits(invalidated);
-        }
       }
       setEditId(null); setGraph(true);
     }
@@ -572,33 +888,17 @@ export default function App() {
       setBranch(br);
     }
 
-    // Session boundary: generate summary of current thread before the new commit.
-    // On failure, priorSummary stays null; boundary is still marked and buildMsgs
-    // will fall back to the full thread on future calls.
-    let priorSummary = null;
-    if (startNewSession && headId) {
-      const currentThread = getThread(cRef.current, headId);
-      if (currentThread.length > 0) {
-        setThinking(true);
-        try {
-          priorSummary = await summarizeThread(apiKey, currentThread);
-        } catch (err) {
-          console.error("Summary generation failed:", err);
-        }
-      }
-    }
-
     setPending(msg); setThinking(true);
     try {
       const th = getThread(cRef.current, pid);
       const msgs = buildMsgs(th, msg);
       const resp = await callLLM(apiKey, msgs);
-      const cm = mkCommit(pid, msg, resp, br, [], { isSessionStart: startNewSession, priorSummary });
+      const cm = mkCommit(pid, msg, resp, br);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
       save(msg.slice(0, 40), nc, cm.id, br);
     } catch (e) {
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(pid, msg, "Error: " + e.message, br, [], { isSessionStart: startNewSession, priorSummary });
+      const cm = mkCommit(pid, msg, "Error: " + e.message, br);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
     } finally { setThinking(false); }
   };
@@ -614,7 +914,7 @@ export default function App() {
     const th = getThread(commits, cid);
     const currentConv = convs.find(c => c.id === convId);
     setNewFromRef({
-      convId, commitId: cid, thread: th,
+      convId, commitId: cid, thread: th, wasHead: cid === headId,
       convTitle: currentConv?.title || "Untitled",
       promptSummary: cm.prompt?.slice(0, 30) + (cm.prompt?.length > 30 ? ".." : ""),
     });
@@ -631,6 +931,43 @@ export default function App() {
   const goToChild = (childConvId) => {
     const cv = convs.find(c => c.id === childConvId);
     if (cv) load(cv);
+  };
+
+  const loadBranch = (cv, branchName) => {
+    const leaf = bHead(cv.commits || [], branchName);
+    load(cv);
+    if (leaf) { setHeadId(leaf.id); setBranch(branchName); setScrollTarget(leaf.id); }
+  };
+
+  const branchOff = () => {
+    if (!headId || !convId || thinking) return;
+    const newId = "conv:" + Date.now();
+    const newConv = {
+      id: newId,
+      commits: [],
+      headId: headId,
+    };
+    storage.set(newId, JSON.stringify(newConv));
+    setConvs(p => [newConv, ...p.filter(c => c.id !== newId)]);
+    load(newConv);
+  };
+
+
+  // Per-commit custom display label for the graph node. Empty clears it.
+  // commit.prompt (conversation content) is never mutated.
+  const editNodeLabel = (cid, newLabel) => {
+    const trimmed = (newLabel || "").trim();
+    const existing = cRef.current.find(c => c.id === cid);
+    if (!existing) return;
+    const current = existing.displayLabel || "";
+    if (trimmed === current) return;
+    const newCommits = cRef.current.map(c => {
+      if (c.id !== cid) return c;
+      const { displayLabel, ...rest } = c;
+      return trimmed ? { ...rest, displayLabel: trimmed } : rest;
+    });
+    setCommits(newCommits); cRef.current = newCommits;
+    save(null, newCommits, headId, branch);
   };
 
   const deleteCommit = (cid) => {
@@ -677,42 +1014,152 @@ export default function App() {
       <div style={{ width: 180, display: "flex", flexDirection: "column", borderRight: "0.5px solid " + t.border, background: t.sidebar }}>
         <div style={{ padding: "8px 6px" }}><button onClick={newConv} style={{ width: "100%", padding: "6px", fontSize: 10, fontWeight: 500, borderRadius: 4, background: t.accent, color: t.accentText, border: "none", cursor: "pointer" }}>+ New</button></div>
         <div style={{ flex: 1, overflowY: "auto", padding: "0 4px 4px" }} onClick={() => setChatMenu(null)}>
-          {convs.map(cv => (
-            <div key={cv.id} className="chat-item" style={{ padding: "6px", marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: convId === cv.id ? t.hover : "transparent", border: convId === cv.id ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
-              onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots")&& (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
-              onMouseLeave={e => { if (convId !== cv.id) e.currentTarget.style.background = "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-              <div onClick={() => { if (renamingId !== cv.id) load(cv); }} style={{ flex: 1, minWidth: 0 }}>
-                {renamingId === cv.id ? (
-                  <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") { renameConv(cv.id, renameVal); setRenamingId(null); } if (e.key === "Escape") setRenamingId(null); }}
-                    onBlur={() => { renameConv(cv.id, renameVal); setRenamingId(null); }}
-                    onClick={e => e.stopPropagation()}
-                    style={{ width: "100%", fontSize: 10, fontWeight: 500, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
-                ) : (
-                  <>
-                    <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text }}>{cv.title || "Untitled"}{cv.parentRef ? " \u2197" : ""}</div>
-                    <div style={{ fontSize: 8, color: t.textMuted }}>{bNames(cv.commits || []).length}b</div>
-                  </>
+          {(() => {
+            const renderConvItem = (cv, keyPrefix, indent = 0) => {
+              const chain = cv.commits || [];
+              const branchTree = buildBranchTree(chain);
+              const convActive = convId === cv.id;
+              const convActiveOnMain = convActive && branch === "main";
+              const renamingThisConv = renamingId === cv.id;
+              return (
+                <div key={keyPrefix + ":" + cv.id}>
+                  <div className="chat-item"
+                    style={{ padding: "6px", paddingLeft: 6 + indent * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: convActiveOnMain ? t.hover : "transparent", border: convActiveOnMain ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
+                    onMouseLeave={e => { if (!convActiveOnMain) e.currentTarget.style.background = "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
+                    <div onClick={() => { if (!renamingThisConv) load(cv); }} style={{ flex: 1, minWidth: 0 }}>
+                      {renamingThisConv ? (
+                        <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") { renameConv(cv.id, renameVal); setRenamingId(null); } if (e.key === "Escape") setRenamingId(null); }}
+                          onBlur={() => { renameConv(cv.id, renameVal); setRenamingId(null); }}
+                          onClick={e => e.stopPropagation()}
+                          style={{ width: "100%", fontSize: 10, fontWeight: 500, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
+                      ) : (
+                        <div style={{ fontSize: 10, fontWeight: 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={cv.title || "Untitled"}>
+                          {cv.title || "Untitled"}
+                        </div>
+                      )}
+                    </div>
+                    {!renamingThisConv && <span className="dots"
+                      onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "conv" && chatMenu.id === cv.id ? null : { kind: "conv", id: cv.id, x: e.clientX, y: e.clientY }); }}
+                      style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
+                  </div>
+                  {branchTree.map(({ branch: bName, depth }) => {
+                    const branchActive = convActive && branch === bName;
+                    const renamingThisBranch = renamingBranch && renamingBranch.convId === cv.id && renamingBranch.branch === bName;
+                    const displayLabel = getBranchLabel(chain, bName, cv.branchTitles);
+                    return (
+                      <div key={keyPrefix + ":" + cv.id + ":" + bName} className="chat-item"
+                        style={{ padding: "6px", paddingLeft: 6 + (indent + depth) * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : "transparent", border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
+                        onMouseLeave={e => { if (!branchActive) e.currentTarget.style.background = "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
+                        <div onClick={() => { if (!renamingThisBranch) loadBranch(cv, bName); }} style={{ flex: 1, minWidth: 0 }}>
+                          {renamingThisBranch ? (
+                            <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); } if (e.key === "Escape") setRenamingBranch(null); }}
+                              onBlur={() => { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }}
+                              onClick={e => e.stopPropagation()}
+                              style={{ width: "100%", fontSize: 10, fontWeight: 500, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
+                          ) : (
+                            <div style={{ fontSize: 10, fontWeight: 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={displayLabel}>
+                              {displayLabel}
+                            </div>
+                          )}
+                        </div>
+                        {!renamingThisBranch && <span className="dots"
+                          onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "branch" && chatMenu.convId === cv.id && chatMenu.branch === bName ? null : { kind: "branch", convId: cv.id, branch: bName, x: e.clientX, y: e.clientY }); }}
+                          style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            };
+            return (
+              <>
+                {sidebarSections.unlabeled.length > 0 && (
+                  <div style={{ marginBottom: sidebarSections.sections.length > 0 ? 6 : 0 }}>
+                    {sidebarSections.unlabeled.map(cv => renderConvItem(cv, "u"))}
+                  </div>
                 )}
-              </div>
-              {renamingId !== cv.id && <span className="dots" onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.id === cv.id ? null : { id: cv.id, x: e.clientX, y: e.clientY }); }}
-                style={{ opacity: 0, fontSize: 11, color: t.textMuted, padding: "0 2px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0 }}>{"\u00B7\u00B7\u00B7"}</span>}
-            </div>
-          ))}
+                {sidebarSections.sections.map(section => {
+                  const collapsed = collapsedSections.has(section.label);
+                  return (
+                    <div key={"s:" + section.label} style={{ marginBottom: 2 }}>
+                      {renamingLabel === section.label ? (
+                        <div style={{ padding: "4px 6px" }}>
+                          <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") { renameLabel(section.label, renameVal); setRenamingLabel(null); } if (e.key === "Escape") setRenamingLabel(null); }}
+                            onBlur={() => { renameLabel(section.label, renameVal); setRenamingLabel(null); }}
+                            onClick={e => e.stopPropagation()}
+                            style={{ width: "100%", fontSize: 10, fontWeight: 600, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
+                        </div>
+                      ) : (
+                        <div
+                          style={{ padding: "4px 6px", cursor: "pointer", fontSize: 10, color: t.textSub, fontWeight: 600, userSelect: "none", display: "flex", alignItems: "center", position: "relative" }}
+                          onClick={e => { e.stopPropagation(); toggleSection(section.label); }}
+                          onMouseEnter={e => { e.currentTarget.style.color = t.text; const d = e.currentTarget.querySelector(".dots"); if (d) d.style.opacity = "1"; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = t.textSub; const d = e.currentTarget.querySelector(".dots"); if (d) d.style.opacity = "0"; }}
+                          title={section.label}>
+                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>#{section.label}</span>
+                          <span className="dots"
+                            onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "label" && chatMenu.label === section.label ? null : { kind: "label", label: section.label, x: e.clientX, y: e.clientY }); }}
+                            style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>
+                        </div>
+                      )}
+                      {!collapsed && section.items.map(({ conv: cv, depth }) => renderConvItem(cv, "s:" + section.label, depth))}
+                    </div>
+                  );
+                })}
+              </>
+            );
+          })()}
         </div>
 
-        {/* Chat context menu */}
+        {/* Chat context menu (kind: "conv" | "branch") */}
         {chatMenu && (
           <div style={{ position: "fixed", inset: 0, zIndex: 98 }} onClick={() => setChatMenu(null)}>
             <div style={{ position: "fixed", left: chatMenu.x, top: chatMenu.y, zIndex: 100, background: t.bg, border: "0.5px solid " + t.border, borderRadius: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.12)", padding: "4px 0", minWidth: 100 }}
               onClick={e => e.stopPropagation()}>
-              <button onClick={() => { const cv = convs.find(c => c.id === chatMenu.id); setRenameVal(cv?.title || ""); setRenamingId(chatMenu.id); setChatMenu(null); }}
+              <button onClick={() => {
+                  if (chatMenu.kind === "conv") {
+                    const cv = convs.find(c => c.id === chatMenu.id);
+                    setRenameVal(cv?.title || ""); setRenamingId(chatMenu.id); setRenamingBranch(null); setRenamingLabel(null);
+                  } else if (chatMenu.kind === "branch") {
+                    const cv = convs.find(c => c.id === chatMenu.convId);
+                    setRenameVal(getBranchLabel(cv?.commits || [], chatMenu.branch, cv?.branchTitles));
+                    setRenamingBranch({ convId: chatMenu.convId, branch: chatMenu.branch }); setRenamingId(null); setRenamingLabel(null);
+                  } else if (chatMenu.kind === "label") {
+                    setRenameVal(chatMenu.label);
+                    setRenamingLabel(chatMenu.label); setRenamingId(null); setRenamingBranch(null);
+                  }
+                  setChatMenu(null);
+                }}
                 style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: t.text, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
                 onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar} onMouseLeave={e => e.currentTarget.style.background = "none"}>
                 rename
               </button>
               <div style={{ height: 1, background: t.border, margin: "2px 0" }} />
-              <button onClick={() => { del(chatMenu.id); setChatMenu(null); }}
+              <button onClick={() => {
+                  if (chatMenu.kind === "conv") {
+                    const n = countChildConvs(chatMenu.id);
+                    const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
+                    if (window.confirm(msg)) del(chatMenu.id);
+                  } else if (chatMenu.kind === "branch") {
+                    const cv = convs.find(c => c.id === chatMenu.convId);
+                    if (cv) {
+                      const descs = getBranchDescendantNames(cv.commits || [], chatMenu.branch);
+                      const msg = descs.length > 0
+                        ? `Delete branch "${chatMenu.branch}"?\nThis will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
+                        : `Delete branch "${chatMenu.branch}"?`;
+                      if (window.confirm(msg)) deleteBranchCascade(chatMenu.convId, chatMenu.branch);
+                    }
+                  } else if (chatMenu.kind === "label") {
+                    // No confirm per spec: remove label from every conv that has it.
+                    deleteLabel(chatMenu.label);
+                  }
+                  setChatMenu(null);
+                }}
                 style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: "#c00", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
                 onMouseEnter={e => e.currentTarget.style.background = "#fee"} onMouseLeave={e => e.currentTarget.style.background = "none"}>
                 delete
@@ -875,26 +1322,26 @@ export default function App() {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 if (mm && sel.length) { merge(); return; }
-                const forkBranch = e.metaKey || e.ctrlKey;
-                send(forkBranch);
+                if (e.metaKey || e.ctrlKey) { branchOff(); return; }
+                send(false);
               }
             }}
             placeholder={editId ? "Edit your question..." : newFromRef ? "Start new conversation..." : mm ? "Merge instruction..." : "Message..."}
             style={{ flex: 1, padding: "10px 12px", fontSize: 13, borderRadius: 8, border: editId ? "1.5px solid " + t.userText : newFromRef ? "1.5px solid #378ADD" : mm ? "1.5px solid #BA7517" : "0.5px solid " + t.border, background: t.bg, color: t.text }} />
           {!(mm && sel.length) && (
-            <button onClick={() => send(true)}
-              disabled={thinking || !input.trim() || !headId || mm || !!editId || !!newFromRef}
-              title="Send as new branch (Cmd/Ctrl+Enter)"
-              style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: "transparent", color: t.text, border: "0.5px solid " + t.border, cursor: "pointer", opacity: thinking || !input.trim() || !headId || mm || !!editId || !!newFromRef ? 0.4 : 1 }}>
+            <button onClick={branchOff}
+              disabled={thinking || !headId || mm || !!editId || !!newFromRef}
+              title="Branch — spawn a new conversation from here (Cmd/Ctrl+Enter)"
+              style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: "transparent", color: t.text, border: "0.5px solid " + t.border, cursor: "pointer", opacity: thinking || !headId || mm || !!editId || !!newFromRef ? 0.4 : 1 }}>
               🌿 Branch
             </button>
           )}
           {!(mm && sel.length) && (
-            <button onClick={() => send(false, true)}
-              disabled={thinking || !input.trim() || !headId || mm || !!editId || !!newFromRef}
-              title="Start new session (summarizes prior context)"
-              style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: "transparent", color: t.text, border: "0.5px solid " + t.border, cursor: "pointer", opacity: thinking || !input.trim() || !headId || mm || !!editId || !!newFromRef ? 0.4 : 1 }}>
-              🌊 New Session
+            <button onClick={() => startNew(headId)}
+              disabled={thinking || !headId || mm || !!editId || !!newFromRef}
+              title="Handoff — start a new conversation from here (summarizes prior context on send)"
+              style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: "transparent", color: t.text, border: "0.5px solid " + t.border, cursor: "pointer", opacity: thinking || !headId || mm || !!editId || !!newFromRef ? 0.4 : 1 }}>
+              🌊 Handoff
             </button>
           )}
           <button onClick={() => mm && sel.length ? merge() : send()} disabled={thinking || !input.trim() || (mm && !sel.length)}
@@ -923,7 +1370,7 @@ export default function App() {
               {mm && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#854F0B", color: "#fff" }}>Select commits</span>}
             </div>
           </div>
-          <Graph commits={commits} headId={headId} activeBranch={branch} names={names} onCheckout={checkout} onEdit={startEdit} onNew={startNew} onDelete={deleteCommit} mergeMode={mm} selected={sel} onToggleSel={toggleSel} parentRef={parentRef} onGoToParent={goToParent} childRefs={childRefs} onGoToChild={goToChild} hoveredCid={hoveredCid} panelW={graphW} t={t} />
+          <Graph commits={commits} headId={headId} activeBranch={branch} names={names} onCheckout={checkout} onEdit={startEdit} onNew={startNew} onDelete={deleteCommit} mergeMode={mm} selected={sel} onToggleSel={toggleSel} parentRef={parentRef} onGoToParent={goToParent} childRefs={childRefs} onGoToChild={goToChild} hoveredCid={hoveredCid} panelW={graphW} t={t} branchTitles={convs.find(c => c.id === convId)?.branchTitles || {}} onEditLabel={editNodeLabel} />
         </div>
       )}
     </div>
