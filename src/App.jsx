@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
-import { callLLM, detectProvider, submitWaitlist } from "./lib/llm";
+import { callLLM, detectProvider, submitWaitlist, summarizeThread } from "./lib/llm";
 import herbIcon from "./assets/herb.svg";
 import seedMobyDick from "./seed-moby-dick";
 
@@ -125,6 +125,11 @@ function mkCommit(parentId, prompt, response, branch, mergeIds) {
   };
 }
 function buildMsgs(thread, finalUserMsg) {
+  // Find last session boundary with a cached summary.
+  let lastBoundaryIdx = -1;
+  for (let i = thread.length - 1; i >= 0; i--) {
+    if (thread[i].isSessionStart) { lastBoundaryIdx = i; break; }
+  }
   const msgs = [];
   for (const c of thread) {
     msgs.push({ role: "user", content: c.prompt });
@@ -443,6 +448,7 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
           const cm = commits.find(c => c.id === n.cid);
           const cur = cm?.id === headId;
           const isMrg = (cm?.mergeIds || []).length > 0;
+          const isSessionStart = cm?.isSessionStart === true;
           const sel = selected?.includes(n.cid);
           const hov = hoveredCid === n.cid;
           const r = cur ? 5 : (isMrg ? 5 : nR);
@@ -458,7 +464,7 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
               {(cur || sel || hov) && <circle cx={p.x} cy={p.y} r={hov ? 11 : 9} fill={sel ? "#BA7517" : col} opacity={hov ? 0.25 : 0.15} />}
               {isMrg
                 ? <rect x={p.x - r} y={p.y - r} width={r * 2} height={r * 2} rx={2} fill={col} stroke={col} strokeWidth="1.5" />
-                : <circle cx={p.x} cy={p.y} r={r} fill={t.bg} stroke={sel ? "#BA7517" : col} strokeWidth={cur ? 2.5 : (hov ? 2.5 : 1.5)} />}
+                : <circle cx={p.x} cy={p.y} r={r} fill={isSessionStart ? col : t.bg} stroke={sel ? "#BA7517" : col} strokeWidth={cur ? 2.5 : (hov ? 2.5 : 1.5)} />}
               {sel && <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff">{"\u2713"}</text>}
               {isEditing ? (
                 <foreignObject x={lX - 4} y={p.y - 9} width={Math.max(60, W - lX)} height={18} onClick={e => e.stopPropagation()}>
@@ -786,7 +792,7 @@ export default function App() {
   const showGraph = graph || commits.length > 0;
 
   // ─── SEND ───
-  const send = async (forkBranch = false) => {
+  const send = async (forkBranch = false, startNewSession = false) => {
     if (!input.trim() || thinking) return;
     const msg = input.trim();
 
@@ -857,6 +863,19 @@ export default function App() {
           return;
         }
         pid = ec.parentId; br = "branch-" + names.length; setBranch(br);
+
+        // Invalidate priorSummary for boundaries on the edited commit's branch
+        // that sit after it in time. Conservative heuristic; exact DAG-based
+        // invalidation can replace this later.
+        const invalidated = cRef.current.map(c =>
+          (c.isSessionStart && c.priorSummary && c.branch === ec.branch && c.ts > ec.ts)
+            ? { ...c, priorSummary: null }
+            : c
+        );
+        if (invalidated.some((c, i) => c !== cRef.current[i])) {
+          cRef.current = invalidated;
+          setCommits(invalidated);
+        }
       }
       setEditId(null); setGraph(true);
     }
@@ -866,17 +885,33 @@ export default function App() {
       setBranch(br);
     }
 
+    // Session boundary: generate summary of current thread before the new commit.
+    // On failure, priorSummary stays null; boundary is still marked and buildMsgs
+    // will fall back to the full thread on future calls.
+    let priorSummary = null;
+    if (startNewSession && headId) {
+      const currentThread = getThread(cRef.current, headId);
+      if (currentThread.length > 0) {
+        setThinking(true);
+        try {
+          priorSummary = await summarizeThread(apiKey, currentThread);
+        } catch (err) {
+          console.error("Summary generation failed:", err);
+        }
+      }
+    }
+
     setPending(msg); setThinking(true);
     try {
       const th = getThread(cRef.current, pid);
       const msgs = buildMsgs(th, msg);
       const resp = await callLLM(apiKey, msgs);
-      const cm = mkCommit(pid, msg, resp, br);
+      const cm = mkCommit(pid, msg, resp, br, [], { isSessionStart: startNewSession, priorSummary });
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
       save(msg.slice(0, 40), nc, cm.id, br);
     } catch (e) {
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(pid, msg, "Error: " + e.message, br);
+      const cm = mkCommit(pid, msg, "Error: " + e.message, br, [], { isSessionStart: startNewSession, priorSummary });
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
     } finally { setThinking(false); }
   };
