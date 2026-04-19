@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
-import { callLLM, detectProvider, submitWaitlist, summarizeThread } from "./lib/llm";
+import { callLLM, detectProvider, submitWaitlist } from "./lib/llm";
 import herbIcon from "./assets/herb.svg";
 import seedMobyDick from "./seed-moby-dick";
 
@@ -104,6 +104,17 @@ const GitHubIcon = () => (
     <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
   </svg>
 );
+const FolderIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+    <path d="M3 6.5v-1A1.5 1.5 0 0 1 4.5 4h4.2l2 2.5"/>
+  </svg>
+);
+const ChevronIcon = ({ open }) => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.12s" }}>
+    <path d="M9 18l6-6-6-6"/>
+  </svg>
+);
 
 /* ═══════ DATA ═══════ */
 let cc = 100; // start high to avoid conflicts with demo IDs
@@ -129,28 +140,6 @@ function getThread(commits, hid) {
 }
 function bNames(c) { return [...new Set(c.map(x => x.branch))]; }
 function bHead(c, b) { const bc = c.filter(x => x.branch === b); return bc.length ? bc[bc.length - 1] : null; }
-
-// Find the root ancestor by walking parentRef chain. Cycle-safe.
-function findRootConv(conv, allConvs) {
-  const seen = new Set();
-  let cur = conv;
-  while (cur && cur.parentRef?.convId && !seen.has(cur.id)) {
-    seen.add(cur.id);
-    const parent = allConvs.find(c => c.id === cur.parentRef.convId);
-    if (!parent) break;
-    cur = parent;
-  }
-  return cur;
-}
-
-// Auto-generated handoff label from the root conv's first commit prompt.
-// 30 chars, whitespace normalized. Empty → "unnamed".
-function getAutoLabelName(rootConv) {
-  const firstCommit = rootConv?.commits?.[0];
-  if (!firstCommit?.prompt) return "unnamed";
-  const normalized = firstCommit.prompt.replace(/\s+/g, " ").trim().slice(0, 30);
-  return normalized || "unnamed";
-}
 
 // Display label for a branch. Unified across sidebar + graph tabs.
 // 1. branchTitles override (user rename)
@@ -242,25 +231,73 @@ function orderSectionItems(members) {
   return result;
 }
 
-// Sidebar sections grouped by conversation labels.
-// Unlabeled convs go into a separate flat area (no header).
-// Multi-labeled convs appear in every matching section.
-function buildLabelSections(convs) {
-  if (!convs.length) return { unlabeled: [], sections: [] };
-  const unlabeled = [];
-  const byLabel = {};
-  for (const cv of convs) {
-    const labels = cv.labels || [];
-    if (labels.length === 0) unlabeled.push(cv);
-    else for (const label of labels) (byLabel[label] || (byLabel[label] = [])).push(cv);
+function pad2(n) { return String(n).padStart(2, "0"); }
+function formatClusterTitle(value) {
+  const d = value ? new Date(value) : new Date();
+  if (Number.isNaN(d.getTime())) return "Untitled";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function mkClusterId() { return "cluster:" + Date.now() + "_" + Math.random().toString(36).slice(2, 5); }
+function getConvCreatedAt(cv) {
+  if (cv.createdAt) return cv.createdAt;
+  const firstTs = (cv.commits || []).reduce((min, c) => c.ts && (!min || c.ts < min) ? c.ts : min, null);
+  if (firstTs) return new Date(firstTs).toISOString();
+  return cv.u || new Date().toISOString();
+}
+function findRootConvForCluster(cv, convMap) {
+  const seen = new Set();
+  let cur = cv;
+  while (cur?.parentRef?.convId && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    const parent = convMap.get(cur.parentRef.convId);
+    if (!parent) break;
+    cur = parent;
   }
-  const cmpU = (a, b) => (a.u || "").localeCompare(b.u || "");
-  unlabeled.sort(cmpU);
-  const sections = Object.keys(byLabel).sort().map(label => ({
-    label,
-    items: orderSectionItems(byLabel[label]),
-  }));
-  return { unlabeled, sections };
+  return cur || cv;
+}
+function normalizeClusters(convs, clusters) {
+  const convMap = new Map(convs.map(c => [c.id, c]));
+  const clusterMap = new Map(clusters.map(c => [c.id, c]));
+  const nextConvs = [];
+
+  for (const cv of convs) {
+    const root = findRootConvForCluster(cv, convMap);
+    const createdAt = getConvCreatedAt(cv);
+    const rootCreatedAt = getConvCreatedAt(root);
+    const clusterId = root.clusterId || cv.clusterId || ("cluster:" + root.id);
+    let cluster = clusterMap.get(clusterId);
+    if (!cluster) {
+      cluster = { id: clusterId, title: formatClusterTitle(rootCreatedAt), createdAt: rootCreatedAt, u: root.u || rootCreatedAt };
+      clusterMap.set(clusterId, cluster);
+      storage.set(cluster.id, JSON.stringify(cluster));
+    }
+    const next = { ...cv, clusterId, createdAt };
+    if (next.clusterId !== cv.clusterId || next.createdAt !== cv.createdAt) storage.set(next.id, JSON.stringify(next));
+    nextConvs.push(next);
+  }
+
+  return {
+    convs: nextConvs,
+    clusters: Array.from(clusterMap.values()).sort((a, b) => (b.u || b.createdAt || "").localeCompare(a.u || a.createdAt || "")),
+  };
+}
+function buildClusterGroups(convs, clusters) {
+  const clusterMap = new Map(clusters.map(c => [c.id, c]));
+  const groups = {};
+  for (const cv of convs) {
+    const id = cv.clusterId || "cluster:unfiled";
+    if (!groups[id]) {
+      const createdAt = getConvCreatedAt(cv);
+      groups[id] = {
+        cluster: clusterMap.get(id) || { id, title: formatClusterTitle(createdAt), createdAt, u: cv.u || createdAt },
+        items: [],
+      };
+    }
+    groups[id].items.push(cv);
+  }
+  return Object.values(groups)
+    .map(g => ({ ...g, items: g.items.sort((a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b))) }))
+    .sort((a, b) => (a.cluster.createdAt || "").localeCompare(b.cluster.createdAt || ""));
 }
 
 /* ═══════ COLORS ═══════ */
@@ -512,6 +549,7 @@ export default function App() {
   const [editId, setEditId] = useState(null);
   const [newFromRef, setNewFromRef] = useState(null);
   const [convs, setConvs] = useState([]);
+  const [clusters, setClusters] = useState([]);
   const [convId, setConvId] = useState(null);
   const [parentRef, setParentRef] = useState(null);
   const [graphW, setGraphW] = useState(280);
@@ -520,9 +558,9 @@ export default function App() {
   const [chatMenu, setChatMenu] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renamingBranch, setRenamingBranch] = useState(null); // { convId, branch } | null
-  const [renamingLabel, setRenamingLabel] = useState(null); // string | null (section label being renamed)
+  const [renamingClusterId, setRenamingClusterId] = useState(null);
+  const [collapsedClusters, setCollapsedClusters] = useState(() => new Set());
   const [renameVal, setRenameVal] = useState("");
-  const [collapsedSections, setCollapsedSections] = useState(() => new Set());
   const dragging = useRef(false);
   const endRef = useRef(null);
   const inputRef = useRef(null);
@@ -539,7 +577,14 @@ export default function App() {
     if (r?.keys?.length) {
       const cs = [];
       for (const k of r.keys) { const p = storage.get(k); if (p?.value) { try { cs.push(JSON.parse(p.value)); } catch {} } }
-      const sorted = cs.sort((a, b) => (b.u || "").localeCompare(a.u || ""));
+      const cr = storage.list("cluster:");
+      const loadedClusters = [];
+      if (cr?.keys?.length) {
+        for (const k of cr.keys) { const p = storage.get(k); if (p?.value) { try { loadedClusters.push(JSON.parse(p.value)); } catch {} } }
+      }
+      const normalized = normalizeClusters(cs, loadedClusters);
+      const sorted = normalized.convs.sort((a, b) => (b.u || "").localeCompare(a.u || ""));
+      setClusters(normalized.clusters);
       setConvs(sorted);
       // Auto-open Moby Dick on first visit (no conv selected yet)
       const moby = sorted.find(c => c.id === "conv:moby_dick");
@@ -570,20 +615,35 @@ export default function App() {
     }
   }, [scrollTarget, headId]);
 
-  const save = (title, cm, hid, br, pRef, forceNewId, labels) => {
+  const touchCluster = (clusterId, createdAt) => {
+    const now = new Date().toISOString();
+    let cluster = clusters.find(c => c.id === clusterId);
+    if (!cluster) {
+      cluster = { id: clusterId, title: formatClusterTitle(createdAt || now), createdAt: createdAt || now, u: createdAt || now };
+    }
+    storage.set(cluster.id, JSON.stringify(cluster));
+    setClusters(p => [...p.filter(c => c.id !== cluster.id), cluster]);
+    return cluster;
+  };
+
+  const save = (title, cm, hid, br, pRef, forceNewId) => {
     const id = forceNewId || convId || "conv:" + Date.now();
     // `convs` state can be a stale closure snapshot inside async flows
     // (e.g., the second save() in the newFromRef branch runs after await callLLM
     // and doesn't see the first save()'s addition). Fall back to storage so
-    // labels/branchTitles/title from the prior save are preserved.
+    // cluster/title/branchTitles from the prior save are preserved.
     let existing = convs.find(c => c.id === id);
     if (!existing) {
       const stored = storage.get(id);
       if (stored?.value) { try { existing = JSON.parse(stored.value); } catch {} }
     }
+    const parentConv = pRef?.convId ? convs.find(c => c.id === pRef.convId) : null;
+    const currentConv = convs.find(c => c.id === convId);
+    const createdAt = existing?.createdAt || new Date().toISOString();
+    const clusterId = existing?.clusterId || parentConv?.clusterId || currentConv?.clusterId || mkClusterId();
+    touchCluster(clusterId, createdAt);
     const finalTitle = existing?.title || title || (cm.length > 0 ? cm[0].prompt?.slice(0, 40) : "Untitled");
-    const finalLabels = labels !== undefined ? labels : (existing?.labels || []);
-    const cv = { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: finalLabels, u: new Date().toISOString() };
+    const cv = { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
     storage.set(id, JSON.stringify(cv));
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
@@ -594,7 +654,7 @@ export default function App() {
     setCommits(commits); setHeadId(cv.headId); setBranch(cv.branch || "main");
     setConvId(cv.id); setParentRef(cv.parentRef || null);
     cc = Math.max(cc, commits.length + 10);
-    setMm(false); setSel([]); setEditId(null); setPending(null); setNewFromRef(null);
+    setMm(false); setSel([]); setEditId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null);
   };
   // Cascade delete: remove conv + all descendant convs (parentRef chain).
   const del = id => {
@@ -664,38 +724,6 @@ export default function App() {
     storage.set(cvId, JSON.stringify(updated));
     setConvs(p => p.map(c => c.id === cvId ? updated : c));
   };
-  // Rename a label across every conv that uses it. Dedupes if the new name
-  // already exists on a conv. Empty / unchanged → no-op.
-  const renameLabel = (oldName, newName) => {
-    const trimmed = (newName || "").trim();
-    if (!trimmed || trimmed === oldName) return;
-    const updatedMap = {};
-    for (const cv of convs) {
-      const labels = cv.labels || [];
-      if (!labels.includes(oldName)) continue;
-      const newLabels = [...new Set(labels.map(l => l === oldName ? trimmed : l))];
-      const u = { ...cv, labels: newLabels, u: new Date().toISOString() };
-      storage.set(cv.id, JSON.stringify(u));
-      updatedMap[cv.id] = u;
-    }
-    if (Object.keys(updatedMap).length) {
-      setConvs(prev => prev.map(c => updatedMap[c.id] || c));
-    }
-  };
-  // Delete a label from every conv that has it. Conv itself is untouched.
-  const deleteLabel = (label) => {
-    const updatedMap = {};
-    for (const cv of convs) {
-      const labels = cv.labels || [];
-      if (!labels.includes(label)) continue;
-      const u = { ...cv, labels: labels.filter(l => l !== label), u: new Date().toISOString() };
-      storage.set(cv.id, JSON.stringify(u));
-      updatedMap[cv.id] = u;
-    }
-    if (Object.keys(updatedMap).length) {
-      setConvs(prev => prev.map(c => updatedMap[c.id] || c));
-    }
-  };
   const deleteBranchCascade = (cvId, bName) => {
     const cv = convs.find(c => c.id === cvId);
     if (!cv) return;
@@ -728,7 +756,22 @@ export default function App() {
     storage.set(id, JSON.stringify(updated));
     setConvs(p => p.map(c => c.id === id ? updated : c));
   };
-  const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setEditId(null); setPending(null); setNewFromRef(null); };
+  const renameCluster = (id, newTitle) => {
+    const cluster = clusters.find(c => c.id === id);
+    if (!cluster) return;
+    const trimmed = (newTitle || "").trim();
+    const updated = { ...cluster, title: trimmed || formatClusterTitle(cluster.createdAt) };
+    storage.set(id, JSON.stringify(updated));
+    setClusters(p => p.map(c => c.id === id ? updated : c));
+  };
+  const toggleCluster = (id) => {
+    setCollapsedClusters(p => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+  const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setEditId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); };
 
   const thread = getThread(commits, headId);
   const names = bNames(commits);
@@ -737,51 +780,10 @@ export default function App() {
     convId: cv.id, commitId: cv.parentRef.commitId, convTitle: cv.title || "Untitled",
   })) : [];
 
-  const sidebarSections = buildLabelSections(convs);
-  const toggleSection = (key) => {
-    setCollapsedSections(p => {
-      const n = new Set(p);
-      if (n.has(key)) n.delete(key); else n.add(key);
-      return n;
-    });
-  };
+  const clusterGroups = buildClusterGroups(convs, clusters);
 
   // Auto-show graph when conversation has commits
   const showGraph = graph || commits.length > 0;
-
-  // Compute an auto-label from the root ancestor of `parentConv` (first commit,
-  // 30 chars, via getAutoLabelName) and propagate it up the entire parentRef
-  // chain. Skips ancestors that already have the same label (additive only).
-  // Returns the autoLabel string, or null if no parentConv. Used by both the
-  // Handoff (newFromRef) and Branch paths so the two share identical semantics.
-  const propagateAutoLabel = (parentConv) => {
-    if (!parentConv) return null;
-    const rootConv = findRootConv(parentConv, convs);
-    const autoLabel = rootConv ? getAutoLabelName(rootConv) : null;
-    if (!autoLabel) return null;
-    const ancestorChain = [];
-    const seen = new Set();
-    let curAnc = parentConv;
-    while (curAnc && !seen.has(curAnc.id)) {
-      seen.add(curAnc.id);
-      ancestorChain.push(curAnc);
-      const p = curAnc.parentRef?.convId ? convs.find(c => c.id === curAnc.parentRef.convId) : null;
-      if (!p) break;
-      curAnc = p;
-    }
-    const updatedMap = {};
-    for (const c of ancestorChain) {
-      if (!(c.labels || []).includes(autoLabel)) {
-        const updated = { ...c, labels: [...(c.labels || []), autoLabel], u: new Date().toISOString() };
-        storage.set(c.id, JSON.stringify(updated));
-        updatedMap[c.id] = updated;
-      }
-    }
-    if (Object.keys(updatedMap).length) {
-      setConvs(prev => prev.map(c => updatedMap[c.id] || c));
-    }
-    return autoLabel;
-  };
 
   // ─── SEND ───
   const send = async (forkBranch = false) => {
@@ -802,41 +804,17 @@ export default function App() {
     if (!graph && commits.length === 0) setGraph(true);
 
     if (newFromRef) {
-      const parentThread = newFromRef.thread || [];
-
-      // Generate handoff summary (skip if thread is too short)
-      let summary = null;
-      if (parentThread.length >= 3) {
-        setThinking(true);
-        try {
-          summary = await summarizeThread(apiKey, parentThread);
-        } catch (err) {
-          console.error("Summary failed, continuing without:", err);
-        }
-      }
-
       const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary };
       const newId = "conv:" + Date.now();
-
-      // Auto-label: derived from root ancestor's first prompt, propagated up
-      // the entire parentRef chain. See propagateAutoLabel() for details.
-      const parentConv = convs.find(c => c.id === newFromRef.convId);
-      const autoLabel = propagateAutoLabel(parentConv);
 
       setCommits([]); cRef.current = [];
       setHeadId(null); setBranch("main"); setConvId(newId);
       setParentRef(pRef); setNewFromRef(null); setGraph(true);
-      save(msg.slice(0, 40), [], null, "main", pRef, newId, autoLabel ? [autoLabel] : []);
+      save(msg.slice(0, 40), [], null, "main", pRef, newId);
 
       setPending(msg); setThinking(true);
       try {
-        const msgs = summary
-          ? [
-              { role: "user", content: `[Previous conversation summary]\n\n${summary}` },
-              { role: "assistant", content: "Understood, continuing from here." },
-              { role: "user", content: msg },
-            ]
-          : buildMsgs(parentThread, msg);
+        const msgs = [{ role: "user", content: msg }];
         const resp = await callLLM(apiKey, msgs);
         const cm = mkCommit(null, msg, resp, "main");
         const nc = [cm];
@@ -911,10 +889,9 @@ export default function App() {
   const startNew = (cid) => {
     const cm = commits.find(c => c.id === cid);
     if (!cm) return;
-    const th = getThread(commits, cid);
     const currentConv = convs.find(c => c.id === convId);
     setNewFromRef({
-      convId, commitId: cid, thread: th, wasHead: cid === headId,
+      convId, commitId: cid, wasHead: cid === headId,
       convTitle: currentConv?.title || "Untitled",
       promptSummary: cm.prompt?.slice(0, 30) + (cm.prompt?.length > 30 ? ".." : ""),
     });
@@ -942,10 +919,16 @@ export default function App() {
   const branchOff = () => {
     if (!headId || !convId || thinking) return;
     const newId = "conv:" + Date.now();
+    const currentConv = convs.find(c => c.id === convId);
+    const createdAt = new Date().toISOString();
+    const clusterId = currentConv?.clusterId || mkClusterId();
+    touchCluster(clusterId, createdAt);
     const newConv = {
       id: newId,
       commits: [],
       headId: headId,
+      clusterId,
+      createdAt,
     };
     storage.set(newId, JSON.stringify(newConv));
     setConvs(p => [newConv, ...p.filter(c => c.id !== newId)]);
@@ -1075,44 +1058,40 @@ export default function App() {
                 </div>
               );
             };
-            return (
-              <>
-                {sidebarSections.unlabeled.length > 0 && (
-                  <div style={{ marginBottom: sidebarSections.sections.length > 0 ? 6 : 0 }}>
-                    {sidebarSections.unlabeled.map(cv => renderConvItem(cv, "u"))}
-                  </div>
-                )}
-                {sidebarSections.sections.map(section => {
-                  const collapsed = collapsedSections.has(section.label);
-                  return (
-                    <div key={"s:" + section.label} style={{ marginBottom: 2 }}>
-                      {renamingLabel === section.label ? (
-                        <div style={{ padding: "4px 6px" }}>
-                          <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter") { renameLabel(section.label, renameVal); setRenamingLabel(null); } if (e.key === "Escape") setRenamingLabel(null); }}
-                            onBlur={() => { renameLabel(section.label, renameVal); setRenamingLabel(null); }}
-                            onClick={e => e.stopPropagation()}
-                            style={{ width: "100%", fontSize: 10, fontWeight: 600, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
-                        </div>
+            return clusterGroups.map(group => {
+              const cl = group.cluster;
+              const collapsed = collapsedClusters.has(cl.id);
+              const renamingThisCluster = renamingClusterId === cl.id;
+              return (
+                <div key={cl.id} style={{ marginBottom: 5 }}>
+                  <div
+                    style={{ padding: "5px 6px", marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, color: t.textSub, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, position: "relative" }}
+                    onClick={() => { if (!renamingThisCluster) toggleCluster(cl.id); }}
+                    onMouseEnter={e => { e.currentTarget.style.background = t.hoverSidebar; const d = e.currentTarget.querySelector(".dots"); if (d) d.style.opacity = "1"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; const d = e.currentTarget.querySelector(".dots"); if (d) d.style.opacity = "0"; }}>
+                    <ChevronIcon open={!collapsed} />
+                    <FolderIcon />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {renamingThisCluster ? (
+                        <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") { renameCluster(cl.id, renameVal); setRenamingClusterId(null); } if (e.key === "Escape") setRenamingClusterId(null); }}
+                          onBlur={() => { renameCluster(cl.id, renameVal); setRenamingClusterId(null); }}
+                          onClick={e => e.stopPropagation()}
+                          style={{ width: "100%", fontSize: 10, fontWeight: 600, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
                       ) : (
-                        <div
-                          style={{ padding: "4px 6px", cursor: "pointer", fontSize: 10, color: t.textSub, fontWeight: 600, userSelect: "none", display: "flex", alignItems: "center", position: "relative" }}
-                          onClick={e => { e.stopPropagation(); toggleSection(section.label); }}
-                          onMouseEnter={e => { e.currentTarget.style.color = t.text; const d = e.currentTarget.querySelector(".dots"); if (d) d.style.opacity = "1"; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = t.textSub; const d = e.currentTarget.querySelector(".dots"); if (d) d.style.opacity = "0"; }}
-                          title={section.label}>
-                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>#{section.label}</span>
-                          <span className="dots"
-                            onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "label" && chatMenu.label === section.label ? null : { kind: "label", label: section.label, x: e.clientX, y: e.clientY }); }}
-                            style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={cl.title || formatClusterTitle(cl.createdAt)}>
+                          {cl.title || formatClusterTitle(cl.createdAt)}
                         </div>
                       )}
-                      {!collapsed && section.items.map(({ conv: cv, depth }) => renderConvItem(cv, "s:" + section.label, depth))}
                     </div>
-                  );
-                })}
-              </>
-            );
+                    {!renamingThisCluster && <span className="dots"
+                      onClick={e => { e.stopPropagation(); setRenameVal(cl.title || formatClusterTitle(cl.createdAt)); setRenamingClusterId(cl.id); setRenamingId(null); setRenamingBranch(null); }}
+                      style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
+                  </div>
+                  {!collapsed && group.items.map(cv => renderConvItem(cv, "cl:" + cl.id, 0))}
+                </div>
+              );
+            });
           })()}
         </div>
 
@@ -1124,14 +1103,11 @@ export default function App() {
               <button onClick={() => {
                   if (chatMenu.kind === "conv") {
                     const cv = convs.find(c => c.id === chatMenu.id);
-                    setRenameVal(cv?.title || ""); setRenamingId(chatMenu.id); setRenamingBranch(null); setRenamingLabel(null);
+                    setRenameVal(cv?.title || ""); setRenamingId(chatMenu.id); setRenamingBranch(null); setRenamingClusterId(null);
                   } else if (chatMenu.kind === "branch") {
                     const cv = convs.find(c => c.id === chatMenu.convId);
                     setRenameVal(getBranchLabel(cv?.commits || [], chatMenu.branch, cv?.branchTitles));
-                    setRenamingBranch({ convId: chatMenu.convId, branch: chatMenu.branch }); setRenamingId(null); setRenamingLabel(null);
-                  } else if (chatMenu.kind === "label") {
-                    setRenameVal(chatMenu.label);
-                    setRenamingLabel(chatMenu.label); setRenamingId(null); setRenamingBranch(null);
+                    setRenamingBranch({ convId: chatMenu.convId, branch: chatMenu.branch }); setRenamingId(null); setRenamingClusterId(null);
                   }
                   setChatMenu(null);
                 }}
@@ -1154,9 +1130,6 @@ export default function App() {
                         : `Delete branch "${chatMenu.branch}"?`;
                       if (window.confirm(msg)) deleteBranchCascade(chatMenu.convId, chatMenu.branch);
                     }
-                  } else if (chatMenu.kind === "label") {
-                    // No confirm per spec: remove label from every conv that has it.
-                    deleteLabel(chatMenu.label);
                   }
                   setChatMenu(null);
                 }}
@@ -1339,14 +1312,14 @@ export default function App() {
           {!(mm && sel.length) && (
             <button onClick={() => startNew(headId)}
               disabled={thinking || !headId || mm || !!editId || !!newFromRef}
-              title="Handoff — start a new conversation from here (summarizes prior context on send)"
+              title="New — start an isolated conversation from here"
               style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: "transparent", color: t.text, border: "0.5px solid " + t.border, cursor: "pointer", opacity: thinking || !headId || mm || !!editId || !!newFromRef ? 0.4 : 1 }}>
-              🌊 Handoff
+              + New
             </button>
           )}
           <button onClick={() => mm && sel.length ? merge() : send()} disabled={thinking || !input.trim() || (mm && !sel.length)}
             style={{ padding: "10px 16px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: editId ? t.userText : newFromRef ? "#378ADD" : mm ? "#854F0B" : t.accent, color: t.accentText, border: "none", cursor: "pointer", opacity: thinking || !input.trim() ? 0.4 : 1 }}>
-            {editId ? "Edit" : newFromRef ? "New" : mm ? "Merge" : "Send"}
+            {editId ? "Edit" : mm ? "Merge" : "Send"}
           </button>
         </div>
       </div>
