@@ -12,11 +12,28 @@ export function detectProvider(key) {
   return null;
 }
 
-async function callFree(messages) {
+export const MODEL_CHOICES = {
+  anthropic: [
+    { id: "claude-opus-4-20250514", label: "Opus 4", desc: "Most capable for ambitious work", thinking: true },
+    { id: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Most efficient for everyday tasks", thinking: true },
+    { id: "claude-haiku-4-5", label: "Haiku 4.5", desc: "Fastest for quick answers" },
+  ],
+  openai: [
+    { id: "gpt-4o", label: "GPT-4o", desc: "Most capable" },
+    { id: "gpt-4o-mini", label: "GPT-4o mini", desc: "Faster, cheaper" },
+  ],
+  gemini: [
+    { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", desc: "Fast responses" },
+    { id: "gemini-1.5-pro", label: "Gemini 1.5 Pro", desc: "Higher capability" },
+  ],
+  free: [{ id: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Free tier", thinking: true }],
+};
+
+async function callFree(messages, model) {
   const res = await fetch("/.netlify/functions/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, model: "claude-sonnet-4-20250514" }),
+    body: JSON.stringify({ messages, model: model || "claude-sonnet-4-20250514" }),
     signal: AbortSignal.timeout(120000),
   });
 
@@ -36,12 +53,17 @@ async function callFree(messages) {
   return d.content?.[0]?.text || "";
 }
 
-async function callBYOK(apiKey, messages) {
+async function callBYOK(apiKey, messages, model, thinking) {
   const key = apiKey.trim().replace(/[^\x20-\x7E]/g, "");
   const provider = detectProvider(key);
   if (!provider) throw new Error("Unknown API key format.");
 
+  const pickModel = (fallback) => model && MODEL_CHOICES[provider.id]?.some(m => m.id === model) ? model : fallback;
+  const modelSupportsThinking = MODEL_CHOICES[provider.id]?.find(m => m.id === pickModel(""))?.thinking;
+
   if (provider.id === "anthropic") {
+    const body = { model: pickModel("claude-sonnet-4-20250514"), max_tokens: 16000, messages };
+    if (thinking && modelSupportsThinking) body.thinking = { type: "enabled", budget_tokens: 10000 };
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -50,19 +72,21 @@ async function callBYOK(apiKey, messages) {
         "anthropic-version": "2023-06-01",
         "anthropic-dangerous-direct-browser-access": "true",
       },
-      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 4096, messages }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(120000),
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
-    return d.content?.[0]?.text || "";
+    // For thinking-enabled responses, find the text block (not the thinking block)
+    const textBlock = (d.content || []).find(b => b.type === "text");
+    return textBlock?.text || "";
   }
 
   if (provider.id === "openai") {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: "gpt-4o", max_tokens: 4096, messages }),
+      body: JSON.stringify({ model: pickModel("gpt-4o"), max_tokens: 4096, messages }),
       signal: AbortSignal.timeout(120000),
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
@@ -74,7 +98,7 @@ async function callBYOK(apiKey, messages) {
     const res = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: "gemini-2.0-flash", max_tokens: 4096, messages }),
+      body: JSON.stringify({ model: pickModel("gemini-2.0-flash"), max_tokens: 4096, messages }),
       signal: AbortSignal.timeout(120000),
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
@@ -85,11 +109,11 @@ async function callBYOK(apiKey, messages) {
   throw new Error("Unsupported provider.");
 }
 
-export async function callLLM(apiKey, messages) {
+export async function callLLM(apiKey, messages, model, thinking) {
   if (apiKey && apiKey.trim()) {
-    return callBYOK(apiKey, messages);
+    return callBYOK(apiKey, messages, model, thinking);
   }
-  return callFree(messages);
+  return callFree(messages, model);
 }
 
 export async function summarizeThread(apiKey, thread) {

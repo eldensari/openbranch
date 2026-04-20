@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
-import { callLLM, detectProvider, submitWaitlist } from "./lib/llm";
+import { callLLM, detectProvider, submitWaitlist, MODEL_CHOICES } from "./lib/llm";
 import herbIcon from "./assets/herb.svg";
 import seedMobyDick from "./seed-moby-dick";
 
@@ -23,17 +23,37 @@ const DARK = {
 /* ═══════ MARKDOWN ═══════ */
 function renderInline(text, keyRef, t) {
   const parts = [];
-  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+  const regex = /(\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|~~(.+?)~~|https?:\/\/[^\s)]+)/g;
   let lastIdx = 0, match;
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIdx) parts.push(<span key={keyRef.k++}>{text.slice(lastIdx, match.index)}</span>);
-    if (match[2]) parts.push(<strong key={keyRef.k++}>{match[2]}</strong>);
-    else if (match[3]) parts.push(<em key={keyRef.k++}>{match[3]}</em>);
-    else if (match[4]) parts.push(<code key={keyRef.k++} style={{ background: t.inlineCode, padding: "1px 4px", borderRadius: 3, fontSize: "0.9em", fontFamily: "monospace" }}>{match[4]}</code>);
+    if (match[2] && match[3]) parts.push(<a key={keyRef.k++} href={match[3]} target="_blank" rel="noopener noreferrer" style={{ color: "#378ADD", textDecoration: "underline" }}>{match[2]}</a>);
+    else if (match[4]) parts.push(<strong key={keyRef.k++}>{match[4]}</strong>);
+    else if (match[5]) parts.push(<em key={keyRef.k++}>{match[5]}</em>);
+    else if (match[6]) parts.push(<code key={keyRef.k++} style={{ background: t.inlineCode, padding: "1px 4px", borderRadius: 3, fontSize: "0.9em", fontFamily: "monospace" }}>{match[6]}</code>);
+    else if (match[7]) parts.push(<span key={keyRef.k++} style={{ textDecoration: "line-through", opacity: 0.7 }}>{match[7]}</span>);
+    else if (match[0].startsWith("http")) parts.push(<a key={keyRef.k++} href={match[0]} target="_blank" rel="noopener noreferrer" style={{ color: "#378ADD", textDecoration: "underline" }}>{match[0]}</a>);
     lastIdx = match.index + match[0].length;
   }
   if (lastIdx < text.length) parts.push(<span key={keyRef.k++}>{text.slice(lastIdx)}</span>);
   return parts;
+}
+
+function CodeBlock({ lang, code, t }) {
+  const [copied, setCopied] = useState(false);
+  const doCopy = () => { try { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch {} };
+  return (
+    <div style={{ position: "relative", margin: "6px 0" }}>
+      {lang && <div style={{ position: "absolute", top: 6, left: 10, fontSize: 9, color: t.textMuted, fontFamily: "monospace", textTransform: "lowercase" }}>{lang}</div>}
+      <button onClick={doCopy} title={copied ? "Copied" : "Copy"}
+        style={{ position: "absolute", top: 4, right: 4, padding: "3px 7px", fontSize: 9, borderRadius: 4, background: "transparent", border: "0.5px solid " + t.border, color: copied ? "#1D9E75" : t.textMuted, cursor: "pointer" }}>
+        {copied ? "\u2713" : "copy"}
+      </button>
+      <pre style={{ background: t.codeBg, color: t.codeText, padding: lang ? "22px 12px 10px" : "10px 12px", borderRadius: 8, fontSize: 12, lineHeight: 1.5, overflowX: "auto", fontFamily: "monospace", margin: 0 }}>
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
 }
 
 function renderMd(text, t) {
@@ -45,14 +65,44 @@ function renderMd(text, t) {
   while (i < lines.length) {
     const line = lines[i];
     if (line.startsWith("```")) {
+      const lang = line.slice(3).trim();
       const codeLines = [];
       i++;
       while (i < lines.length && !lines[i].startsWith("```")) { codeLines.push(lines[i]); i++; }
       i++;
+      elements.push(<CodeBlock key={kr.k++} lang={lang} code={codeLines.join("\n")} t={t} />);
+      continue;
+    }
+    // Horizontal rule
+    if (/^---+$/.test(line.trim()) || /^\*\*\*+$/.test(line.trim())) {
+      elements.push(<div key={kr.k++} style={{ height: 1, background: t.border, margin: "12px 0" }} />);
+      i++; continue;
+    }
+    // Blockquote
+    if (line.startsWith("> ")) {
+      const quoteLines = [];
+      while (i < lines.length && lines[i].startsWith("> ")) { quoteLines.push(lines[i].slice(2)); i++; }
       elements.push(
-        <pre key={kr.k++} style={{ background: t.codeBg, color: t.codeText, padding: "10px 12px", borderRadius: 8, fontSize: 12, lineHeight: 1.5, overflowX: "auto", fontFamily: "monospace", margin: "6px 0" }}>
-          <code>{codeLines.join("\n")}</code>
-        </pre>
+        <div key={kr.k++} style={{ borderLeft: "3px solid " + t.border, paddingLeft: 10, margin: "6px 0", color: t.textSub, fontStyle: "italic" }}>
+          {quoteLines.map((q, idx) => <div key={idx} style={{ fontSize: 13, lineHeight: 1.7 }}>{renderInline(q, kr, t)}</div>)}
+        </div>
+      );
+      continue;
+    }
+    // Markdown table: header row of | cells |, separator of | --- |, then rows
+    if (line.trim().startsWith("|") && i + 1 < lines.length && /^\|\s*[-:| ]+\s*\|?\s*$/.test(lines[i + 1])) {
+      const parseRow = s => s.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+      const header = parseRow(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) { rows.push(parseRow(lines[i])); i++; }
+      elements.push(
+        <div key={kr.k++} style={{ overflowX: "auto", margin: "6px 0" }}>
+          <table style={{ borderCollapse: "collapse", fontSize: 12, width: "auto" }}>
+            <thead><tr>{header.map((h, idx) => <th key={idx} style={{ border: "0.5px solid " + t.border, padding: "6px 10px", background: t.hoverSidebar, textAlign: "left", fontWeight: 600 }}>{renderInline(h, kr, t)}</th>)}</tr></thead>
+            <tbody>{rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci} style={{ border: "0.5px solid " + t.border, padding: "5px 10px" }}>{renderInline(c, kr, t)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
       );
       continue;
     }
@@ -119,10 +169,24 @@ const ChevronIcon = ({ open }) => (
 /* ═══════ DATA ═══════ */
 let cc = 100; // start high to avoid conflicts with demo IDs
 function mkId() { return "c" + (++cc) + "_" + Math.random().toString(36).slice(2, 5); }
-function mkCommit(parentId, prompt, response, branch, mergeIds) {
-  return {
+function shortModelName(id) {
+  if (!id) return "";
+  if (id.includes("haiku")) return "Haiku";
+  if (id.includes("sonnet")) return "Sonnet";
+  if (id.includes("opus")) return "Opus";
+  if (id === "gpt-4o") return "GPT-4o";
+  if (id === "gpt-4o-mini") return "GPT-4o·m";
+  if (id.includes("flash")) return "Gemini·F";
+  if (id.includes("pro")) return "Gemini·P";
+  return id.slice(0, 10);
+}
+
+function mkCommit(parentId, prompt, response, branch, mergeIds, model) {
+  const c = {
     id: mkId(), parentId, mergeIds: mergeIds || [], prompt, response, branch, ts: Date.now(),
   };
+  if (model) c.model = model;
+  return c;
 }
 function buildMsgs(thread, finalUserMsg) {
   const msgs = [];
@@ -185,7 +249,13 @@ function buildBranchTree(commits) {
     visited.add(name);
     if (name !== "main") {
       const prompt = info[name].firstCommit?.prompt || name;
-      result.push({ branch: name, depth, label: prompt.replace(/\s+/g, " ").trim() });
+      result.push({
+        branch: name,
+        depth,
+        parentBranch: info[name].parentBranch,
+        hasChildren: info[name].children.length > 0,
+        label: prompt.replace(/\s+/g, " ").trim(),
+      });
     }
     for (const child of info[name].children) walk(child, depth + 1);
   };
@@ -197,38 +267,78 @@ function buildBranchTree(commits) {
   return result;
 }
 
-// DFS order within a section: parent → children, siblings sorted by u asc.
-// Indent rule: only when a parent has 2+ children (a real fork) do its children
-// step in by one. Only-child chains stay flat at the parent's depth.
-// A section-local root has no parent inside the section.
-// Returns [{ conv, depth }, ...]. Cycle-safe.
+// Sidebar rule: new conversations are sibling notebooks; branches are child notebooks.
 function orderSectionItems(members) {
   if (!members.length) return [];
-  const idSet = new Set(members.map(c => c.id));
-  const children = {};
-  const roots = [];
-  for (const cv of members) {
-    const pid = cv.parentRef?.convId;
-    if (pid && idSet.has(pid)) (children[pid] || (children[pid] = [])).push(cv);
-    else roots.push(cv);
+  const cmpCreated = (a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b));
+  return [...members].sort(cmpCreated).map(cv => ({ conv: cv, depth: 0 }));
+}
+
+function sidebarBranchKey(convId, branchName) {
+  return convId + ":branch:" + branchName;
+}
+
+function commitBranch(cv, commitId) {
+  return (cv.commits || []).find(c => c.id === commitId)?.branch || null;
+}
+
+function branchPathToRoot(commits, branchName) {
+  if (!branchName || branchName === "main") return [];
+  const branchTree = buildBranchTree(commits || []);
+  const byName = {};
+  branchTree.forEach(b => { byName[b.branch] = b; });
+  const path = [];
+  let cur = branchName;
+  while (cur && cur !== "main" && byName[cur]) {
+    path.unshift(cur);
+    cur = byName[cur].parentBranch;
   }
-  const cmpU = (a, b) => (a.u || "").localeCompare(b.u || "");
-  roots.sort(cmpU);
-  for (const pid of Object.keys(children)) children[pid].sort(cmpU);
-  const result = [];
-  const seen = new Set();
-  const walk = (cv, depth) => {
-    if (seen.has(cv.id)) return;
-    seen.add(cv.id);
-    result.push({ conv: cv, depth });
-    const kids = children[cv.id] || [];
-    const childDepth = kids.length >= 2 ? depth + 1 : depth;
-    for (const kid of kids) walk(kid, childDepth);
+  return path;
+}
+
+function buildSidebarLayout(members) {
+  const cmpCreated = (a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b));
+  const sorted = [...members].sort(cmpCreated);
+  const convMap = new Map(sorted.map(cv => [cv.id, cv]));
+  const memo = new Map();
+  const rootLoc = { type: "root" };
+
+  const placementFor = (cv, stack = new Set()) => {
+    if (memo.has(cv.id)) return memo.get(cv.id);
+    if (stack.has(cv.id)) return rootLoc;
+    stack.add(cv.id);
+
+    const parent = cv.parentRef?.convId ? convMap.get(cv.parentRef.convId) : null;
+    if (!parent) {
+      memo.set(cv.id, rootLoc);
+      stack.delete(cv.id);
+      return rootLoc;
+    }
+
+    const parentLoc = placementFor(parent, stack);
+    const anchorBranch = commitBranch(parent, cv.parentRef.commitId);
+    const loc = anchorBranch && anchorBranch !== "main"
+      ? { type: "branch", convId: parent.id, branch: anchorBranch }
+      : parentLoc;
+    memo.set(cv.id, loc);
+    stack.delete(cv.id);
+    return loc;
   };
-  for (const r of roots) walk(r, 0);
-  // Orphans (cycle members unreachable from roots) — append at depth 0.
-  for (const cv of members) if (!seen.has(cv.id)) result.push({ conv: cv, depth: 0 });
-  return result;
+
+  const rootItems = [];
+  const branchChildren = new Map();
+  for (const cv of sorted) {
+    const loc = placementFor(cv);
+    if (loc.type === "branch") {
+      const key = sidebarBranchKey(loc.convId, loc.branch);
+      if (!branchChildren.has(key)) branchChildren.set(key, []);
+      branchChildren.get(key).push(cv);
+    } else {
+      rootItems.push({ conv: cv, depth: 0 });
+    }
+  }
+
+  return { rootItems, branchChildren };
 }
 
 function pad2(n) { return String(n).padStart(2, "0"); }
@@ -297,18 +407,88 @@ function buildClusterGroups(convs, clusters) {
   }
   return Object.values(groups)
     .map(g => ({ ...g, items: g.items.sort((a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b))) }))
-    .sort((a, b) => (a.cluster.createdAt || "").localeCompare(b.cluster.createdAt || ""));
+    .sort((a, b) => (b.cluster.u || b.cluster.createdAt || "").localeCompare(a.cluster.u || a.cluster.createdAt || ""));
 }
 
 /* ═══════ COLORS ═══════ */
 const BC = ["#1D9E75", "#378ADD", "#D85A30", "#D4537E", "#7F77DD", "#BA7517", "#E24B4A", "#639922"];
 function bCol(names, b) { return BC[names.indexOf(b) % BC.length] || "#888"; }
 
+/* ═══════ ICON BUTTON ═══════ */
+function IconBtn({ children, title, onClick, disabled, t }) {
+  return (
+    <button onClick={onClick} disabled={disabled} title={title}
+      style={{ background: "none", border: "none", cursor: disabled ? "not-allowed" : "pointer", padding: 5, borderRadius: 6, color: t.textMuted, display: "flex", alignItems: "center", justifyContent: "center", opacity: disabled ? 0.4 : 1 }}
+      onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = t.hoverSidebar; e.currentTarget.style.color = t.text; } }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = t.textMuted; }}>
+      {children}
+    </button>
+  );
+}
+
+/* ═══════ MODEL PICKER ═══════ */
+function ModelPicker({ models, value, onChange, thinking, onThinkingChange, t }) {
+  const [open, setOpen] = useState(false);
+  const current = models.find(m => m.id === value) || models[0];
+  const hasThinking = current?.thinking;
+  return (
+    <div style={{ position: "relative" }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 6, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+        onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {current?.label}
+        {hasThinking && thinking && <span style={{ fontSize: 9, color: t.textMuted, marginLeft: 2 }}>Thinking</span>}
+        <span style={{ fontSize: 8, color: t.textMuted }}>{"\u25BE"}</span>
+      </button>
+      {open && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 50 }} onClick={() => setOpen(false)} />
+          <div style={{ position: "absolute", right: 0, bottom: "calc(100% + 4px)", zIndex: 60, background: t.bg, border: "0.5px solid " + t.border, borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.12)", padding: "6px", minWidth: 240 }}>
+            {models.map(m => {
+              const active = m.id === value;
+              return (
+                <div key={m.id} onClick={() => { onChange(m.id); setOpen(false); }}
+                  style={{ padding: "8px 10px", borderRadius: 6, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
+                  onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: t.text }}>{m.label}</div>
+                    {m.desc && <div style={{ fontSize: 10, color: t.textSub, marginTop: 1 }}>{m.desc}</div>}
+                  </div>
+                  {active && <span style={{ color: "#378ADD", fontSize: 12 }}>{"\u2713"}</span>}
+                </div>
+              );
+            })}
+            {hasThinking && (
+              <>
+                <div style={{ height: 1, background: t.border, margin: "4px 2px" }} />
+                <div onClick={() => onThinkingChange(!thinking)}
+                  style={{ padding: "8px 10px", borderRadius: 6, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                  onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: t.text }}>Thinking</div>
+                    <div style={{ fontSize: 10, color: t.textSub, marginTop: 1 }}>Thinks for more complex tasks</div>
+                  </div>
+                  <div style={{ width: 30, height: 16, borderRadius: 10, background: thinking ? "#378ADD" : t.border, position: "relative", transition: "background 0.15s" }}>
+                    <div style={{ position: "absolute", top: 2, left: thinking ? 16 : 2, width: 12, height: 12, borderRadius: "50%", background: "#fff", transition: "left 0.15s" }} />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ═══════ GIT GRAPH ═══════ */
-function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew, onDelete, mergeMode, selected, onToggleSel, parentRef, onGoToParent, childRefs, onGoToChild, hoveredCid, panelW, t, branchTitles, onEditLabel }) {
+function Graph({ commits, headId, activeBranch, names, onCheckout, onBranch, onNew, onDelete, mergeMode, selected, onToggleSel, selectMode, selectedRangeIds, onSelectNode, onRangeBranch, onRangeNew, onRangeDelete, parentRef, onGoToParent, childRefs, onGoToChild, hoveredCid, panelW, t, branchTitles, onEditLabel, onEditTags, allTags = [] }) {
   const [ctx, setCtx] = useState(null);
   const [editingNodeId, setEditingNodeId] = useState(null);
   const [labelDraft, setLabelDraft] = useState("");
+  const [tagPicker, setTagPicker] = useState(null); // { cid, x, y } | null
+  const [tagInput, setTagInput] = useState("");
+  const [hoverNodeId, setHoverNodeId] = useState(null);
   const hasParent = !!parentRef;
   const sorted = [...commits].sort((a, b) => a.ts - b.ts);
 
@@ -443,7 +623,9 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
           const cm = commits.find(c => c.id === n.cid);
           const cur = cm?.id === headId;
           const isMrg = (cm?.mergeIds || []).length > 0;
-          const sel = selected?.includes(n.cid);
+          const mergeSel = selected?.includes(n.cid);
+          const rangeSel = selectedRangeIds?.includes(n.cid);
+          const sel = mergeSel || rangeSel;
           const hov = hoveredCid === n.cid;
           const r = cur ? 5 : (isMrg ? 5 : nR);
           const isEditing = editingNodeId === n.cid;
@@ -452,14 +634,15 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
           const nodeOn = cidOnPath(n.cid);
           return (
             <g key={n.vid} style={{ cursor: "pointer", opacity: nodeOn ? 1 : 0.12, transition: dimTrans }}
-              onClick={e => { if (isEditing) return; e.stopPropagation(); setCtx(null); if (mergeMode) { onToggleSel(n.cid); return; } if (cm) onCheckout(cm.id, cm.branch); }}
+              onMouseEnter={() => setHoverNodeId(n.cid)} onMouseLeave={() => setHoverNodeId(p => p === n.cid ? null : p)}
+              onClick={e => { if (isEditing) return; e.stopPropagation(); setCtx(null); if (selectMode) { onSelectNode(n.cid); return; } if (mergeMode) { onToggleSel(n.cid); return; } if (cm) onCheckout(cm.id, cm.branch); }}
               onDoubleClick={e => { e.stopPropagation(); if (!cm) return; setLabelDraft(cm.displayLabel || (cm.prompt || "").replace(/\s+/g, " ").trim()); setEditingNodeId(n.cid); }}
-              onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY, cid: n.cid }); }}>
-              {(cur || sel || hov) && <circle cx={p.x} cy={p.y} r={hov ? 11 : 9} fill={sel ? "#BA7517" : col} opacity={hov ? 0.25 : 0.15} />}
+              onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY, cid: n.cid, range: selectMode && rangeSel && selectedRangeIds?.length > 0 }); }}>
+              {(cur || sel || hov) && <circle cx={p.x} cy={p.y} r={hov ? 11 : 9} fill={rangeSel ? "#378ADD" : mergeSel ? "#BA7517" : col} opacity={hov ? 0.25 : 0.15} />}
               {isMrg
                 ? <rect x={p.x - r} y={p.y - r} width={r * 2} height={r * 2} rx={2} fill={col} stroke={col} strokeWidth="1.5" />
-                : <circle cx={p.x} cy={p.y} r={r} fill={t.bg} stroke={sel ? "#BA7517" : col} strokeWidth={cur ? 2.5 : (hov ? 2.5 : 1.5)} />}
-              {sel && <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff">{"\u2713"}</text>}
+                : <circle cx={p.x} cy={p.y} r={r} fill={t.bg} stroke={rangeSel ? "#378ADD" : mergeSel ? "#BA7517" : col} strokeWidth={cur || rangeSel ? 2.5 : (hov ? 2.5 : 1.5)} />}
+              {mergeSel && <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff">{"\u2713"}</text>}
               {isEditing ? (
                 <foreignObject x={lX - 4} y={p.y - 9} width={Math.max(60, W - lX)} height={18} onClick={e => e.stopPropagation()}>
                   <input autoFocus
@@ -476,6 +659,14 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
               ) : (
                 <text x={lX} y={p.y + 3} fontSize="9" fontWeight={(cur || hov) ? "600" : "400"} fill={(cur || hov) ? col : t.text} style={{ fontFamily: "system-ui" }}>
                   {isMrg ? "\u2B85 " : ""}{trunc(displayText, maxChars)}
+                  {cm?.tags?.length > 0 && (
+                    <tspan fill="#378ADD" fontSize="8" fontWeight="500">{"  " + cm.tags.map(tg => "#" + tg).join(" ")}</tspan>
+                  )}
+                </text>
+              )}
+              {hoverNodeId === n.cid && cm?.model && (
+                <text x={lX} y={p.y + 13} fontSize="7" fill={t.textMuted} style={{ fontFamily: "system-ui", pointerEvents: "none" }}>
+                  {shortModelName(cm.model)}
                 </text>
               )}
             </g>
@@ -487,16 +678,26 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
       {ctx && !ctx.confirm && (
         <div style={{ position: "fixed", left: ctx.x, top: ctx.y, zIndex: 100, background: t.bg, border: "0.5px solid " + t.border, borderRadius: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.12)", padding: "4px 0", minWidth: 110 }}
           onClick={e => e.stopPropagation()}>
-          <button onClick={() => { const cid = ctx.cid; setCtx(null); onEdit(cid); }}
+          <button onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeBranch() : onBranch(cid); }}
             style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: t.text, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
             onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar} onMouseLeave={e => e.currentTarget.style.background = "none"}>
-            edit
+            branch
           </button>
-          <button onClick={() => { const cid = ctx.cid; setCtx(null); onNew(cid); }}
-            style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: "#378ADD", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+          <button onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeNew() : onNew(cid); }}
+            style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: t.text, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
             onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar} onMouseLeave={e => e.currentTarget.style.background = "none"}>
             new
           </button>
+          {!ctx.range && (
+            <button onClick={() => {
+              const cid = ctx.cid; const x = ctx.x, y = ctx.y; setCtx(null);
+              setTagInput(""); setTagPicker({ cid, x, y });
+            }}
+              style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: t.text, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+              onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar} onMouseLeave={e => e.currentTarget.style.background = "none"}>
+              tag
+            </button>
+          )}
           <div style={{ height: 1, background: t.border, margin: "4px 0" }} />
           <button onClick={() => setCtx({ ...ctx, confirm: true })}
             style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: "#c00", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
@@ -510,9 +711,9 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
         <div style={{ position: "fixed", inset: 0, zIndex: 99, background: "rgba(0,0,0,0.1)" }} onClick={() => setCtx(null)}>
           <div style={{ position: "fixed", left: ctx.x, top: ctx.y, zIndex: 100, background: t.bg, border: "0.5px solid " + t.border, borderRadius: 8, boxShadow: "0 2px 12px rgba(0,0,0,0.15)", padding: "12px 14px", minWidth: 200 }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 12, fontWeight: 500, color: t.text, marginBottom: 10 }}>Delete this commit and all its children?</div>
+            <div style={{ fontSize: 12, fontWeight: 500, color: t.text, marginBottom: 10 }}>{ctx.range ? "Delete selected commits and their children?" : "Delete this commit and all its children?"}</div>
             <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => { const cid = ctx.cid; setCtx(null); onDelete(cid); }}
+              <button onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeDelete() : onDelete(cid); }}
                 style={{ flex: 1, padding: "6px", fontSize: 11, fontWeight: 500, borderRadius: 5, background: "#c00", color: "#fff", border: "none", cursor: "pointer" }}>Delete</button>
               <button onClick={() => setCtx(null)}
                 style={{ flex: 1, padding: "6px", fontSize: 11, borderRadius: 5, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
@@ -520,6 +721,55 @@ function Graph({ commits, headId, activeBranch, names, onCheckout, onEdit, onNew
           </div>
         </div>
       )}
+
+      {/* Tag picker */}
+      {tagPicker && (() => {
+        const cm = commits.find(c => c.id === tagPicker.cid);
+        const current = new Set(cm?.tags || []);
+        const pool = Array.from(new Set([...(allTags || []), ...current])).sort();
+        const toggle = tg => {
+          const next = new Set(current);
+          next.has(tg) ? next.delete(tg) : next.add(tg);
+          onEditTags?.(tagPicker.cid, [...next].join(","));
+        };
+        const addNew = () => {
+          const tg = tagInput.trim().replace(/^#+/, "");
+          if (!tg) return;
+          const next = new Set(current); next.add(tg);
+          onEditTags?.(tagPicker.cid, [...next].join(","));
+          setTagInput("");
+        };
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setTagPicker(null)}>
+            <div style={{ position: "fixed", left: tagPicker.x, top: tagPicker.y, zIndex: 100, background: t.bg, border: "0.5px solid " + t.border, borderRadius: 8, boxShadow: "0 2px 12px rgba(0,0,0,0.15)", padding: 10, minWidth: 200, maxWidth: 260 }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: t.textSub, marginBottom: 6 }}>Tags</div>
+              {pool.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                  {pool.map(tg => {
+                    const on = current.has(tg);
+                    return (
+                      <span key={tg} onClick={() => toggle(tg)}
+                        style={{ fontSize: 11, fontWeight: 500, color: on ? "#fff" : "#378ADD", background: on ? "#378ADD" : t.hoverSidebar, padding: "3px 9px", borderRadius: 12, cursor: "pointer", userSelect: "none" }}>
+                        #{tg}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <input autoFocus
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") { addNew(); }
+                  if (e.key === "Escape") setTagPicker(null);
+                }}
+                placeholder="+ new tag, Enter"
+                style={{ width: "100%", boxSizing: "border-box", fontSize: 11, padding: "5px 8px", border: "0.5px solid " + t.border, borderRadius: 6, outline: "none", background: t.bg, color: t.text }} />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -533,6 +783,12 @@ export default function App() {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
   const hasKey = !!apiKey.trim();
+  const [model, setModel] = useState(() => storage.get("model")?.value || "");
+  const [thinkingOn, setThinkingOn] = useState(() => storage.get("thinkingOn")?.value === "1");
+  const providerId = hasKey ? detectProvider(apiKey)?.id : "free";
+  const modelList = MODEL_CHOICES[providerId] || MODEL_CHOICES.free;
+  const currentModel = modelList.some(m => m.id === model) ? model : modelList[0].id;
+  const currentModelMeta = modelList.find(m => m.id === currentModel) || modelList[0];
   const [rateLimited, setRateLimited] = useState(false);
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistStatus, setWaitlistStatus] = useState(null); // null | "sending" | "done" | "error"
@@ -546,7 +802,12 @@ export default function App() {
   const [graph, setGraph] = useState(true);
   const [mm, setMm] = useState(false);
   const [sel, setSel] = useState([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectRange, setSelectRange] = useState({ startId: null, endId: null });
+  const [selectError, setSelectError] = useState("");
+  const [undoAction, setUndoAction] = useState(null);
   const [editId, setEditId] = useState(null);
+  const [branchFromId, setBranchFromId] = useState(null);
   const [newFromRef, setNewFromRef] = useState(null);
   const [convs, setConvs] = useState([]);
   const [clusters, setClusters] = useState([]);
@@ -555,11 +816,15 @@ export default function App() {
   const [graphW, setGraphW] = useState(280);
   const [scrollTarget, setScrollTarget] = useState(null);
   const [hoveredCid, setHoveredCid] = useState(null);
+  const [activeTags, setActiveTags] = useState(() => new Set());
   const [chatMenu, setChatMenu] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null); // { msg, onConfirm } | null
   const [renamingId, setRenamingId] = useState(null);
   const [renamingBranch, setRenamingBranch] = useState(null); // { convId, branch } | null
   const [renamingClusterId, setRenamingClusterId] = useState(null);
   const [collapsedClusters, setCollapsedClusters] = useState(() => new Set());
+  const [openSidebarItems, setOpenSidebarItems] = useState(() => new Set());
+  const [closedSidebarItems, setClosedSidebarItems] = useState(() => new Set());
   const [renameVal, setRenameVal] = useState("");
   const dragging = useRef(false);
   const endRef = useRef(null);
@@ -654,10 +919,16 @@ export default function App() {
     setCommits(commits); setHeadId(cv.headId); setBranch(cv.branch || "main");
     setConvId(cv.id); setParentRef(cv.parentRef || null);
     cc = Math.max(cc, commits.length + 10);
-    setMm(false); setSel([]); setEditId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null);
+    setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null);
+  };
+  const loadMain = cv => {
+    load(cv);
+    const mainLeaf = bHead(cv.commits || [], "main");
+    if (mainLeaf) { setHeadId(mainLeaf.id); setBranch("main"); setScrollTarget(mainLeaf.id); }
   };
   // Cascade delete: remove conv + all descendant convs (parentRef chain).
   const del = id => {
+    rememberUndo("Deleted conversation");
     const toDelete = new Set([id]);
     let grew = true;
     while (grew) {
@@ -727,6 +998,7 @@ export default function App() {
   const deleteBranchCascade = (cvId, bName) => {
     const cv = convs.find(c => c.id === cvId);
     if (!cv) return;
+    rememberUndo("Deleted branch");
     const oldCommits = cv.commits || [];
     const toRemoveSet = new Set([bName, ...getBranchDescendantNames(oldCommits, bName)]);
     const newCommits = oldCommits.filter(c => !toRemoveSet.has(c.branch));
@@ -771,7 +1043,16 @@ export default function App() {
       return n;
     });
   };
-  const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setEditId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); };
+  const toggleSidebarItem = (id, defaultOpen = false) => {
+    const setter = defaultOpen ? setClosedSidebarItems : setOpenSidebarItems;
+    setter(p => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+  const sidebarItemOpen = (id, defaultOpen = false) => defaultOpen ? !closedSidebarItems.has(id) : openSidebarItems.has(id);
+  const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); };
 
   const thread = getThread(commits, headId);
   const names = bNames(commits);
@@ -781,6 +1062,68 @@ export default function App() {
   })) : [];
 
   const clusterGroups = buildClusterGroups(convs, clusters);
+  const rangeCommitsFor = (range = selectRange, source = commits) => {
+    const start = source.find(c => c.id === range.startId);
+    if (!start) return [];
+    const end = source.find(c => c.id === range.endId) || start;
+    if (start.branch !== end.branch) return [start];
+    const list = source.filter(c => c.branch === start.branch).sort((a, b) => a.ts - b.ts);
+    const ai = list.findIndex(c => c.id === start.id);
+    const bi = list.findIndex(c => c.id === end.id);
+    if (ai < 0 || bi < 0) return [start];
+    const lo = Math.min(ai, bi), hi = Math.max(ai, bi);
+    return list.slice(lo, hi + 1);
+  };
+  const selectedRangeCommits = rangeCommitsFor();
+  const selectedRangeIds = selectedRangeCommits.map(c => c.id);
+  const clearSelectRange = () => { setSelectRange({ startId: null, endId: null }); setSelectError(""); };
+  const snap = value => JSON.parse(JSON.stringify(value));
+  const rememberUndo = label => {
+    setUndoAction({
+      label,
+      convs: snap(convs),
+      clusters: snap(clusters),
+      current: { convId, commits: snap(commits), headId, branch, parentRef: snap(parentRef) },
+    });
+  };
+  const restoreUndo = () => {
+    if (!undoAction) return;
+    const beforeConvIds = new Set(undoAction.convs.map(c => c.id));
+    convs.forEach(c => { if (!beforeConvIds.has(c.id)) storage.del(c.id); });
+    undoAction.convs.forEach(c => storage.set(c.id, JSON.stringify(c)));
+
+    const beforeClusterIds = new Set(undoAction.clusters.map(c => c.id));
+    clusters.forEach(c => { if (!beforeClusterIds.has(c.id)) storage.del(c.id); });
+    undoAction.clusters.forEach(c => storage.set(c.id, JSON.stringify(c)));
+
+    setConvs(undoAction.convs);
+    setClusters(undoAction.clusters);
+    setConvId(undoAction.current.convId);
+    setCommits(undoAction.current.commits);
+    cRef.current = undoAction.current.commits;
+    setHeadId(undoAction.current.headId);
+    setBranch(undoAction.current.branch);
+    setParentRef(undoAction.current.parentRef);
+    setUndoAction(null);
+    setSelectMode(false);
+    clearSelectRange();
+  };
+  const cutRangeFromCommits = (source, range) => {
+    if (!range.length) return source;
+    const ids = new Set(range.map(c => c.id));
+    const glueParentId = range[0].parentId || null;
+    return source
+      .filter(c => !ids.has(c.id))
+      .map(c => ids.has(c.parentId) ? { ...c, parentId: glueParentId } : c);
+  };
+  const chooseHeadAfterCut = (list, oldHeadId, fallbackBranch) => {
+    if (list.find(c => c.id === oldHeadId)) {
+      const oldHead = list.find(c => c.id === oldHeadId);
+      return { headId: oldHeadId, branch: oldHead?.branch || fallbackBranch || "main" };
+    }
+    const fallback = list.filter(c => c.branch === fallbackBranch).slice(-1)[0] || list[list.length - 1];
+    return { headId: fallback?.id || null, branch: fallback?.branch || "main" };
+  };
 
   // Auto-show graph when conversation has commits
   const showGraph = graph || commits.length > 0;
@@ -804,8 +1147,15 @@ export default function App() {
     if (!graph && commits.length === 0) setGraph(true);
 
     if (newFromRef) {
-      const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary };
+      const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary, anchorBranch: newFromRef.anchorBranch };
       const newId = "conv:" + Date.now();
+      if (newFromRef.anchorBranch && newFromRef.anchorBranch !== "main") {
+        setOpenSidebarItems(p => {
+          const n = new Set(p);
+          (newFromRef.branchPath || [newFromRef.anchorBranch]).forEach(b => n.add(sidebarBranchKey(newFromRef.convId, b)));
+          return n;
+        });
+      }
 
       setCommits([]); cRef.current = [];
       setHeadId(null); setBranch("main"); setConvId(newId);
@@ -814,9 +1164,9 @@ export default function App() {
 
       setPending(msg); setThinking(true);
       try {
-        const msgs = [{ role: "user", content: msg }];
-        const resp = await callLLM(apiKey, msgs);
-        const cm = mkCommit(null, msg, resp, "main");
+        const msgs = buildMsgs(newFromRef.thread || [], msg);
+        const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
+        const cm = mkCommit(null, msg, resp, "main", null, currentModel);
         const nc = [cm];
         setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
         save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
@@ -843,8 +1193,8 @@ export default function App() {
 
           setPending(msg); setThinking(true);
           try {
-            const resp = await callLLM(apiKey, [{ role: "user", content: msg }]);
-            const cm = mkCommit(null, msg, resp, "main");
+            const resp = await callLLM(apiKey, [{ role: "user", content: msg }], currentModel, thinkingOn);
+            const cm = mkCommit(null, msg, resp, "main", null, currentModel);
             const nc = [cm];
             setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
             save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
@@ -861,6 +1211,17 @@ export default function App() {
       setEditId(null); setGraph(true);
     }
 
+    if (branchFromId) {
+      const bc = cRef.current.find(c => c.id === branchFromId);
+      if (bc) {
+        pid = bc.id;
+        br = "branch-" + names.length;
+        setBranch(br);
+      }
+      setBranchFromId(null);
+      setGraph(true);
+    }
+
     if (forkBranch && headId) {
       br = "branch-" + names.length;
       setBranch(br);
@@ -870,8 +1231,8 @@ export default function App() {
     try {
       const th = getThread(cRef.current, pid);
       const msgs = buildMsgs(th, msg);
-      const resp = await callLLM(apiKey, msgs);
-      const cm = mkCommit(pid, msg, resp, br);
+      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
+      const cm = mkCommit(pid, msg, resp, br, null, currentModel);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
       save(msg.slice(0, 40), nc, cm.id, br);
     } catch (e) {
@@ -882,16 +1243,165 @@ export default function App() {
   };
 
   // ─── HANDLERS ───
-  const startEdit = cid => { const cm = commits.find(c => c.id === cid); if (!cm) return; setEditId(cid); setNewFromRef(null); setInput(cm.prompt); inputRef.current?.focus(); };
-  const checkout = (id, b) => { setHeadId(id); setBranch(b); setMm(false); setSel([]); setEditId(null); setPending(null); setNewFromRef(null); setScrollTarget(id); };
+  const startEdit = cid => { const cm = commits.find(c => c.id === cid); if (!cm) return; setEditId(cid); setBranchFromId(null); setNewFromRef(null); setInput(cm.prompt); inputRef.current?.focus(); };
+  const startBranchFrom = cid => {
+    const cm = commits.find(c => c.id === cid);
+    if (!cm) return;
+    setHeadId(cm.id); setBranch(cm.branch); setScrollTarget(cm.id);
+    setBranchFromId(cid); setEditId(null); setNewFromRef(null); setSelectMode(false); clearSelectRange(); setMm(false); setSel([]); setPending(null);
+    setInput(""); inputRef.current?.focus();
+  };
+  const retryResponse = async (cid) => {
+    const cm = cRef.current.find(c => c.id === cid);
+    if (!cm || thinking) return;
+    const parentId = cm.parentId || null;
+    const br = nextBranchName();
+    const parentThread = getThread(cRef.current, parentId);
+    const msgs = buildMsgs(parentThread, cm.prompt);
+    setHeadId(parentId); setBranch(br);
+    setPending(cm.prompt); setThinking(true); setMm(false); setSel([]); setEditId(null); setBranchFromId(null); setNewFromRef(null);
+    try {
+      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
+      const newCm = mkCommit(parentId, cm.prompt, resp, br, null, currentModel);
+      const nc = [...cRef.current, newCm];
+      setCommits(nc); cRef.current = nc; setHeadId(newCm.id); setScrollTarget(newCm.id);
+      save(null, nc, newCm.id, br);
+    } catch (e) {
+      const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel);
+      const nc = [...cRef.current, newCm];
+      setCommits(nc); cRef.current = nc; setHeadId(newCm.id);
+      save(null, nc, newCm.id, br);
+      if (e.code === "RATE_LIMIT") setRateLimited(true);
+    } finally {
+      setPending(null); setThinking(false);
+    }
+  };
+  const copyToClipboard = (text) => { try { navigator.clipboard.writeText(text || ""); } catch {} };
+  const checkout = (id, b) => { setHeadId(id); setBranch(b); setMm(false); setSel([]); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setScrollTarget(id); };
   const toggleSel = id => setSel(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const handleSelectNode = cid => {
+    const cm = commits.find(c => c.id === cid);
+    if (!cm) return;
+    setSelectError("");
+    setSelectRange(prev => {
+      if (!prev.startId || prev.endId) return { startId: cid, endId: null };
+      const start = commits.find(c => c.id === prev.startId);
+      if (!start || start.branch !== cm.branch) {
+        setSelectError("Same branch only");
+        return { startId: cid, endId: null };
+      }
+      return { startId: prev.startId, endId: cid };
+    });
+  };
+  const cloneRangeCommits = (range, branchName, firstParentId = null) => {
+    let parentId = firstParentId;
+    return range.map(c => {
+      const cm = mkCommit(parentId, c.prompt, c.response, branchName);
+      if (c.displayLabel) cm.displayLabel = c.displayLabel;
+      parentId = cm.id;
+      return cm;
+    });
+  };
+  const nextBranchName = () => {
+    const existing = new Set(bNames(cRef.current));
+    let i = existing.size;
+    while (existing.has("branch-" + i)) i += 1;
+    return "branch-" + i;
+  };
+  const rangeToNew = () => {
+    const range = rangeCommitsFor();
+    if (!range.length) return;
+    const currentConv = convs.find(c => c.id === convId);
+    if (!currentConv) return;
+    rememberUndo("Moved to New");
+
+    const originalCommits = cutRangeFromCommits(cRef.current, range);
+    const originalHead = chooseHeadAfterCut(originalCommits, headId, branch);
+    const clusterId = currentConv.clusterId || mkClusterId();
+    const originalUpdated = {
+      ...currentConv,
+      commits: originalCommits,
+      headId: originalHead.headId,
+      branch: originalHead.branch,
+      clusterId,
+      u: new Date().toISOString(),
+    };
+
+    const nc = cloneRangeCommits(range, "main", null);
+    const newId = "conv:" + Date.now();
+    const first = range[0], last = nc[nc.length - 1];
+    const pRef = {
+      convId,
+      commitId: first.parentId || first.id,
+      wasHead: first.id === headId,
+      convTitle: currentConv?.title || "Untitled",
+      promptSummary: first.prompt?.slice(0, 30) + (first.prompt?.length > 30 ? ".." : ""),
+      anchorBranch: first.branch,
+      branchPath: branchPathToRoot(commits, first.branch),
+    };
+    const createdAt = new Date().toISOString();
+    touchCluster(clusterId, createdAt);
+    const newConv = {
+      id: newId,
+      title: first.prompt?.slice(0, 40) || "Untitled",
+      commits: nc,
+      headId: last.id,
+      branch: "main",
+      parentRef: pRef,
+      branchTitles: {},
+      labels: [],
+      clusterId,
+      createdAt,
+      u: createdAt,
+    };
+    storage.set(originalUpdated.id, JSON.stringify(originalUpdated));
+    storage.set(newId, JSON.stringify(newConv));
+    setConvs(p => [newConv, originalUpdated, ...p.filter(c => c.id !== newId && c.id !== originalUpdated.id)]);
+    setSelectMode(false); clearSelectRange();
+    setCommits(nc); cRef.current = nc; setHeadId(last.id); setBranch("main"); setConvId(newId); setParentRef(pRef); setGraph(true);
+  };
+  const rangeToBranch = () => {
+    const range = rangeCommitsFor();
+    if (!range.length) return;
+    const currentConv = convs.find(c => c.id === convId);
+    if (!currentConv) return;
+    rememberUndo("Moved to Branch");
+    const originalCommits = cutRangeFromCommits(cRef.current, range);
+    const br = nextBranchName();
+    const nc = [...originalCommits, ...cloneRangeCommits(range, br, range[0].parentId || null)];
+    const last = nc[nc.length - 1];
+    const updated = { ...currentConv, commits: nc, headId: last.id, branch: br, u: new Date().toISOString() };
+    storage.set(updated.id, JSON.stringify(updated));
+    setConvs(p => [updated, ...p.filter(c => c.id !== updated.id)]);
+    setSelectMode(false); clearSelectRange();
+    setCommits(nc); cRef.current = nc; setHeadId(last.id); setBranch(br); setGraph(true);
+  };
+  const deleteRange = () => {
+    const ids = new Set(selectedRangeIds);
+    if (!ids.size) return;
+    const currentConv = convs.find(c => c.id === convId);
+    if (!currentConv) return;
+    rememberUndo("Deleted selection");
+    const range = rangeCommitsFor();
+    const nc = cutRangeFromCommits(commits, range);
+    const nextHead = chooseHeadAfterCut(nc, headId, branch);
+    const updated = { ...currentConv, commits: nc, headId: nextHead.headId, branch: nextHead.branch, u: new Date().toISOString() };
+    storage.set(updated.id, JSON.stringify(updated));
+    setConvs(p => [updated, ...p.filter(c => c.id !== updated.id)]);
+    setSelectMode(false); clearSelectRange();
+    setCommits(nc); cRef.current = nc; setHeadId(nextHead.headId); setBranch(nextHead.branch);
+  };
 
   const startNew = (cid) => {
     const cm = commits.find(c => c.id === cid);
     if (!cm) return;
     const currentConv = convs.find(c => c.id === convId);
+    setBranchFromId(null); setSelectMode(false); clearSelectRange();
     setNewFromRef({
       convId, commitId: cid, wasHead: cid === headId,
+      thread: getThread(commits, cid),
+      anchorBranch: cm.branch,
+      branchPath: branchPathToRoot(commits, cm.branch),
       convTitle: currentConv?.title || "Untitled",
       promptSummary: cm.prompt?.slice(0, 30) + (cm.prompt?.length > 30 ? ".." : ""),
     });
@@ -916,28 +1426,22 @@ export default function App() {
     if (leaf) { setHeadId(leaf.id); setBranch(branchName); setScrollTarget(leaf.id); }
   };
 
-  const branchOff = () => {
-    if (!headId || !convId || thinking) return;
-    const newId = "conv:" + Date.now();
-    const currentConv = convs.find(c => c.id === convId);
-    const createdAt = new Date().toISOString();
-    const clusterId = currentConv?.clusterId || mkClusterId();
-    touchCluster(clusterId, createdAt);
-    const newConv = {
-      id: newId,
-      commits: [],
-      headId: headId,
-      clusterId,
-      createdAt,
-    };
-    storage.set(newId, JSON.stringify(newConv));
-    setConvs(p => [newConv, ...p.filter(c => c.id !== newId)]);
-    load(newConv);
-  };
-
-
   // Per-commit custom display label for the graph node. Empty clears it.
   // commit.prompt (conversation content) is never mutated.
+  const editCommitTags = (cid, tagsInput) => {
+    const tags = (tagsInput || "")
+      .split(",")
+      .map(s => s.trim().replace(/^#+/, ""))
+      .filter(Boolean);
+    const newCommits = cRef.current.map(c => {
+      if (c.id !== cid) return c;
+      const { tags: _omit, ...rest } = c;
+      return tags.length ? { ...rest, tags } : rest;
+    });
+    setCommits(newCommits); cRef.current = newCommits;
+    save(null, newCommits, headId, branch);
+  };
+
   const editNodeLabel = (cid, newLabel) => {
     const trimmed = (newLabel || "").trim();
     const existing = cRef.current.find(c => c.id === cid);
@@ -954,11 +1458,16 @@ export default function App() {
   };
 
   const deleteCommit = (cid) => {
+    rememberUndo("Deleted commit");
     const toDelete = new Set();
     const queue = [cid];
     while (queue.length) { const id = queue.shift(); toDelete.add(id); commits.filter(c => c.parentId === id).forEach(c => queue.push(c.id)); }
     const nc = commits.filter(c => !toDelete.has(c.id));
     setCommits(nc); cRef.current = nc;
+    if (nc.length === 0 && convId) {
+      del(convId);
+      return;
+    }
     let newHeadId = headId, newBranch = branch;
     if (toDelete.has(headId)) {
       const deleted = commits.find(c => c.id === cid);
@@ -979,8 +1488,8 @@ export default function App() {
     try {
       const curTh = getThread(cRef.current, headId).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n");
       const selCtx = sel.map(sid => { const sc = cRef.current.find(c => c.id === sid); if (!sc) return ""; return "[" + sc.branch + "]:\n" + getThread(cRef.current, sid).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n"); }).join("\n---\n");
-      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }]);
-      const cm = mkCommit(headId, msg, resp, branch, sel);
+      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], currentModel, thinkingOn);
+      const cm = mkCommit(headId, msg, resp, branch, sel, currentModel);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
       save(null, nc, cm.id, branch);
     } catch (e) {
@@ -996,21 +1505,132 @@ export default function App() {
       {/* LEFT SIDEBAR */}
       <div style={{ width: 180, display: "flex", flexDirection: "column", borderRight: "0.5px solid " + t.border, background: t.sidebar }}>
         <div style={{ padding: "8px 6px" }}><button onClick={newConv} style={{ width: "100%", padding: "6px", fontSize: 10, fontWeight: 500, borderRadius: 4, background: t.accent, color: t.accentText, border: "none", cursor: "pointer" }}>+ New</button></div>
+        {(() => {
+          const counts = {};
+          convs.forEach(cv => (cv.commits || []).forEach(c => (c.tags || []).forEach(tg => { counts[tg] = (counts[tg] || 0) + 1; })));
+          const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+          if (!entries.length) return null;
+          return (
+            <div style={{ padding: "4px 8px 8px", borderBottom: "0.5px solid " + t.border, marginBottom: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.textSub, padding: "4px 2px 6px" }}>Tags</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {entries.map(([tg, n]) => {
+                  const on = activeTags.has(tg);
+                  return (
+                    <span key={tg}
+                      onClick={() => setActiveTags(p => { const s = new Set(p); s.has(tg) ? s.delete(tg) : s.add(tg); return s; })}
+                      style={{ fontSize: 11, fontWeight: 500, color: on ? "#fff" : "#378ADD", background: on ? "#378ADD" : t.hoverSidebar, padding: "3px 9px", borderRadius: 12, cursor: "pointer", userSelect: "none" }}>
+                      #{tg} <span style={{ color: on ? "#cfe4ff" : t.textMuted, fontSize: 10 }}>{n}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         <div style={{ flex: 1, overflowY: "auto", padding: "0 4px 4px" }} onClick={() => setChatMenu(null)}>
           {(() => {
-            const renderConvItem = (cv, keyPrefix, indent = 0) => {
+            const renderConvItem = (cv, keyPrefix, depth = 0, toggle = null, branchChildren = new Map()) => {
               const chain = cv.commits || [];
               const branchTree = buildBranchTree(chain);
               const convActive = convId === cv.id;
               const convActiveOnMain = convActive && branch === "main";
               const renamingThisConv = renamingId === cv.id;
+              const branchesByParent = {};
+              branchTree.forEach(b => {
+                const parent = b.parentBranch || "main";
+                (branchesByParent[parent] || (branchesByParent[parent] = [])).push(b);
+              });
+              const rootBranches = branchesByParent["main"] || [];
+              const ownToggleKey = cv.id + ":conv";
+              const localToggle = !toggle && rootBranches.length > 0
+                ? { open: sidebarItemOpen(ownToggleKey, true), onToggle: () => toggleSidebarItem(ownToggleKey, true) }
+                : null;
+              const activeToggle = toggle || localToggle;
+              const hasToggle = !!activeToggle;
+              const showBranches = !hasToggle || activeToggle.open;
+              const branchKey = bName => sidebarBranchKey(cv.id, bName);
+              const branchOpen = bName => sidebarItemOpen(branchKey(bName));
+              const containsActiveConv = (items, seen = new Set()) => items.some(child => {
+                if (child.id === convId) return true;
+                if (seen.has(child.id)) return false;
+                seen.add(child.id);
+                return buildBranchTree(child.commits || []).some(b => {
+                  const kids = branchChildren.get(sidebarBranchKey(child.id, b.branch)) || [];
+                  return containsActiveConv(kids, seen);
+                });
+              });
+              const newSiblingsContainActive = bName => containsActiveConv(branchChildren.get(branchKey(bName)) || []);
+              const branchSubtreeContainsActive = bName => (branchesByParent[bName] || []).some(child =>
+                newSiblingsContainActive(child.branch) || branchSubtreeContainsActive(child.branch)
+              );
+              const renderBranchNode = ({ branch: bName, depth: bDepth }) => {
+                const branchActive = convActive && branch === bName;
+                const renamingThisBranch = renamingBranch && renamingBranch.convId === cv.id && renamingBranch.branch === bName;
+                const displayLabel = getBranchLabel(chain, bName, cv.branchTitles);
+                const childBranches = branchesByParent[bName] || [];
+                const siblingConvs = branchChildren.get(branchKey(bName)) || [];
+                const hasBranchChildren = childBranches.length > 0;
+                const isBranchOpen = branchOpen(bName) || branchSubtreeContainsActive(bName);
+                return (
+                  <div key={keyPrefix + ":" + cv.id + ":" + bName}>
+                    <div className="chat-item"
+                      onClick={() => { if (!renamingThisBranch) { if (hasBranchChildren && !isBranchOpen) toggleSidebarItem(branchKey(bName)); loadBranch(cv, bName); } }}
+                      style={{ padding: "5px 6px", paddingLeft: 6 + (depth + bDepth) * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : (hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"), border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
+                      onMouseLeave={e => { if (!branchActive) e.currentTarget.style.background = hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
+                      {hasBranchChildren ? (
+                        <button onClick={e => { e.stopPropagation(); toggleSidebarItem(branchKey(bName)); }}
+                          title={isBranchOpen ? "Collapse" : "Expand"}
+                          style={{ width: 18, height: 18, marginRight: 4, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
+                          {isBranchOpen ? "v" : ">"}
+                        </button>
+                      ) : <span style={{ width: 22, flexShrink: 0 }} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {renamingThisBranch ? (
+                          <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); } if (e.key === "Escape") setRenamingBranch(null); }}
+                            onBlur={() => { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }}
+                            onClick={e => e.stopPropagation()}
+                            style={{ width: "100%", fontSize: 10, fontWeight: 500, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
+                        ) : (
+                          <div style={{ fontSize: 10, fontWeight: hasBranchChildren && isBranchOpen ? 650 : 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={displayLabel}>
+                            {displayLabel}
+                          </div>
+                        )}
+                      </div>
+                      {!renamingThisBranch && <span className="dots"
+                        onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "branch" && chatMenu.convId === cv.id && chatMenu.branch === bName ? null : { kind: "branch", convId: cv.id, branch: bName, x: e.clientX, y: e.clientY }); }}
+                        style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
+                    </div>
+                    {hasBranchChildren && isBranchOpen && childBranches.map(renderBranchNode)}
+                    {siblingConvs.map(childCv => renderConvItem(
+                      childCv,
+                      keyPrefix + ":" + cv.id + ":" + bName,
+                      depth + bDepth,
+                      null,
+                      branchChildren
+                    ))}
+                  </div>
+                );
+              };
+              const itemBg = convActiveOnMain ? t.hover : (hasToggle && activeToggle.open ? t.hoverSidebar : "transparent");
+              const itemBorder = convActiveOnMain ? "0.5px solid " + t.border : "0.5px solid transparent";
               return (
                 <div key={keyPrefix + ":" + cv.id}>
                   <div className="chat-item"
-                    style={{ padding: "6px", paddingLeft: 6 + indent * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: convActiveOnMain ? t.hover : "transparent", border: convActiveOnMain ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
+                    onClick={() => { if (!renamingThisConv) { if (hasToggle && !activeToggle.open) activeToggle.onToggle(); loadMain(cv); } }}
+                    style={{ padding: "6px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: itemBg, border: itemBorder, display: "flex", alignItems: "center", position: "relative" }}
                     onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
-                    onMouseLeave={e => { if (!convActiveOnMain) e.currentTarget.style.background = "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-                    <div onClick={() => { if (!renamingThisConv) load(cv); }} style={{ flex: 1, minWidth: 0 }}>
+                    onMouseLeave={e => { if (!convActiveOnMain) e.currentTarget.style.background = itemBg; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
+                    {hasToggle ? (
+                      <button onClick={e => { e.stopPropagation(); activeToggle.onToggle(); }}
+                        title={activeToggle.open ? "Collapse" : "Expand"}
+                        style={{ width: 18, height: 18, marginRight: 4, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
+                        {activeToggle.open ? "v" : ">"}
+                      </button>
+                    ) : <span style={{ width: 22, flexShrink: 0 }} />}
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       {renamingThisConv ? (
                         <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
                           onKeyDown={e => { if (e.key === "Enter") { renameConv(cv.id, renameVal); setRenamingId(null); } if (e.key === "Escape") setRenamingId(null); }}
@@ -1018,7 +1638,7 @@ export default function App() {
                           onClick={e => e.stopPropagation()}
                           style={{ width: "100%", fontSize: 10, fontWeight: 500, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
                       ) : (
-                        <div style={{ fontSize: 10, fontWeight: 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={cv.title || "Untitled"}>
+                        <div style={{ fontSize: 10, fontWeight: hasToggle && activeToggle.open ? 650 : 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={cv.title || "Untitled"}>
                           {cv.title || "Untitled"}
                         </div>
                       )}
@@ -1027,68 +1647,37 @@ export default function App() {
                       onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "conv" && chatMenu.id === cv.id ? null : { kind: "conv", id: cv.id, x: e.clientX, y: e.clientY }); }}
                       style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
                   </div>
-                  {branchTree.map(({ branch: bName, depth }) => {
-                    const branchActive = convActive && branch === bName;
-                    const renamingThisBranch = renamingBranch && renamingBranch.convId === cv.id && renamingBranch.branch === bName;
-                    const displayLabel = getBranchLabel(chain, bName, cv.branchTitles);
-                    return (
-                      <div key={keyPrefix + ":" + cv.id + ":" + bName} className="chat-item"
-                        style={{ padding: "6px", paddingLeft: 6 + (indent + depth) * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : "transparent", border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
-                        onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
-                        onMouseLeave={e => { if (!branchActive) e.currentTarget.style.background = "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-                        <div onClick={() => { if (!renamingThisBranch) loadBranch(cv, bName); }} style={{ flex: 1, minWidth: 0 }}>
-                          {renamingThisBranch ? (
-                            <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
-                              onKeyDown={e => { if (e.key === "Enter") { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); } if (e.key === "Escape") setRenamingBranch(null); }}
-                              onBlur={() => { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }}
-                              onClick={e => e.stopPropagation()}
-                              style={{ width: "100%", fontSize: 10, fontWeight: 500, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
-                          ) : (
-                            <div style={{ fontSize: 10, fontWeight: 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={displayLabel}>
-                              {displayLabel}
-                            </div>
-                          )}
-                        </div>
-                        {!renamingThisBranch && <span className="dots"
-                          onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "branch" && chatMenu.convId === cv.id && chatMenu.branch === bName ? null : { kind: "branch", convId: cv.id, branch: bName, x: e.clientX, y: e.clientY }); }}
-                          style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
-                      </div>
-                    );
-                  })}
+                  {showBranches && rootBranches.map(renderBranchNode)}
                 </div>
               );
             };
-            return clusterGroups.map(group => {
-              const cl = group.cluster;
-              const collapsed = collapsedClusters.has(cl.id);
-              const renamingThisCluster = renamingClusterId === cl.id;
+            const liveTags = new Set();
+            convs.forEach(cv => (cv.commits || []).forEach(c => (c.tags || []).forEach(tg => liveTags.add(tg))));
+            const liveActive = new Set([...activeTags].filter(tg => liveTags.has(tg)));
+            const convHasAnyTag = cv => (cv.commits || []).some(c => (c.tags || []).some(tg => liveActive.has(tg)));
+            const filteredGroups = liveActive.size
+              ? clusterGroups.map(g => ({ ...g, items: g.items.filter(convHasAnyTag) })).filter(g => g.items.length)
+              : clusterGroups;
+            return filteredGroups.map(group => {
+              const { rootItems: ordered, branchChildren } = buildSidebarLayout(group.items);
+              const groupOpen = collapsedClusters.has(group.cluster.id);
+              const visible = groupOpen ? ordered : ordered.slice(0, 1);
               return (
-                <div key={cl.id} style={{ marginBottom: 5 }}>
-                  <div
-                    style={{ padding: "5px 6px", marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, color: t.textSub, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, position: "relative" }}
-                    onClick={() => { if (!renamingThisCluster) toggleCluster(cl.id); }}
-                    onMouseEnter={e => { e.currentTarget.style.background = t.hoverSidebar; const d = e.currentTarget.querySelector(".dots"); if (d) d.style.opacity = "1"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; const d = e.currentTarget.querySelector(".dots"); if (d) d.style.opacity = "0"; }}>
-                    <ChevronIcon open={!collapsed} />
-                    <FolderIcon />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {renamingThisCluster ? (
-                        <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter") { renameCluster(cl.id, renameVal); setRenamingClusterId(null); } if (e.key === "Escape") setRenamingClusterId(null); }}
-                          onBlur={() => { renameCluster(cl.id, renameVal); setRenamingClusterId(null); }}
-                          onClick={e => e.stopPropagation()}
-                          style={{ width: "100%", fontSize: 10, fontWeight: 600, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
-                      ) : (
-                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={cl.title || formatClusterTitle(cl.createdAt)}>
-                          {cl.title || formatClusterTitle(cl.createdAt)}
-                        </div>
-                      )}
-                    </div>
-                    {!renamingThisCluster && <span className="dots"
-                      onClick={e => { e.stopPropagation(); setRenameVal(cl.title || formatClusterTitle(cl.createdAt)); setRenamingClusterId(cl.id); setRenamingId(null); setRenamingBranch(null); }}
-                      style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
-                  </div>
-                  {!collapsed && group.items.map(cv => renderConvItem(cv, "cl:" + cl.id, 0))}
+                <div key={group.cluster.id} style={{ marginBottom: 6 }}>
+                  {visible.map((item, idx) => {
+                    const isGroupRoot = item.conv.id === ordered[0]?.conv.id;
+                    const hasRootChildren = ordered.length > 1 || buildBranchTree(item.conv.commits || []).length > 0;
+                    const toggle = isGroupRoot && hasRootChildren
+                      ? { open: groupOpen, onToggle: () => toggleCluster(group.cluster.id) }
+                      : null;
+                    return renderConvItem(
+                      item.conv,
+                      "cl:" + group.cluster.id,
+                      groupOpen ? item.depth : 0,
+                      toggle,
+                      branchChildren
+                    );
+                  })}
                 </div>
               );
             });
@@ -1120,15 +1709,17 @@ export default function App() {
                   if (chatMenu.kind === "conv") {
                     const n = countChildConvs(chatMenu.id);
                     const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
-                    if (window.confirm(msg)) del(chatMenu.id);
+                    const id = chatMenu.id;
+                    setConfirmDialog({ msg, onConfirm: () => del(id) });
                   } else if (chatMenu.kind === "branch") {
                     const cv = convs.find(c => c.id === chatMenu.convId);
                     if (cv) {
                       const descs = getBranchDescendantNames(cv.commits || [], chatMenu.branch);
                       const msg = descs.length > 0
-                        ? `Delete branch "${chatMenu.branch}"?\nThis will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
+                        ? `Delete branch "${chatMenu.branch}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
                         : `Delete branch "${chatMenu.branch}"?`;
-                      if (window.confirm(msg)) deleteBranchCascade(chatMenu.convId, chatMenu.branch);
+                      const cid = chatMenu.convId, b = chatMenu.branch;
+                      setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cid, b) });
                     }
                   }
                   setChatMenu(null);
@@ -1188,28 +1779,30 @@ export default function App() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "7px 12px", borderBottom: "0.5px solid " + t.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.text, display: "flex", alignItems: "center", gap: 4 }}><img src={herbIcon} alt="" style={{ width: 16, height: 16 }} /> OpenBranch</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.text, display: "flex", alignItems: "center", gap: 6 }}><img src={herbIcon} alt="" style={{ width: 20, height: 20 }} /> OpenBranch</span>
             {names.length > 0 && <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 3, background: bCol(names, branch) + "18", color: bCol(names, branch), fontWeight: 500, fontFamily: "monospace" }}>{branch}</span>}
             {parentRef && <span onClick={goToParent} style={{ fontSize: 8, color: "#378ADD", cursor: "pointer" }}>{"\u2197"} from: {parentRef.convTitle?.slice(0, 20)}</span>}
           </div>
           {commits.length > 0 && <button onClick={() => setGraph(!graph)} style={{ fontSize: 9, padding: "4px 8px", borderRadius: 4, cursor: "pointer", background: graph ? t.accent : "transparent", color: graph ? t.accentText : t.textSub, border: graph ? "none" : "0.5px solid " + t.border }}>{graph ? "Hide graph" : "Graph"}</button>}
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "14px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px 32px", display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
+          <div style={{ width: "100%", maxWidth: 760, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
           {thread.length === 0 && !pending && !newFromRef && (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ textAlign: "center", maxWidth: 520 }}>
-                <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 6, letterSpacing: "-0.5px", color: t.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><img src={herbIcon} alt="OpenBranch" style={{ width: 36, height: 36 }} /> OpenBranch</div>
-                <div style={{ fontSize: 13, color: t.textSub, marginBottom: 24 }}>Expand your chat. Merge your ideas.</div>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
-                  {["Should I learn Rust or Go for backend?", "Help me plan a startup strategy", "Compare pros and cons of remote work"].map(q => (
-                    <button key={q} onClick={() => { setInput(q); sendRef.current = q; }}
-                      style={{ flex: "1 1 140px", maxWidth: 200, padding: "12px 14px", fontSize: 12, lineHeight: 1.5, borderRadius: 10, border: "1px solid " + t.border, background: t.bg, color: t.textSub, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}
-                      onMouseEnter={e => { e.currentTarget.style.background = t.hoverSidebar; e.currentTarget.style.borderColor = t.textMuted; e.currentTarget.style.color = t.text; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = t.bg; e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textSub; }}>
-                      {q}
-                    </button>
-                  ))}
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 28 }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.5px", color: t.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><img src={herbIcon} alt="OpenBranch" style={{ width: 36, height: 36 }} /> OpenBranch</div>
+                <div style={{ fontSize: 13, color: t.textSub, marginTop: 6 }}>Expand your chat. Merge your ideas.</div>
+              </div>
+              <div style={{ width: "100%", maxWidth: 680, borderRadius: 18, border: "0.5px solid " + t.border, background: t.bg, padding: "14px 16px 10px", boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
+                <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (e.metaKey || e.ctrlKey) { send(true); return; } send(false); } }}
+                  placeholder="How can I help you today?"
+                  rows={1}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "6px 0 14px", fontSize: 14, border: "none", outline: "none", background: "transparent", color: t.text, resize: "none", fontFamily: "inherit", lineHeight: 1.5, maxHeight: 200, overflowY: "auto" }}
+                  onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px"; }} />
+                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+                  <ModelPicker models={modelList} value={currentModel} onChange={v => { setModel(v); storage.set("model", v); }} thinking={thinkingOn} onThinkingChange={v => { setThinkingOn(v); storage.set("thinkingOn", v ? "1" : "0"); }} t={t} />
                 </div>
               </div>
             </div>
@@ -1229,16 +1822,40 @@ export default function App() {
                       onMouseEnter={e => e.currentTarget.style.color = t.userText} onMouseLeave={e => { if (editId !== cm.id) e.currentTarget.style.color = t.textMuted; }}>edit</button>
                   </div>
                 </div>
-                <div style={{ alignSelf: "flex-start", maxWidth: "80%", padding: "10px 14px", borderRadius: 12, fontSize: 13, lineHeight: 1.7, background: t.aiBubble, color: t.aiText }}>{renderMd(cm.response, t)}</div>
+                <div style={{ alignSelf: "flex-start", maxWidth: "80%", display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ padding: "10px 14px", borderRadius: 12, fontSize: 13, lineHeight: 1.7, background: t.aiBubble, color: t.aiText }}>{renderMd(cm.response, t)}</div>
+                  <div className="ai-actions" style={{ display: "flex", gap: 2, opacity: 0.45, transition: "opacity 0.15s", marginLeft: 4 }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = "1"} onMouseLeave={e => e.currentTarget.style.opacity = "0.45"}>
+                    <IconBtn title="Copy" t={t} onClick={() => copyToClipboard(cm.response)}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="11" height="11" rx="2" />
+                        <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                      </svg>
+                    </IconBtn>
+                    <IconBtn title="Retry" t={t} onClick={() => retryResponse(cm.id)} disabled={thinking}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8" />
+                        <path d="M21 3v5h-5" />
+                        <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16" />
+                        <path d="M3 21v-5h5" />
+                      </svg>
+                    </IconBtn>
+                  </div>
+                </div>
               </div>
             );
           })}
           {pending && <div style={{ alignSelf: "flex-end", maxWidth: "80%", padding: "10px 14px", borderRadius: 12, fontSize: 13, lineHeight: 1.7, background: newFromRef ? "#f0f6ff" : t.userBubble, color: newFromRef ? "#378ADD" : t.userText }}>{pending}</div>}
           {thinking && <div style={{ padding: "10px 14px", borderRadius: 12, background: t.aiBubble, fontSize: 13, color: t.textMuted, alignSelf: "flex-start" }}><ThinkingDots /></div>}
           <div ref={endRef} />
+          </div>
         </div>
 
         {/* Mode indicators */}
+        {branchFromId && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.userBubble, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: t.userText, fontWeight: 500 }}>Branch from selected point</span>
+          <button onClick={() => { setBranchFromId(null); setInput(""); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
+        </div>}
         {editId && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.userBubble, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 11, color: t.userText, fontWeight: 500 }}>Editing — new branch</span>
           <button onClick={() => { setEditId(null); setInput(""); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
@@ -1250,6 +1867,13 @@ export default function App() {
         {mm && sel.length > 0 && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.mergeBubble, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 11, color: t.mergeText, fontWeight: 500 }}>Merging {sel.length} into {branch}</span>
           <button onClick={() => { setMm(false); setSel([]); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
+        </div>}
+        {undoAction && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: dark ? "#122033" : "#EAF3FF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: dark ? "#9CCBFF" : "#1F6FB2", fontWeight: 500 }}>{undoAction.label}</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={restoreUndo} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + (dark ? "#33567A" : "#A8CFFF"), cursor: "pointer", color: dark ? "#C7E2FF" : "#1F6FB2" }}>Undo</button>
+            <button onClick={() => setUndoAction(null)} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: dark ? "#1F6FB2" : "#378ADD", border: "0.5px solid " + (dark ? "#2E7FC9" : "#378ADD"), cursor: "pointer", color: "#fff" }}>Done</button>
+          </div>
         </div>}
 
         {/* Rate limit banner */}
@@ -1288,40 +1912,36 @@ export default function App() {
           </div>
         )}
 
-        {/* Input */}
-        <div style={{ padding: "8px 12px", borderTop: "0.5px solid " + t.border, display: "flex", gap: 6, alignItems: "center" }}>
-          <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (mm && sel.length) { merge(); return; }
-                if (e.metaKey || e.ctrlKey) { branchOff(); return; }
-                send(false);
-              }
-            }}
-            placeholder={editId ? "Edit your question..." : newFromRef ? "Start new conversation..." : mm ? "Merge instruction..." : "Message..."}
-            style={{ flex: 1, padding: "10px 12px", fontSize: 13, borderRadius: 8, border: editId ? "1.5px solid " + t.userText : newFromRef ? "1.5px solid #378ADD" : mm ? "1.5px solid #BA7517" : "0.5px solid " + t.border, background: t.bg, color: t.text }} />
-          {!(mm && sel.length) && (
-            <button onClick={branchOff}
-              disabled={thinking || !headId || mm || !!editId || !!newFromRef}
-              title="Branch — spawn a new conversation from here (Cmd/Ctrl+Enter)"
-              style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: "transparent", color: t.text, border: "0.5px solid " + t.border, cursor: "pointer", opacity: thinking || !headId || mm || !!editId || !!newFromRef ? 0.4 : 1 }}>
-              🌿 Branch
-            </button>
-          )}
-          {!(mm && sel.length) && (
-            <button onClick={() => startNew(headId)}
-              disabled={thinking || !headId || mm || !!editId || !!newFromRef}
-              title="New — start an isolated conversation from here"
-              style={{ padding: "10px 12px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: "transparent", color: t.text, border: "0.5px solid " + t.border, cursor: "pointer", opacity: thinking || !headId || mm || !!editId || !!newFromRef ? 0.4 : 1 }}>
-              + New
-            </button>
-          )}
-          <button onClick={() => mm && sel.length ? merge() : send()} disabled={thinking || !input.trim() || (mm && !sel.length)}
-            style={{ padding: "10px 16px", fontSize: 13, fontWeight: 500, borderRadius: 8, background: editId ? t.userText : newFromRef ? "#378ADD" : mm ? "#854F0B" : t.accent, color: t.accentText, border: "none", cursor: "pointer", opacity: thinking || !input.trim() ? 0.4 : 1 }}>
-            {editId ? "Edit" : mm ? "Merge" : "Send"}
-          </button>
-        </div>
+        {/* Input (bottom) — hidden during empty state since input is centered there */}
+        {(thread.length > 0 || pending || newFromRef) && (
+          <div style={{ padding: "4px 16px 18px", display: "flex", justifyContent: "center" }}>
+            <div style={{ width: "100%", maxWidth: 760, borderRadius: 16, border: (branchFromId || editId) ? "1.5px solid " + t.userText : newFromRef ? "1.5px solid #378ADD" : mm ? "1.5px solid #BA7517" : "0.5px solid " + t.border, background: t.bg, padding: "10px 14px 8px", boxShadow: "0 1px 6px rgba(0,0,0,0.04)" }}>
+              <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (mm && sel.length) { merge(); return; }
+                    if (e.metaKey || e.ctrlKey) { send(true); return; }
+                    send(false);
+                  }
+                }}
+                placeholder={branchFromId ? "Write the first message for this branch..." : editId ? "Edit your question..." : newFromRef ? "Start new conversation..." : mm ? "Merge instruction..." : "Reply..."}
+                rows={1}
+                style={{ width: "100%", boxSizing: "border-box", padding: "4px 0 10px", fontSize: 13, border: "none", outline: "none", background: "transparent", color: t.text, resize: "none", fontFamily: "inherit", lineHeight: 1.5, maxHeight: 200, overflowY: "auto" }}
+                onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px"; }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div />
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <ModelPicker models={modelList} value={currentModel} onChange={v => { setModel(v); storage.set("model", v); }} thinking={thinkingOn} onThinkingChange={v => { setThinkingOn(v); storage.set("thinkingOn", v ? "1" : "0"); }} t={t} />
+                  <button onClick={() => mm && sel.length ? merge() : send()} disabled={thinking || !input.trim() || (mm && !sel.length)}
+                    style={{ padding: "6px 14px", fontSize: 12, fontWeight: 500, borderRadius: 8, background: (branchFromId || editId) ? t.userText : newFromRef ? "#378ADD" : mm ? "#854F0B" : t.accent, color: t.accentText, border: "none", cursor: "pointer", opacity: thinking || !input.trim() ? 0.4 : 1 }}>
+                    {branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : "Send"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* RIGHT: Graph */}
@@ -1339,11 +1959,31 @@ export default function App() {
             <span style={{ fontSize: 10, fontWeight: 500, color: t.textSub }}>Graph</span>
             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
               <span style={{ fontSize: 8, color: t.textMuted, fontFamily: "monospace" }}>HEAD {headId?.slice(0, 7)}</span>
-              {names.length > 1 && !mm && <button onClick={() => { setMm(true); setSel([]); }} style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#FAEEDA", color: "#854F0B", border: "0.5px solid #FAC775", cursor: "pointer" }}>Merge</button>}
+              {!mm && <button onClick={() => { setSelectMode(p => !p); setMm(false); setSel([]); clearSelectRange(); }}
+                style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: selectMode ? "#378ADD" : "transparent", color: selectMode ? "#fff" : "#378ADD", border: "0.5px solid #378ADD", cursor: "pointer" }}>Select</button>}
+              {names.length > 1 && !mm && !selectMode && <button onClick={() => { setSelectMode(false); clearSelectRange(); setMm(true); setSel([]); }} style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#FAEEDA", color: "#854F0B", border: "0.5px solid #FAC775", cursor: "pointer" }}>Merge</button>}
               {mm && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#854F0B", color: "#fff" }}>Select commits</span>}
+              {selectMode && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: selectError ? "#fee" : "#EAF3FF", color: selectError ? "#c00" : "#1F6FB2" }}>{selectError || (selectRange.endId ? selectedRangeIds.length + " selected" : selectRange.startId ? "Pick end" : "Pick start")}</span>}
             </div>
           </div>
-          <Graph commits={commits} headId={headId} activeBranch={branch} names={names} onCheckout={checkout} onEdit={startEdit} onNew={startNew} onDelete={deleteCommit} mergeMode={mm} selected={sel} onToggleSel={toggleSel} parentRef={parentRef} onGoToParent={goToParent} childRefs={childRefs} onGoToChild={goToChild} hoveredCid={hoveredCid} panelW={graphW} t={t} branchTitles={convs.find(c => c.id === convId)?.branchTitles || {}} onEditLabel={editNodeLabel} />
+          <Graph commits={commits} headId={headId} activeBranch={branch} names={names} onCheckout={checkout} onBranch={startBranchFrom} onNew={startNew} onDelete={deleteCommit} mergeMode={mm} selected={sel} onToggleSel={toggleSel} selectMode={selectMode} selectedRangeIds={selectedRangeIds} onSelectNode={handleSelectNode} onRangeBranch={rangeToBranch} onRangeNew={rangeToNew} onRangeDelete={deleteRange} parentRef={parentRef} onGoToParent={goToParent} childRefs={childRefs} onGoToChild={goToChild} hoveredCid={hoveredCid} panelW={graphW} t={t} branchTitles={convs.find(c => c.id === convId)?.branchTitles || {}} onEditLabel={editNodeLabel} onEditTags={editCommitTags} allTags={Array.from(new Set(convs.flatMap(cv => (cv.commits || []).flatMap(c => c.tags || []))))} />
+        </div>
+      )}
+
+      {/* Confirm dialog */}
+      {confirmDialog && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setConfirmDialog(null)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: t.bg, border: "0.5px solid " + t.border, borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.2)", padding: "18px 20px", minWidth: 280, maxWidth: 380 }}>
+            <div style={{ fontSize: 13, color: t.text, marginBottom: 16, lineHeight: 1.45 }}>{confirmDialog.msg}</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmDialog(null)}
+                style={{ padding: "7px 14px", fontSize: 11, borderRadius: 6, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
+              <button onClick={() => { confirmDialog.onConfirm?.(); setConfirmDialog(null); }}
+                style={{ padding: "7px 14px", fontSize: 11, fontWeight: 600, borderRadius: 6, background: "#c00", color: "#fff", border: "none", cursor: "pointer" }}>Delete</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
