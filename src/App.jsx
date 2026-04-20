@@ -4,6 +4,9 @@ import { callLLM, detectProvider, submitWaitlist, MODEL_CHOICES } from "./lib/ll
 import herbIcon from "./assets/herb.svg";
 import seedMobyDick from "./seed-moby-dick";
 import { LIGHT, DARK, bCol } from "./theme";
+import { mkCommit, buildMsgs, getThread, bNames, bHead, shortModelName, bumpIdCounter } from "./graph/model";
+import { getBranchLabel, buildBranchTree, commitBranch, branchPathToRoot, getBranchDescendantNames } from "./graph/branches";
+import { rangeCommitsFor, cutRangeFromCommits, chooseHeadAfterCut, cloneRangeCommits, nextBranchName } from "./graph/range";
 
 /* ═══════ MARKDOWN ═══════ */
 function renderInline(text, keyRef, t) {
@@ -151,107 +154,6 @@ const ChevronIcon = ({ open }) => (
   </svg>
 );
 
-/* ═══════ DATA ═══════ */
-let cc = 100; // start high to avoid conflicts with demo IDs
-function mkId() { return "c" + (++cc) + "_" + Math.random().toString(36).slice(2, 5); }
-function shortModelName(id) {
-  if (!id) return "";
-  if (id.includes("haiku")) return "Haiku";
-  if (id.includes("sonnet")) return "Sonnet";
-  if (id.includes("opus")) return "Opus";
-  if (id === "gpt-4o") return "GPT-4o";
-  if (id === "gpt-4o-mini") return "GPT-4o·m";
-  if (id.includes("flash")) return "Gemini·F";
-  if (id.includes("pro")) return "Gemini·P";
-  return id.slice(0, 10);
-}
-
-function mkCommit(parentId, prompt, response, branch, mergeIds, model) {
-  const c = {
-    id: mkId(), parentId, mergeIds: mergeIds || [], prompt, response, branch, ts: Date.now(),
-  };
-  if (model) c.model = model;
-  return c;
-}
-function buildMsgs(thread, finalUserMsg) {
-  const msgs = [];
-  for (const c of thread) {
-    msgs.push({ role: "user", content: c.prompt });
-    if (c.response) msgs.push({ role: "assistant", content: c.response });
-  }
-  msgs.push({ role: "user", content: finalUserMsg });
-  return msgs;
-}
-function getThread(commits, hid) {
-  const t = []; let id = hid; const v = new Set();
-  while (id && !v.has(id)) { v.add(id); const c = commits.find(x => x.id === id); if (!c) break; t.unshift(c); id = c.parentId; }
-  return t;
-}
-function bNames(c) { return [...new Set(c.map(x => x.branch))]; }
-function bHead(c, b) { const bc = c.filter(x => x.branch === b); return bc.length ? bc[bc.length - 1] : null; }
-
-// Display label for a branch. Unified across sidebar + graph tabs.
-// 1. branchTitles override (user rename)
-// 2. "main" stays literal (well-known)
-// 3. First commit prompt on that branch
-// 4. Fallback to branch identifier (should be rare)
-function getBranchLabel(commits, branchName, branchTitles) {
-  const custom = branchTitles?.[branchName];
-  if (custom) return custom;
-  if (branchName === "main") return "main";
-  const firstOnBranch = (commits || []).filter(c => c.branch === branchName).sort((a, b) => a.ts - b.ts)[0];
-  const prompt = firstOnBranch?.prompt;
-  if (!prompt) return branchName;
-  return prompt.replace(/\s+/g, " ").trim();
-}
-
-// Build a hierarchical list of non-main branches. Each branch's parent is determined
-// by the branch of its first commit's parentId. Output: [{ branch, depth, label }, ...]
-// walked depth-first, ordered by first commit ts at each level.
-function buildBranchTree(commits) {
-  if (!commits.length) return [];
-  const byBranch = {};
-  for (const c of commits) (byBranch[c.branch] || (byBranch[c.branch] = [])).push(c);
-
-  const info = {};
-  for (const [name, list] of Object.entries(byBranch)) {
-    const first = list.reduce((a, b) => a.ts < b.ts ? a : b);
-    const parentCm = first.parentId ? commits.find(c => c.id === first.parentId) : null;
-    const parentBranch = parentCm && parentCm.branch !== name ? parentCm.branch : null;
-    info[name] = { name, firstCommit: first, parentBranch, children: [] };
-  }
-  for (const b of Object.values(info)) {
-    if (b.parentBranch && info[b.parentBranch]) info[b.parentBranch].children.push(b.name);
-  }
-  for (const b of Object.values(info)) {
-    b.children.sort((x, y) => info[x].firstCommit.ts - info[y].firstCommit.ts);
-  }
-
-  const result = [];
-  const visited = new Set();
-  const walk = (name, depth) => {
-    if (visited.has(name)) return;
-    visited.add(name);
-    if (name !== "main") {
-      const prompt = info[name].firstCommit?.prompt || name;
-      result.push({
-        branch: name,
-        depth,
-        parentBranch: info[name].parentBranch,
-        hasChildren: info[name].children.length > 0,
-        label: prompt.replace(/\s+/g, " ").trim(),
-      });
-    }
-    for (const child of info[name].children) walk(child, depth + 1);
-  };
-
-  if (info["main"]) walk("main", 0);
-  // Orphans (branches whose parent branch is missing) start at depth 1
-  for (const b of Object.values(info)) if (!visited.has(b.name)) walk(b.name, 1);
-
-  return result;
-}
-
 // Sidebar rule: new conversations are sibling notebooks; branches are child notebooks.
 function orderSectionItems(members) {
   if (!members.length) return [];
@@ -261,24 +163,6 @@ function orderSectionItems(members) {
 
 function sidebarBranchKey(convId, branchName) {
   return convId + ":branch:" + branchName;
-}
-
-function commitBranch(cv, commitId) {
-  return (cv.commits || []).find(c => c.id === commitId)?.branch || null;
-}
-
-function branchPathToRoot(commits, branchName) {
-  if (!branchName || branchName === "main") return [];
-  const branchTree = buildBranchTree(commits || []);
-  const byName = {};
-  branchTree.forEach(b => { byName[b.branch] = b; });
-  const path = [];
-  let cur = branchName;
-  while (cur && cur !== "main" && byName[cur]) {
-    path.unshift(cur);
-    cur = byName[cur].parentBranch;
-  }
-  return path;
 }
 
 function buildSidebarLayout(members) {
@@ -899,7 +783,7 @@ export default function App() {
     const commits = cv.commits || [];
     setCommits(commits); setHeadId(cv.headId); setBranch(cv.branch || "main");
     setConvId(cv.id); setParentRef(cv.parentRef || null);
-    cc = Math.max(cc, commits.length + 10);
+    bumpIdCounter(commits.length + 10);
     setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null);
   };
   const loadMain = cv => {
@@ -938,29 +822,6 @@ export default function App() {
       }
     }
     return set.size - 1;
-  };
-  const getBranchDescendantNames = (cms, bName) => {
-    if (!cms.length) return [];
-    const byBranch = {};
-    for (const c of cms) (byBranch[c.branch] || (byBranch[c.branch] = [])).push(c);
-    const parentOf = {};
-    for (const [name, list] of Object.entries(byBranch)) {
-      const first = list.reduce((a, b) => a.ts < b.ts ? a : b);
-      const parentCm = first.parentId ? cms.find(c => c.id === first.parentId) : null;
-      parentOf[name] = parentCm && parentCm.branch !== name ? parentCm.branch : null;
-    }
-    const set = new Set([bName]);
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const name of Object.keys(byBranch)) {
-        if (!set.has(name) && parentOf[name] && set.has(parentOf[name])) {
-          set.add(name); grew = true;
-        }
-      }
-    }
-    set.delete(bName);
-    return Array.from(set);
   };
   // Rename only affects the sidebar label via branchTitles map.
   // commit.branch (technical identifier) is untouched.
@@ -1043,19 +904,7 @@ export default function App() {
   })) : [];
 
   const clusterGroups = buildClusterGroups(convs, clusters);
-  const rangeCommitsFor = (range = selectRange, source = commits) => {
-    const start = source.find(c => c.id === range.startId);
-    if (!start) return [];
-    const end = source.find(c => c.id === range.endId) || start;
-    if (start.branch !== end.branch) return [start];
-    const list = source.filter(c => c.branch === start.branch).sort((a, b) => a.ts - b.ts);
-    const ai = list.findIndex(c => c.id === start.id);
-    const bi = list.findIndex(c => c.id === end.id);
-    if (ai < 0 || bi < 0) return [start];
-    const lo = Math.min(ai, bi), hi = Math.max(ai, bi);
-    return list.slice(lo, hi + 1);
-  };
-  const selectedRangeCommits = rangeCommitsFor();
+  const selectedRangeCommits = rangeCommitsFor(commits, selectRange);
   const selectedRangeIds = selectedRangeCommits.map(c => c.id);
   const clearSelectRange = () => { setSelectRange({ startId: null, endId: null }); setSelectError(""); };
   const snap = value => JSON.parse(JSON.stringify(value));
@@ -1089,23 +938,6 @@ export default function App() {
     setSelectMode(false);
     clearSelectRange();
   };
-  const cutRangeFromCommits = (source, range) => {
-    if (!range.length) return source;
-    const ids = new Set(range.map(c => c.id));
-    const glueParentId = range[0].parentId || null;
-    return source
-      .filter(c => !ids.has(c.id))
-      .map(c => ids.has(c.parentId) ? { ...c, parentId: glueParentId } : c);
-  };
-  const chooseHeadAfterCut = (list, oldHeadId, fallbackBranch) => {
-    if (list.find(c => c.id === oldHeadId)) {
-      const oldHead = list.find(c => c.id === oldHeadId);
-      return { headId: oldHeadId, branch: oldHead?.branch || fallbackBranch || "main" };
-    }
-    const fallback = list.filter(c => c.branch === fallbackBranch).slice(-1)[0] || list[list.length - 1];
-    return { headId: fallback?.id || null, branch: fallback?.branch || "main" };
-  };
-
   // Auto-show graph when conversation has commits
   const showGraph = graph || commits.length > 0;
 
@@ -1236,7 +1068,7 @@ export default function App() {
     const cm = cRef.current.find(c => c.id === cid);
     if (!cm || thinking) return;
     const parentId = cm.parentId || null;
-    const br = nextBranchName();
+    const br = nextBranchName(cRef.current);
     const parentThread = getThread(cRef.current, parentId);
     const msgs = buildMsgs(parentThread, cm.prompt);
     setHeadId(parentId); setBranch(br);
@@ -1274,23 +1106,8 @@ export default function App() {
       return { startId: prev.startId, endId: cid };
     });
   };
-  const cloneRangeCommits = (range, branchName, firstParentId = null) => {
-    let parentId = firstParentId;
-    return range.map(c => {
-      const cm = mkCommit(parentId, c.prompt, c.response, branchName);
-      if (c.displayLabel) cm.displayLabel = c.displayLabel;
-      parentId = cm.id;
-      return cm;
-    });
-  };
-  const nextBranchName = () => {
-    const existing = new Set(bNames(cRef.current));
-    let i = existing.size;
-    while (existing.has("branch-" + i)) i += 1;
-    return "branch-" + i;
-  };
   const rangeToNew = () => {
-    const range = rangeCommitsFor();
+    const range = rangeCommitsFor(commits, selectRange);
     if (!range.length) return;
     const currentConv = convs.find(c => c.id === convId);
     if (!currentConv) return;
@@ -1342,13 +1159,13 @@ export default function App() {
     setCommits(nc); cRef.current = nc; setHeadId(last.id); setBranch("main"); setConvId(newId); setParentRef(pRef); setGraph(true);
   };
   const rangeToBranch = () => {
-    const range = rangeCommitsFor();
+    const range = rangeCommitsFor(commits, selectRange);
     if (!range.length) return;
     const currentConv = convs.find(c => c.id === convId);
     if (!currentConv) return;
     rememberUndo("Moved to Branch");
     const originalCommits = cutRangeFromCommits(cRef.current, range);
-    const br = nextBranchName();
+    const br = nextBranchName(cRef.current);
     const nc = [...originalCommits, ...cloneRangeCommits(range, br, range[0].parentId || null)];
     const last = nc[nc.length - 1];
     const updated = { ...currentConv, commits: nc, headId: last.id, branch: br, u: new Date().toISOString() };
@@ -1363,7 +1180,7 @@ export default function App() {
     const currentConv = convs.find(c => c.id === convId);
     if (!currentConv) return;
     rememberUndo("Deleted selection");
-    const range = rangeCommitsFor();
+    const range = rangeCommitsFor(commits, selectRange);
     const nc = cutRangeFromCommits(commits, range);
     const nextHead = chooseHeadAfterCut(nc, headId, branch);
     const updated = { ...currentConv, commits: nc, headId: nextHead.headId, branch: nextHead.branch, u: new Date().toISOString() };
