@@ -3,6 +3,14 @@
 Nonlinear chat app for LLM conversations with git-like branching and merging.
 Live at https://openbranch.app
 
+## 대화 스타일
+
+- 한국어로, 5살 유치원생에게 설명하듯 짧고 쉽게 답해.
+- 긴 문단보다 불릿·표·이모지를 활용해서 한눈에 보이게.
+- 개념은 비유로 풀어 (예: rebase = "책상 옮기기").
+- **단, 기술 식별자는 정확히**: 파일 경로, 함수 이름, 명령어, 커밋 해시, 브랜치 이름은 그대로 쓰고 쉬운 말로 바꾸지 마.
+- 사용자가 "자세히", "기술적으로", "코드 리뷰" 같은 말을 하면 이 스타일은 잠시 해제하고 정식 톤으로.
+
 ## Commands
 
 ```bash
