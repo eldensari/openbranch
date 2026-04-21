@@ -211,8 +211,8 @@ export default function Sidebar({
         </div>
         {!isCollapsed && (
           <>
-            {group.children.map(child => renderFolder(child, depth + 1))}
             {rootItems.map(item => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null, childRefs))}
+            {group.children.map(child => renderFolder(child, depth + 1))}
           </>
         )}
       </div>
