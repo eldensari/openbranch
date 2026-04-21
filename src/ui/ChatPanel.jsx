@@ -108,30 +108,36 @@ export default function ChatPanel({
           </div>
         </div>
 
-        {/* Mode indicators */}
-        {branchFromId && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.userBubble, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: t.userText, fontWeight: 500 }}>Branch from selected point</span>
-          <button onClick={() => { setBranchFromId(null); setInput(""); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
-        </div>}
-        {editId && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.userBubble, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: t.userText, fontWeight: 500 }}>Editing — new branch</span>
-          <button onClick={() => { setEditId(null); setInput(""); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
-        </div>}
-        {newFromRef && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: "#f0f6ff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: "#378ADD", fontWeight: 500 }}>New conversation from {newFromRef.promptSummary?.slice(0, 25)}..</span>
-          <button onClick={() => { setNewFromRef(null); setInput(""); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
-        </div>}
-        {mm && sel.length > 0 && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.mergeBubble, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: t.mergeText, fontWeight: 500 }}>Merging {sel.length} into {branch}</span>
-          <button onClick={() => { setMm(false); setSel([]); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
-        </div>}
-        {undoAction && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: dark ? "#122033" : "#EAF3FF", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: dark ? "#9CCBFF" : "#1F6FB2", fontWeight: 500 }}>{undoAction.label}</span>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={restoreUndo} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + (dark ? "#33567A" : "#A8CFFF"), cursor: "pointer", color: dark ? "#C7E2FF" : "#1F6FB2" }}>Undo</button>
-            <button onClick={() => setUndoAction(null)} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: dark ? "#1F6FB2" : "#378ADD", border: "0.5px solid " + (dark ? "#2E7FC9" : "#378ADD"), cursor: "pointer", color: "#fff" }}>Done</button>
+        {/* Mode indicators — centered and width-matched to input below */}
+        {(branchFromId || editId || newFromRef || (mm && sel.length > 0) || undoAction) && (
+          <div style={{ padding: "0 16px", display: "flex", justifyContent: "center" }}>
+            <div style={{ width: "100%", maxWidth: 760 }}>
+              {branchFromId && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.userBubble, display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: 4 }}>
+                <span style={{ fontSize: 11, color: t.userText, fontWeight: 500 }}>Branch from selected point</span>
+                <button onClick={() => { setBranchFromId(null); setInput(""); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
+              </div>}
+              {editId && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.userBubble, display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: 4 }}>
+                <span style={{ fontSize: 11, color: t.userText, fontWeight: 500 }}>Editing — new branch</span>
+                <button onClick={() => { setEditId(null); setInput(""); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
+              </div>}
+              {newFromRef && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: "#f0f6ff", display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: 4 }}>
+                <span style={{ fontSize: 11, color: "#378ADD", fontWeight: 500 }}>New conversation from {newFromRef.promptSummary?.slice(0, 25)}..</span>
+                <button onClick={() => { setNewFromRef(null); setInput(""); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
+              </div>}
+              {mm && sel.length > 0 && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: t.mergeBubble, display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: 4 }}>
+                <span style={{ fontSize: 11, color: t.mergeText, fontWeight: 500 }}>Merging {sel.length} into {branch}</span>
+                <button onClick={() => { setMm(false); setSel([]); }} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + t.border, cursor: "pointer", color: t.textSub }}>Cancel</button>
+              </div>}
+              {undoAction && <div style={{ padding: "6px 12px", borderTop: "0.5px solid " + t.border, background: dark ? "#122033" : "#EAF3FF", display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: 4 }}>
+                <span style={{ fontSize: 11, color: dark ? "#9CCBFF" : "#1F6FB2", fontWeight: 500 }}>{undoAction.label}</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={restoreUndo} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: "transparent", border: "0.5px solid " + (dark ? "#33567A" : "#A8CFFF"), cursor: "pointer", color: dark ? "#C7E2FF" : "#1F6FB2" }}>Undo</button>
+                  <button onClick={() => setUndoAction(null)} style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, background: dark ? "#1F6FB2" : "#378ADD", border: "0.5px solid " + (dark ? "#2E7FC9" : "#378ADD"), cursor: "pointer", color: "#fff" }}>Done</button>
+                </div>
+              </div>}
+            </div>
           </div>
-        </div>}
+        )}
 
         {/* Rate limit banner */}
         {rateLimited && !hasKey && (
