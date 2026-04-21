@@ -15,7 +15,7 @@ export default function Sidebar({
   renamingBranch, setRenamingBranch,
   renamingClusterId, setRenamingClusterId,
   renameVal, setRenameVal,
-  collapsedClusters, toggleCluster, setCollapsedClusters,
+  expandedClusters, toggleCluster, expandFolder,
   sidebarItemOpen, toggleSidebarItem,
   activeFolderId, setActiveFolderId,
   createFolder, renameFolder, deleteFolder, moveConvToFolder, moveFolder,
@@ -27,7 +27,7 @@ export default function Sidebar({
   const goToChildRef = (childCv) => {
     if (childCv.clusterId) {
       setActiveFolderId(childCv.clusterId);
-      setCollapsedClusters(p => { const n = new Set(p); n.delete(childCv.clusterId); return n; });
+      expandFolder(childCv.clusterId);
     }
     loadMain(childCv);
   };
@@ -171,7 +171,7 @@ export default function Sidebar({
   const renderFolder = (group, depth) => {
     const folder = group.folder;
     const folderId = folder.id;
-    const isCollapsed = collapsedClusters.has(folderId);
+    const isCollapsed = !expandedClusters.has(folderId);
     const isRenaming = renamingClusterId === folderId;
     const isActive = activeFolderId === folderId;
     const hasContent = group.items.length > 0 || group.children.length > 0;
@@ -179,16 +179,18 @@ export default function Sidebar({
     return (
       <div key={folderId}>
         <div className="chat-item"
-          onClick={() => { if (!isRenaming) { setActiveFolderId(folderId); toggleCluster(folderId); } }}
+          onClick={() => { if (!isRenaming) { setActiveFolderId(folderId); if (hasContent) toggleCluster(folderId); } }}
           onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "folder", id: folderId, x: e.clientX, y: e.clientY }); }}
           style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: isActive ? t.hover : (hasContent && !isCollapsed ? t.hoverSidebar : "transparent"), border: isActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
           onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
           onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = hasContent && !isCollapsed ? t.hoverSidebar : "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-          <button onClick={e => { e.stopPropagation(); toggleCluster(folderId); }}
-            title={isCollapsed ? "Expand" : "Collapse"}
-            style={{ width: 18, height: 18, marginRight: 2, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
-            {isCollapsed ? ">" : "v"}
-          </button>
+          {hasContent ? (
+            <button onClick={e => { e.stopPropagation(); toggleCluster(folderId); }}
+              title={isCollapsed ? "Expand" : "Collapse"}
+              style={{ width: 18, height: 18, marginRight: 2, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
+              {isCollapsed ? ">" : "v"}
+            </button>
+          ) : <span style={{ width: 20, flexShrink: 0 }} />}
           <span style={{ fontSize: 11, marginRight: 4, lineHeight: 1 }}>{isCollapsed ? "\u{1F4C1}" : "\u{1F4C2}"}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             {isRenaming ? (
@@ -303,9 +305,11 @@ export default function Sidebar({
               {chatMenu.kind === "folder" && (<>
                 {menuBtn("new chat", () => {
                   setActiveFolderId(chatMenu.id);
+                  expandFolder(chatMenu.id);
                   newConv();
                 })}
                 {menuBtn("new folder", () => {
+                  expandFolder(chatMenu.id);
                   const f = createFolder(chatMenu.id);
                   setRenameVal("Untitled");
                   setRenamingClusterId(f.id); setRenamingId(null); setRenamingBranch(null);
@@ -350,7 +354,7 @@ export default function Sidebar({
                   (top level)
                 </button>
                 {flattenFolders().map(({ folder, depth }) => (
-                  <button key={folder.id} onClick={() => { moveConvToFolder(chatMenu.convId, folder.id); setChatMenu(null); }}
+                  <button key={folder.id} onClick={() => { moveConvToFolder(chatMenu.convId, folder.id); expandFolder(folder.id); setChatMenu(null); }}
                     style={{ display: "block", width: "100%", padding: "5px 14px", paddingLeft: 14 + depth * 10, fontSize: 11, color: t.text, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
                     onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar}
                     onMouseLeave={e => e.currentTarget.style.background = "none"}>

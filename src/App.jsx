@@ -61,7 +61,7 @@ export default function App() {
   const [renamingBranch, setRenamingBranch] = useState(null); // { convId, branch } | null
   const [renamingClusterId, setRenamingClusterId] = useState(null);
   const [activeFolderId, setActiveFolderId] = useState(null);
-  const [collapsedClusters, setCollapsedClusters] = useState(() => new Set());
+  const [expandedClusters, setExpandedClusters] = useState(() => new Set());
   const [openSidebarItems, setOpenSidebarItems] = useState(() => new Set());
   const [closedSidebarItems, setClosedSidebarItems] = useState(() => new Set());
   const [renameVal, setRenameVal] = useState("");
@@ -73,6 +73,7 @@ export default function App() {
 
   // Persist theme
   useEffect(() => { storage.set("theme", dark ? "dark" : "light"); }, [dark]);
+
 
   // Seed data on first visit, then load convs
   useEffect(() => {
@@ -245,11 +246,15 @@ export default function App() {
     setClusters(p => p.map(c => c.id === id ? updated : c));
   };
   const toggleCluster = (id) => {
-    setCollapsedClusters(p => {
+    setExpandedClusters(p => {
       const n = new Set(p);
       if (n.has(id)) n.delete(id); else n.add(id);
       return n;
     });
+  };
+  const expandFolder = (id) => {
+    if (!id) return;
+    setExpandedClusters(p => { const n = new Set(p); n.add(id); return n; });
   };
   const toggleSidebarItem = (id, defaultOpen = false) => {
     const setter = defaultOpen ? setClosedSidebarItems : setOpenSidebarItems;
@@ -786,7 +791,7 @@ export default function App() {
         renamingBranch={renamingBranch} setRenamingBranch={setRenamingBranch}
         renamingClusterId={renamingClusterId} setRenamingClusterId={setRenamingClusterId}
         renameVal={renameVal} setRenameVal={setRenameVal}
-        collapsedClusters={collapsedClusters} toggleCluster={toggleCluster} setCollapsedClusters={setCollapsedClusters}
+        expandedClusters={expandedClusters} toggleCluster={toggleCluster} expandFolder={expandFolder}
         sidebarItemOpen={sidebarItemOpen} toggleSidebarItem={toggleSidebarItem}
         activeFolderId={activeFolderId} setActiveFolderId={setActiveFolderId}
         createFolder={createFolder} renameFolder={renameFolder} deleteFolder={deleteFolder}
