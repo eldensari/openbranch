@@ -2,6 +2,7 @@ import storage from "../lib/storage";
 import { detectProvider } from "../lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "../graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "../storage/sidebar";
+import { buildFolderGroups, formatClusterTitle } from "../storage/clusters";
 import { SunIcon, MoonIcon, GitHubIcon } from "./icons";
 
 export default function Sidebar({
@@ -12,10 +13,12 @@ export default function Sidebar({
   chatMenu, setChatMenu,
   renamingId, setRenamingId,
   renamingBranch, setRenamingBranch,
-  setRenamingClusterId,
+  renamingClusterId, setRenamingClusterId,
   renameVal, setRenameVal,
   collapsedClusters, toggleCluster,
   sidebarItemOpen, toggleSidebarItem,
+  activeFolderId, setActiveFolderId,
+  createFolder, renameFolder, deleteFolder, moveConvToFolder, moveFolder,
   apiKey, setApiKey, showKeyInput, setShowKeyInput, keyDraft, setKeyDraft, hasKey, setRateLimited,
   newConv, loadMain, loadBranch,
   renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
@@ -151,9 +154,56 @@ export default function Sidebar({
   convs.forEach(cv => (cv.commits || []).forEach(c => (c.tags || []).forEach(tg => liveTags.add(tg))));
   const liveActive = new Set([...activeTags].filter(tg => liveTags.has(tg)));
   const convHasAnyTag = cv => (cv.commits || []).some(c => (c.tags || []).some(tg => liveActive.has(tg)));
-  const filteredGroups = liveActive.size
-    ? clusterGroups.map(g => ({ ...g, items: g.items.filter(convHasAnyTag) })).filter(g => g.items.length)
-    : clusterGroups;
+  const filteredConvs = liveActive.size ? convs.filter(convHasAnyTag) : convs;
+  const folderGroups = buildFolderGroups(filteredConvs, clusters);
+
+  const renderFolder = (group, depth) => {
+    const folder = group.folder;
+    const folderId = folder.id;
+    const isCollapsed = collapsedClusters.has(folderId);
+    const isRenaming = renamingClusterId === folderId;
+    const isActive = activeFolderId === folderId;
+    const hasContent = group.items.length > 0 || group.children.length > 0;
+    const { rootItems, branchChildren } = buildSidebarLayout(group.items);
+    return (
+      <div key={folderId}>
+        <div className="chat-item"
+          onClick={() => { if (!isRenaming) { setActiveFolderId(folderId); toggleCluster(folderId); } }}
+          style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: isActive ? t.hover : (hasContent && !isCollapsed ? t.hoverSidebar : "transparent"), border: isActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
+          onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
+          onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = hasContent && !isCollapsed ? t.hoverSidebar : "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
+          <button onClick={e => { e.stopPropagation(); toggleCluster(folderId); }}
+            title={isCollapsed ? "Expand" : "Collapse"}
+            style={{ width: 18, height: 18, marginRight: 2, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
+            {isCollapsed ? ">" : "v"}
+          </button>
+          <span style={{ fontSize: 11, marginRight: 4, lineHeight: 1 }}>{isCollapsed ? "\u{1F4C1}" : "\u{1F4C2}"}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {isRenaming ? (
+              <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { renameFolder(folderId, renameVal); setRenamingClusterId(null); } if (e.key === "Escape") setRenamingClusterId(null); }}
+                onBlur={() => { renameFolder(folderId, renameVal); setRenamingClusterId(null); }}
+                onClick={e => e.stopPropagation()}
+                style={{ width: "100%", fontSize: 10, fontWeight: 600, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
+            ) : (
+              <div style={{ fontSize: 10, fontWeight: 650, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={folder.title || "Untitled"}>
+                {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+              </div>
+            )}
+          </div>
+          {!isRenaming && <span className="dots"
+            onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "folder" && chatMenu.id === folderId ? null : { kind: "folder", id: folderId, x: e.clientX, y: e.clientY }); }}
+            style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
+        </div>
+        {!isCollapsed && (
+          <>
+            {group.children.map(child => renderFolder(child, depth + 1))}
+            {rootItems.map(item => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null, branchChildren))}
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ width: 180, display: "flex", flexDirection: "column", borderRight: "0.5px solid " + t.border, background: t.sidebar }}>
@@ -176,29 +226,7 @@ export default function Sidebar({
         </div>
       )}
       <div style={{ flex: 1, overflowY: "auto", padding: "0 4px 4px" }} onClick={() => setChatMenu(null)}>
-        {filteredGroups.map(group => {
-          const { rootItems: ordered, branchChildren } = buildSidebarLayout(group.items);
-          const groupOpen = collapsedClusters.has(group.cluster.id);
-          const visible = groupOpen ? ordered : ordered.slice(0, 1);
-          return (
-            <div key={group.cluster.id} style={{ marginBottom: 6 }}>
-              {visible.map((item, idx) => {
-                const isGroupRoot = item.conv.id === ordered[0]?.conv.id;
-                const hasRootChildren = ordered.length > 1 || buildBranchTree(item.conv.commits || []).length > 0;
-                const toggle = isGroupRoot && hasRootChildren
-                  ? { open: groupOpen, onToggle: () => toggleCluster(group.cluster.id) }
-                  : null;
-                return renderConvItem(
-                  item.conv,
-                  "cl:" + group.cluster.id,
-                  groupOpen ? item.depth : 0,
-                  toggle,
-                  branchChildren
-                );
-              })}
-            </div>
-          );
-        })}
+        {folderGroups.map(group => renderFolder(group, 0))}
       </div>
 
       {/* Chat context menu (kind: "conv" | "branch") */}
