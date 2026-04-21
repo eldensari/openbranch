@@ -119,24 +119,31 @@ export default function App() {
     return cluster;
   };
 
-  const save = (title, cm, hid, br, pRef, forceNewId) => {
-    const id = forceNewId || convId || "conv:" + Date.now();
-    // `convs` state can be a stale closure snapshot inside async flows
-    // (e.g., the second save() in the newFromRef branch runs after await callLLM
-    // and doesn't see the first save()'s addition). Fall back to storage so
-    // cluster/title/branchTitles from the prior save are preserved.
+  // `convs` state can be a stale closure snapshot inside async flows
+  // (e.g., the second save() in the newFromRef branch runs after await callLLM
+  // and doesn't see the first save()'s addition). Fall back to storage so
+  // cluster/title/branchTitles from the prior save are preserved.
+  const resolveExistingConv = (id) => {
     let existing = convs.find(c => c.id === id);
     if (!existing) {
       const stored = storage.get(id);
       if (stored?.value) { try { existing = JSON.parse(stored.value); } catch {} }
     }
+    return existing;
+  };
+  const buildConvRecord = (id, existing, title, cm, hid, br, pRef) => {
     const parentConv = pRef?.convId ? convs.find(c => c.id === pRef.convId) : null;
     const currentConv = convs.find(c => c.id === convId);
     const createdAt = existing?.createdAt || new Date().toISOString();
     const clusterId = existing?.clusterId || parentConv?.clusterId || currentConv?.clusterId || mkClusterId();
     touchCluster(clusterId, createdAt);
     const finalTitle = existing?.title || title || (cm.length > 0 ? cm[0].prompt?.slice(0, 40) : "Untitled");
-    const cv = { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
+    return { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
+  };
+  const save = (title, cm, hid, br, pRef, forceNewId) => {
+    const id = forceNewId || convId || "conv:" + Date.now();
+    const existing = resolveExistingConv(id);
+    const cv = buildConvRecord(id, existing, title, cm, hid, br, pRef);
     persistConv(cv);
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
