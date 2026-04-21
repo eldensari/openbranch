@@ -5,7 +5,7 @@ import { LIGHT, DARK } from "./theme";
 import { mkCommit, buildMsgs, getThread, bNames, bHead, shortModelName, bumpIdCounter } from "./graph/model";
 import { branchPathToRoot, getBranchDescendantNames } from "./graph/branches";
 import { rangeCommitsFor, cutRangeFromCommits, chooseHeadAfterCut, cloneRangeCommits, nextBranchName } from "./graph/range";
-import { formatClusterTitle, mkClusterId, buildClusterGroups } from "./storage/clusters";
+import { formatClusterTitle, mkClusterId, mkFolderId, buildClusterGroups, folderAncestry } from "./storage/clusters";
 import { sidebarBranchKey } from "./storage/sidebar";
 import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade } from "./storage/conv";
 import ConfirmDialog from "./ui/ConfirmDialog";
@@ -60,6 +60,7 @@ export default function App() {
   const [renamingId, setRenamingId] = useState(null);
   const [renamingBranch, setRenamingBranch] = useState(null); // { convId, branch } | null
   const [renamingClusterId, setRenamingClusterId] = useState(null);
+  const [activeFolderId, setActiveFolderId] = useState(null);
   const [collapsedClusters, setCollapsedClusters] = useState(() => new Set());
   const [openSidebarItems, setOpenSidebarItems] = useState(() => new Set());
   const [closedSidebarItems, setClosedSidebarItems] = useState(() => new Set());
@@ -135,7 +136,7 @@ export default function App() {
     const parentConv = pRef?.convId ? convs.find(c => c.id === pRef.convId) : null;
     const currentConv = convs.find(c => c.id === convId);
     const createdAt = existing?.createdAt || new Date().toISOString();
-    const clusterId = existing?.clusterId || parentConv?.clusterId || currentConv?.clusterId || mkClusterId();
+    const clusterId = existing?.clusterId || parentConv?.clusterId || currentConv?.clusterId || activeFolderId || mkClusterId();
     touchCluster(clusterId, createdAt);
     const finalTitle = existing?.title || title || (cm.length > 0 ? cm[0].prompt?.slice(0, 40) : "Untitled");
     return { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
@@ -260,6 +261,88 @@ export default function App() {
   };
   const sidebarItemOpen = (id, defaultOpen = false) => defaultOpen ? !closedSidebarItems.has(id) : openSidebarItems.has(id);
   const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); };
+
+  const renameFolder = renameCluster;
+  const createFolder = (parentId = null) => {
+    const now = new Date().toISOString();
+    const folder = { id: mkFolderId(), title: "Untitled", parentId: parentId || null, createdAt: now, u: now };
+    persistCluster(folder);
+    setClusters(p => [folder, ...p]);
+    return folder;
+  };
+  const moveConvToFolder = (cvId, folderId) => {
+    const cv = convs.find(c => c.id === cvId);
+    if (!cv) return;
+    const targetId = folderId || null;
+    if (cv.clusterId === targetId) return;
+    const updated = { ...cv, clusterId: targetId, u: new Date().toISOString() };
+    persistConv(updated);
+    setConvs(p => p.map(c => c.id === cvId ? updated : c));
+  };
+  const moveFolder = (folderId, newParentId) => {
+    const folder = clusters.find(c => c.id === folderId);
+    if (!folder) return;
+    const parent = newParentId || null;
+    if (parent === folderId) return;
+    if (parent) {
+      const clusterMap = new Map(clusters.map(c => [c.id, c]));
+      if (folderAncestry(parent, clusterMap).includes(folderId)) return;
+    }
+    if ((folder.parentId || null) === parent) return;
+    const updated = { ...folder, parentId: parent, u: new Date().toISOString() };
+    persistCluster(updated);
+    setClusters(p => p.map(c => c.id === folderId ? updated : c));
+  };
+  const collectFolderDescendants = (folderId) => {
+    const set = new Set([folderId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of clusters) {
+        if (!set.has(c.id) && c.parentId && set.has(c.parentId)) { set.add(c.id); grew = true; }
+      }
+    }
+    return set;
+  };
+  const deleteFolder = (folderId, { mode = "reassignToParent" } = {}) => {
+    const folder = clusters.find(c => c.id === folderId);
+    if (!folder) return;
+    rememberUndo(mode === "cascade" ? "Deleted folder and contents" : "Deleted folder");
+    const affectedFolders = collectFolderDescendants(folderId);
+    if (mode === "cascade") {
+      const deletedConvIds = new Set();
+      for (const cv of convs) {
+        if (affectedFolders.has(cv.clusterId)) {
+          const { deletedIds } = deleteConvCascade(convs, cv.id);
+          deletedIds.forEach(id => deletedConvIds.add(id));
+        }
+      }
+      for (const id of deletedConvIds) storage.del(id);
+      setConvs(p => p.filter(c => !deletedConvIds.has(c.id)));
+      for (const id of affectedFolders) storage.del(id);
+      setClusters(p => p.filter(c => !affectedFolders.has(c.id)));
+      if (deletedConvIds.has(convId)) {
+        setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); setBranch("main");
+      }
+    } else {
+      const targetParent = folder.parentId || null;
+      const movedConvs = [];
+      for (const cv of convs) {
+        if (affectedFolders.has(cv.clusterId)) {
+          const updated = { ...cv, clusterId: targetParent, u: new Date().toISOString() };
+          persistConv(updated);
+          movedConvs.push(updated);
+        }
+      }
+      setConvs(p => p.map(c => {
+        const mv = movedConvs.find(m => m.id === c.id);
+        return mv || c;
+      }));
+      for (const id of affectedFolders) storage.del(id);
+      setClusters(p => p.filter(c => !affectedFolders.has(c.id)));
+    }
+    if (activeFolderId && affectedFolders.has(activeFolderId)) setActiveFolderId(null);
+  };
 
   const thread = getThread(commits, headId);
   const names = bNames(commits);
@@ -693,10 +776,13 @@ export default function App() {
         chatMenu={chatMenu} setChatMenu={setChatMenu}
         renamingId={renamingId} setRenamingId={setRenamingId}
         renamingBranch={renamingBranch} setRenamingBranch={setRenamingBranch}
-        setRenamingClusterId={setRenamingClusterId}
+        renamingClusterId={renamingClusterId} setRenamingClusterId={setRenamingClusterId}
         renameVal={renameVal} setRenameVal={setRenameVal}
         collapsedClusters={collapsedClusters} toggleCluster={toggleCluster}
         sidebarItemOpen={sidebarItemOpen} toggleSidebarItem={toggleSidebarItem}
+        activeFolderId={activeFolderId} setActiveFolderId={setActiveFolderId}
+        createFolder={createFolder} renameFolder={renameFolder} deleteFolder={deleteFolder}
+        moveConvToFolder={moveConvToFolder} moveFolder={moveFolder}
         apiKey={apiKey} setApiKey={setApiKey}
         showKeyInput={showKeyInput} setShowKeyInput={setShowKeyInput}
         keyDraft={keyDraft} setKeyDraft={setKeyDraft}
