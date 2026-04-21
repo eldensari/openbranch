@@ -15,7 +15,7 @@ export default function Sidebar({
   renamingBranch, setRenamingBranch,
   renamingClusterId, setRenamingClusterId,
   renameVal, setRenameVal,
-  collapsedClusters, toggleCluster,
+  collapsedClusters, toggleCluster, setCollapsedClusters,
   sidebarItemOpen, toggleSidebarItem,
   activeFolderId, setActiveFolderId,
   createFolder, renameFolder, deleteFolder, moveConvToFolder, moveFolder,
@@ -24,7 +24,14 @@ export default function Sidebar({
   renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
   setConfirmDialog,
 }) {
-  const renderConvItem = (cv, keyPrefix, depth = 0, toggle = null, branchChildren = new Map()) => {
+  const goToChildRef = (childCv) => {
+    if (childCv.clusterId) {
+      setActiveFolderId(childCv.clusterId);
+      setCollapsedClusters(p => { const n = new Set(p); n.delete(childCv.clusterId); return n; });
+    }
+    loadMain(childCv);
+  };
+  const renderConvItem = (cv, keyPrefix, depth = 0, toggle = null, childRefs = new Map()) => {
     const chain = cv.commits || [];
     const branchTree = buildBranchTree(chain);
     const convActive = convId === cv.id;
@@ -36,8 +43,10 @@ export default function Sidebar({
       (branchesByParent[parent] || (branchesByParent[parent] = [])).push(b);
     });
     const rootBranches = branchesByParent["main"] || [];
+    const myChildren = childRefs.get(cv.id) || [];
+    const hasChildren = rootBranches.length > 0 || myChildren.length > 0;
     const ownToggleKey = cv.id + ":conv";
-    const localToggle = !toggle && rootBranches.length > 0
+    const localToggle = !toggle && hasChildren
       ? { open: sidebarItemOpen(ownToggleKey, true), onToggle: () => toggleSidebarItem(ownToggleKey, true) }
       : null;
     const activeToggle = toggle || localToggle;
@@ -45,25 +54,17 @@ export default function Sidebar({
     const showBranches = !hasToggle || activeToggle.open;
     const branchKey = bName => sidebarBranchKey(cv.id, bName);
     const branchOpen = bName => sidebarItemOpen(branchKey(bName));
-    const containsActiveConv = (items, seen = new Set()) => items.some(child => {
-      if (child.id === convId) return true;
-      if (seen.has(child.id)) return false;
-      seen.add(child.id);
-      return buildBranchTree(child.commits || []).some(b => {
-        const kids = branchChildren.get(sidebarBranchKey(child.id, b.branch)) || [];
-        return containsActiveConv(kids, seen);
-      });
-    });
-    const newSiblingsContainActive = bName => containsActiveConv(branchChildren.get(branchKey(bName)) || []);
-    const branchSubtreeContainsActive = bName => (branchesByParent[bName] || []).some(child =>
-      newSiblingsContainActive(child.branch) || branchSubtreeContainsActive(child.branch)
-    );
+    const branchSubtreeContainsActive = bName => {
+      if (!convActive) return false;
+      if (bName === branch) return true;
+      const kids = branchesByParent[bName] || [];
+      return kids.some(k => branchSubtreeContainsActive(k.branch));
+    };
     const renderBranchNode = ({ branch: bName, depth: bDepth }) => {
       const branchActive = convActive && branch === bName;
       const renamingThisBranch = renamingBranch && renamingBranch.convId === cv.id && renamingBranch.branch === bName;
       const displayLabel = getBranchLabel(chain, bName, cv.branchTitles);
       const childBranches = branchesByParent[bName] || [];
-      const siblingConvs = branchChildren.get(branchKey(bName)) || [];
       const hasBranchChildren = childBranches.length > 0;
       const isBranchOpen = branchOpen(bName) || branchSubtreeContainsActive(bName);
       return (
@@ -99,13 +100,6 @@ export default function Sidebar({
               style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"⋯"}</span>}
           </div>
           {hasBranchChildren && isBranchOpen && childBranches.map(renderBranchNode)}
-          {siblingConvs.map(childCv => renderConvItem(
-            childCv,
-            keyPrefix + ":" + cv.id + ":" + bName,
-            depth + bDepth,
-            null,
-            branchChildren
-          ))}
         </div>
       );
     };
@@ -144,6 +138,19 @@ export default function Sidebar({
             style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"⋯"}</span>}
         </div>
         {showBranches && rootBranches.map(renderBranchNode)}
+        {showBranches && myChildren.map(child => (
+          <div key={keyPrefix + ":" + cv.id + ":ref:" + child.id}
+            onClick={e => { e.stopPropagation(); goToChildRef(child); }}
+            title={child.title || "Untitled"}
+            style={{ padding: "3px 6px", paddingLeft: 6 + (depth + 1) * 12 + 20, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", color: t.textSub, opacity: 0.55, fontStyle: "italic" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.background = t.hoverSidebar; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
+            <span style={{ marginRight: 4 }}>{"\u21B3"}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {child.title || "Untitled"}
+            </span>
+          </div>
+        ))}
       </div>
     );
   };
@@ -166,7 +173,7 @@ export default function Sidebar({
     const isRenaming = renamingClusterId === folderId;
     const isActive = activeFolderId === folderId;
     const hasContent = group.items.length > 0 || group.children.length > 0;
-    const { rootItems, branchChildren } = buildSidebarLayout(group.items);
+    const { rootItems, childRefs } = buildSidebarLayout(group.items);
     return (
       <div key={folderId}>
         <div className="chat-item"
@@ -201,7 +208,7 @@ export default function Sidebar({
         {!isCollapsed && (
           <>
             {group.children.map(child => renderFolder(child, depth + 1))}
-            {rootItems.map(item => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null, branchChildren))}
+            {rootItems.map(item => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null, childRefs))}
           </>
         )}
       </div>

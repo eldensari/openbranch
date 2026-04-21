@@ -778,7 +778,7 @@ export default function App() {
         renamingBranch={renamingBranch} setRenamingBranch={setRenamingBranch}
         renamingClusterId={renamingClusterId} setRenamingClusterId={setRenamingClusterId}
         renameVal={renameVal} setRenameVal={setRenameVal}
-        collapsedClusters={collapsedClusters} toggleCluster={toggleCluster}
+        collapsedClusters={collapsedClusters} toggleCluster={toggleCluster} setCollapsedClusters={setCollapsedClusters}
         sidebarItemOpen={sidebarItemOpen} toggleSidebarItem={toggleSidebarItem}
         activeFolderId={activeFolderId} setActiveFolderId={setActiveFolderId}
         createFolder={createFolder} renameFolder={renameFolder} deleteFolder={deleteFolder}
