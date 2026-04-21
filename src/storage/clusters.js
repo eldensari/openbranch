@@ -84,8 +84,12 @@ export function normalizeClusters(convs, clusters) {
 
   for (const [id, folder] of clusterMap) {
     const fixedParent = sanitizeFolderParentId(folder, clusterMap);
-    if ((folder.parentId || null) !== fixedParent) {
-      const next = { ...folder, parentId: fixedParent };
+    const inferredAuto = folder.title === formatClusterTitle(folder.createdAt);
+    const nextAuto = folder.auto === undefined ? inferredAuto : folder.auto;
+    const parentChanged = (folder.parentId || null) !== fixedParent;
+    const autoChanged = folder.auto === undefined;
+    if (parentChanged || autoChanged) {
+      const next = { ...folder, parentId: fixedParent, auto: nextAuto };
       clusterMap.set(id, next);
       storage.set(next.id, JSON.stringify(next));
     }
@@ -118,31 +122,33 @@ export function buildFolderTree(clusters) {
 
 export function buildFolderGroups(convs, clusters) {
   const clusterMap = new Map(clusters.map(c => [c.id, c]));
+  const isAuto = folder => !!folder && folder.auto === true;
   const itemsByFolderId = new Map();
+  const topLevelConvs = [];
   for (const cv of convs) {
-    const id = cv.clusterId || "cluster:unfiled";
-    if (!itemsByFolderId.has(id)) itemsByFolderId.set(id, []);
-    itemsByFolderId.get(id).push(cv);
+    const folder = cv.clusterId ? clusterMap.get(cv.clusterId) : null;
+    if (!folder || isAuto(folder)) {
+      topLevelConvs.push(cv);
+      continue;
+    }
+    if (!itemsByFolderId.has(folder.id)) itemsByFolderId.set(folder.id, []);
+    itemsByFolderId.get(folder.id).push(cv);
   }
   for (const arr of itemsByFolderId.values()) {
     arr.sort((a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b)));
   }
-  const { rootFolders, childrenByParentId } = buildFolderTree(clusters);
+  topLevelConvs.sort((a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b)));
+  const userFolders = clusters.filter(f => !isAuto(f));
+  const { rootFolders, childrenByParentId } = buildFolderTree(userFolders);
   const decorate = folder => ({
     folder,
     items: itemsByFolderId.get(folder.id) || [],
     children: (childrenByParentId.get(folder.id) || []).map(decorate),
   });
-  const groups = rootFolders.map(decorate);
-  const unfiled = itemsByFolderId.get("cluster:unfiled");
-  if (unfiled && unfiled.length) {
-    groups.push({
-      folder: clusterMap.get("cluster:unfiled") || { id: "cluster:unfiled", title: "Unfiled", parentId: null, createdAt: "", u: "" },
-      items: unfiled,
-      children: [],
-    });
-  }
-  return groups;
+  return {
+    topLevelConvs,
+    rootFolders: rootFolders.map(decorate),
+  };
 }
 
 export function buildClusterGroups(convs, clusters) {

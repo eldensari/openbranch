@@ -113,7 +113,7 @@ export default function App() {
     const now = new Date().toISOString();
     let cluster = clusters.find(c => c.id === clusterId);
     if (!cluster) {
-      cluster = { id: clusterId, title: formatClusterTitle(createdAt || now), createdAt: createdAt || now, u: createdAt || now };
+      cluster = { id: clusterId, title: formatClusterTitle(createdAt || now), parentId: null, auto: true, createdAt: createdAt || now, u: createdAt || now };
     }
     persistCluster(cluster);
     setClusters(p => [...p.filter(c => c.id !== cluster.id), cluster]);
@@ -240,7 +240,7 @@ export default function App() {
     const cluster = clusters.find(c => c.id === id);
     if (!cluster) return;
     const trimmed = (newTitle || "").trim();
-    const updated = { ...cluster, title: trimmed || formatClusterTitle(cluster.createdAt) };
+    const updated = { ...cluster, title: trimmed || formatClusterTitle(cluster.createdAt), auto: false };
     storage.set(id, JSON.stringify(updated));
     setClusters(p => p.map(c => c.id === id ? updated : c));
   };
@@ -265,7 +265,7 @@ export default function App() {
   const renameFolder = renameCluster;
   const createFolder = (parentId = null) => {
     const now = new Date().toISOString();
-    const folder = { id: mkFolderId(), title: "Untitled", parentId: parentId || null, createdAt: now, u: now };
+    const folder = { id: mkFolderId(), title: "Untitled", parentId: parentId || null, auto: false, createdAt: now, u: now };
     persistCluster(folder);
     setClusters(p => [folder, ...p]);
     return folder;

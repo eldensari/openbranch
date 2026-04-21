@@ -164,7 +164,9 @@ export default function Sidebar({
   const liveActive = new Set([...activeTags].filter(tg => liveTags.has(tg)));
   const convHasAnyTag = cv => (cv.commits || []).some(c => (c.tags || []).some(tg => liveActive.has(tg)));
   const filteredConvs = liveActive.size ? convs.filter(convHasAnyTag) : convs;
-  const folderGroups = buildFolderGroups(filteredConvs, clusters);
+  const { topLevelConvs, rootFolders: folderGroups } = buildFolderGroups(filteredConvs, clusters);
+  const { rootItems: topRootItems, childRefs: topChildRefs } = buildSidebarLayout(topLevelConvs);
+  const userClusters = clusters.filter(c => c.auto !== true);
 
   const renderFolder = (group, depth) => {
     const folder = group.folder;
@@ -238,6 +240,7 @@ export default function Sidebar({
       <div style={{ flex: 1, overflowY: "auto", padding: "0 4px 4px" }}
         onClick={() => setChatMenu(null)}
         onContextMenu={e => { e.preventDefault(); setChatMenu({ kind: "sidebar-bg", x: e.clientX, y: e.clientY }); }}>
+        {topRootItems.map(item => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
         {folderGroups.map(group => renderFolder(group, 0))}
       </div>
 
@@ -253,7 +256,7 @@ export default function Sidebar({
         );
         const divider = <div style={{ height: 1, background: t.border, margin: "2px 0" }} />;
         const flattenFolders = () => {
-          const { rootFolders, childrenByParentId } = buildFolderTree(clusters);
+          const { rootFolders, childrenByParentId } = buildFolderTree(userClusters);
           const out = [];
           const walk = (arr, depth) => { for (const f of arr) { out.push({ folder: f, depth }); walk(childrenByParentId.get(f.id) || [], depth + 1); } };
           walk(rootFolders, 0);
@@ -354,7 +357,7 @@ export default function Sidebar({
                     {"\u{1F4C1} "}{folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
                   </button>
                 ))}
-                {clusters.length === 0 && (
+                {userClusters.length === 0 && (
                   <div style={{ fontSize: 10, fontStyle: "italic", color: t.textSub, padding: "4px 14px 6px" }}>
                     No folders yet. Right-click empty space to create one.
                   </div>
