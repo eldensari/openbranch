@@ -2,13 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
 import { callLLM, detectProvider, submitWaitlist, MODEL_CHOICES } from "./lib/llm";
 import herbIcon from "./assets/herb.svg";
-import seedMobyDick from "./seed-moby-dick";
 import { LIGHT, DARK, bCol } from "./theme";
 import { mkCommit, buildMsgs, getThread, bNames, bHead, shortModelName, bumpIdCounter } from "./graph/model";
 import { getBranchLabel, buildBranchTree, commitBranch, branchPathToRoot, getBranchDescendantNames } from "./graph/branches";
 import { rangeCommitsFor, cutRangeFromCommits, chooseHeadAfterCut, cloneRangeCommits, nextBranchName } from "./graph/range";
-import { formatClusterTitle, mkClusterId, getConvCreatedAt, normalizeClusters, buildClusterGroups } from "./storage/clusters";
+import { formatClusterTitle, mkClusterId, getConvCreatedAt, buildClusterGroups } from "./storage/clusters";
 import { sidebarBranchKey, buildSidebarLayout } from "./storage/sidebar";
+import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade } from "./storage/conv";
 
 /* ═══════ MARKDOWN ═══════ */
 function renderInline(text, keyRef, t) {
@@ -579,22 +579,12 @@ export default function App() {
 
   // Seed data on first visit, then load convs
   useEffect(() => {
-    seedMobyDick();
-    const r = storage.list("conv:");
-    if (r?.keys?.length) {
-      const cs = [];
-      for (const k of r.keys) { const p = storage.get(k); if (p?.value) { try { cs.push(JSON.parse(p.value)); } catch {} } }
-      const cr = storage.list("cluster:");
-      const loadedClusters = [];
-      if (cr?.keys?.length) {
-        for (const k of cr.keys) { const p = storage.get(k); if (p?.value) { try { loadedClusters.push(JSON.parse(p.value)); } catch {} } }
-      }
-      const normalized = normalizeClusters(cs, loadedClusters);
-      const sorted = normalized.convs.sort((a, b) => (b.u || "").localeCompare(a.u || ""));
-      setClusters(normalized.clusters);
-      setConvs(sorted);
+    const loaded = loadAllConvsAndClusters();
+    if (loaded) {
+      setClusters(loaded.clusters);
+      setConvs(loaded.convs);
       // Auto-open Moby Dick on first visit (no conv selected yet)
-      const moby = sorted.find(c => c.id === "conv:moby_dick");
+      const moby = loaded.convs.find(c => c.id === "conv:moby_dick");
       if (moby && !convId) {
         load(moby);
         setGraph(true);
@@ -628,7 +618,7 @@ export default function App() {
     if (!cluster) {
       cluster = { id: clusterId, title: formatClusterTitle(createdAt || now), createdAt: createdAt || now, u: createdAt || now };
     }
-    storage.set(cluster.id, JSON.stringify(cluster));
+    persistCluster(cluster);
     setClusters(p => [...p.filter(c => c.id !== cluster.id), cluster]);
     return cluster;
   };
@@ -651,7 +641,7 @@ export default function App() {
     touchCluster(clusterId, createdAt);
     const finalTitle = existing?.title || title || (cm.length > 0 ? cm[0].prompt?.slice(0, 40) : "Untitled");
     const cv = { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
-    storage.set(id, JSON.stringify(cv));
+    persistConv(cv);
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
   };
@@ -671,19 +661,10 @@ export default function App() {
   // Cascade delete: remove conv + all descendant convs (parentRef chain).
   const del = id => {
     rememberUndo("Deleted conversation");
-    const toDelete = new Set([id]);
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const c of convs) {
-        if (!toDelete.has(c.id) && c.parentRef && toDelete.has(c.parentRef.convId)) {
-          toDelete.add(c.id); grew = true;
-        }
-      }
-    }
-    for (const x of toDelete) storage.del(x);
-    setConvs(p => p.filter(c => !toDelete.has(c.id)));
-    if (toDelete.has(convId)) {
+    const { deletedIds } = deleteConvCascade(convs, id);
+    for (const x of deletedIds) storage.del(x);
+    setConvs(p => p.filter(c => !deletedIds.has(c.id)));
+    if (deletedIds.has(convId)) {
       setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); setBranch("main");
     }
   };
