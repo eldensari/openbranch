@@ -44,6 +44,9 @@ export default function Sidebar({
     });
     const rootBranches = branchesByParent["main"] || [];
     const myChildren = childRefs.get(cv.id) || [];
+    const isNewChild = (c) => !c.parentRef?.anchorBranch || c.parentRef.anchorBranch === "main";
+    const branchGhosts = myChildren.filter(c => !isNewChild(c));
+    const newGhosts = myChildren.filter(isNewChild);
     const hasChildren = rootBranches.length > 0 || myChildren.length > 0;
     const ownToggleKey = cv.id + ":conv";
     const localToggle = !toggle && hasChildren
@@ -72,9 +75,9 @@ export default function Sidebar({
           <div className="chat-item"
             onClick={() => { if (!renamingThisBranch) { if (hasBranchChildren && !isBranchOpen) toggleSidebarItem(branchKey(bName)); loadBranch(cv, bName); } }}
             onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "branch", convId: cv.id, branch: bName, x: e.clientX, y: e.clientY }); }}
-            style={{ padding: "5px 6px", paddingLeft: 6 + (depth + bDepth) * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : (hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"), border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
-            onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
-            onMouseLeave={e => { if (!branchActive) e.currentTarget.style.background = hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
+            style={{ padding: "5px 6px", paddingLeft: 6 + (depth + bDepth) * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : (hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"), border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative", opacity: branchActive ? 1 : 0.55, fontStyle: "italic" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
+            onMouseLeave={e => { if (!branchActive) { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"; } e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
             {hasBranchChildren ? (
               <button onClick={e => { e.stopPropagation(); toggleSidebarItem(branchKey(bName)); }}
                 title={isBranchOpen ? "Collapse" : "Expand"}
@@ -90,7 +93,7 @@ export default function Sidebar({
                   onClick={e => e.stopPropagation()}
                   style={{ width: "100%", fontSize: 10, fontWeight: 500, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
               ) : (
-                <div style={{ fontSize: 10, fontWeight: hasBranchChildren && isBranchOpen ? 650 : 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={displayLabel}>
+                <div style={{ fontSize: 10, fontWeight: hasBranchChildren && isBranchOpen ? 650 : 500, color: branchActive ? t.text : t.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={displayLabel}>
                   {displayLabel}
                 </div>
               )}
@@ -138,17 +141,32 @@ export default function Sidebar({
             style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"⋯"}</span>}
         </div>
         {showBranches && rootBranches.map(renderBranchNode)}
-        {showBranches && myChildren.map(child => (
-          <div key={keyPrefix + ":" + cv.id + ":ref:" + child.id}
+        {showBranches && branchGhosts.map(child => (
+          <div key={keyPrefix + ":" + cv.id + ":bref:" + child.id}
             onClick={e => { e.stopPropagation(); goToChildRef(child); }}
             title={child.title || "Untitled"}
-            style={{ padding: "3px 6px", paddingLeft: 6 + (depth + 1) * 12 + 20, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", color: t.textSub, opacity: 0.55, fontStyle: "italic" }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.background = t.hoverSidebar; }}
+            style={{ padding: "5px 6px", paddingLeft: 6 + (depth + 1) * 12 + 22, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
-            <span style={{ marginRight: 4 }}>{"\u21B3"}</span>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {child.title || "Untitled"}
-            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 500, color: t.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {child.title || "Untitled"}
+              </div>
+            </div>
+          </div>
+        ))}
+        {showBranches && newGhosts.map(child => (
+          <div key={keyPrefix + ":" + cv.id + ":nref:" + child.id}
+            onClick={e => { e.stopPropagation(); goToChildRef(child); }}
+            title={child.title || "Untitled"}
+            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12 + 22, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 500, color: t.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {child.title || "Untitled"}
+              </div>
+            </div>
           </div>
         ))}
       </div>

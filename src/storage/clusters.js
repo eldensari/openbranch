@@ -135,9 +135,9 @@ export function buildFolderGroups(convs, clusters) {
     itemsByFolderId.get(folder.id).push(cv);
   }
   for (const arr of itemsByFolderId.values()) {
-    arr.sort((a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b)));
+    arr.sort((a, b) => getConvCreatedAt(b).localeCompare(getConvCreatedAt(a)));
   }
-  topLevelConvs.sort((a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b)));
+  topLevelConvs.sort((a, b) => getConvCreatedAt(b).localeCompare(getConvCreatedAt(a)));
   const userFolders = clusters.filter(f => !isAuto(f));
   const { rootFolders, childrenByParentId } = buildFolderTree(userFolders);
   const decorate = folder => ({

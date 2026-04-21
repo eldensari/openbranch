@@ -12,17 +12,19 @@ export function sidebarBranchKey(convId, branchName) {
 }
 
 export function buildSidebarLayout(members) {
-  const cmpCreated = (a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b));
+  const cmpCreated = (a, b) => getConvCreatedAt(b).localeCompare(getConvCreatedAt(a));
   const sorted = [...members].sort(cmpCreated);
   const idSet = new Set(sorted.map(cv => cv.id));
 
-  const rootItems = sorted.map(cv => ({ conv: cv, depth: 0 }));
+  const rootItems = [];
   const childRefs = new Map();
   for (const cv of sorted) {
     const parentId = cv.parentRef?.convId;
     if (parentId && idSet.has(parentId) && parentId !== cv.id) {
       if (!childRefs.has(parentId)) childRefs.set(parentId, []);
       childRefs.get(parentId).push(cv);
+    } else {
+      rootItems.push({ conv: cv, depth: 0 });
     }
   }
 
