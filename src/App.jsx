@@ -198,10 +198,7 @@ export default function App() {
     storage.set(cvId, JSON.stringify(updated));
     setConvs(p => p.map(c => c.id === cvId ? updated : c));
   };
-  const deleteBranchCascade = (cvId, bName) => {
-    const cv = convs.find(c => c.id === cvId);
-    if (!cv) return;
-    rememberUndo("Deleted branch");
+  const computeBranchRemoval = (cv, bName) => {
     const oldCommits = cv.commits || [];
     const toRemoveSet = new Set([bName, ...getBranchDescendantNames(oldCommits, bName)]);
     const newCommits = oldCommits.filter(c => !toRemoveSet.has(c.branch));
@@ -216,6 +213,13 @@ export default function App() {
     }
     const titles = { ...(cv.branchTitles || {}) };
     for (const removed of toRemoveSet) delete titles[removed];
+    return { newCommits, newBranch, newHeadId, titles };
+  };
+  const deleteBranchCascade = (cvId, bName) => {
+    const cv = convs.find(c => c.id === cvId);
+    if (!cv) return;
+    rememberUndo("Deleted branch");
+    const { newCommits, newBranch, newHeadId, titles } = computeBranchRemoval(cv, bName);
     const updated = { ...cv, commits: newCommits, branch: newBranch, headId: newHeadId, branchTitles: titles, u: new Date().toISOString() };
     storage.set(cvId, JSON.stringify(updated));
     setConvs(p => p.map(c => c.id === cvId ? updated : c));
