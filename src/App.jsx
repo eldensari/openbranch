@@ -470,13 +470,7 @@ export default function App() {
       return { startId: prev.startId, endId: cid };
     });
   };
-  const rangeToNew = () => {
-    const range = rangeCommitsFor(commits, selectRange);
-    if (!range.length) return;
-    const currentConv = convs.find(c => c.id === convId);
-    if (!currentConv) return;
-    rememberUndo("Moved to New");
-
+  const buildNewConvFromRange = (range, currentConv) => {
     const originalCommits = cutRangeFromCommits(cRef.current, range);
     const originalHead = chooseHeadAfterCut(originalCommits, headId, branch);
     const clusterId = currentConv.clusterId || mkClusterId();
@@ -516,11 +510,20 @@ export default function App() {
       createdAt,
       u: createdAt,
     };
+    return { originalUpdated, newConv, pRef, nc, last };
+  };
+  const rangeToNew = () => {
+    const range = rangeCommitsFor(commits, selectRange);
+    if (!range.length) return;
+    const currentConv = convs.find(c => c.id === convId);
+    if (!currentConv) return;
+    rememberUndo("Moved to New");
+    const { originalUpdated, newConv, pRef, nc, last } = buildNewConvFromRange(range, currentConv);
     storage.set(originalUpdated.id, JSON.stringify(originalUpdated));
-    storage.set(newId, JSON.stringify(newConv));
-    setConvs(p => [newConv, originalUpdated, ...p.filter(c => c.id !== newId && c.id !== originalUpdated.id)]);
+    storage.set(newConv.id, JSON.stringify(newConv));
+    setConvs(p => [newConv, originalUpdated, ...p.filter(c => c.id !== newConv.id && c.id !== originalUpdated.id)]);
     setSelectMode(false); clearSelectRange();
-    setCommits(nc); cRef.current = nc; setHeadId(last.id); setBranch("main"); setConvId(newId); setParentRef(pRef); setGraph(true);
+    setCommits(nc); cRef.current = nc; setHeadId(last.id); setBranch("main"); setConvId(newConv.id); setParentRef(pRef); setGraph(true);
   };
   const rangeToBranch = () => {
     const range = rangeCommitsFor(commits, selectRange);
