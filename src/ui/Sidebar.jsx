@@ -47,7 +47,7 @@ export default function Sidebar({
     const hasChildren = rootBranches.length > 0 || myChildren.length > 0;
     const ownToggleKey = cv.id + ":conv";
     const localToggle = !toggle && hasChildren
-      ? { open: sidebarItemOpen(ownToggleKey, true), onToggle: () => toggleSidebarItem(ownToggleKey, true) }
+      ? { open: sidebarItemOpen(ownToggleKey), onToggle: () => toggleSidebarItem(ownToggleKey) }
       : null;
     const activeToggle = toggle || localToggle;
     const hasToggle = !!activeToggle;
