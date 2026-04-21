@@ -615,11 +615,25 @@ export default function App() {
     save(null, newCommits, headId, branch);
   };
 
-  const deleteCommit = (cid) => {
-    rememberUndo("Deleted commit");
+  const collectDescendantIds = (allCommits, cid) => {
     const toDelete = new Set();
     const queue = [cid];
-    while (queue.length) { const id = queue.shift(); toDelete.add(id); commits.filter(c => c.parentId === id).forEach(c => queue.push(c.id)); }
+    while (queue.length) { const id = queue.shift(); toDelete.add(id); allCommits.filter(c => c.parentId === id).forEach(c => queue.push(c.id)); }
+    return toDelete;
+  };
+  const pickNextHead = (nc, toDelete, cid, allCommits) => {
+    let newHeadId = headId, newBranch = branch;
+    const deleted = allCommits.find(c => c.id === cid);
+    if (deleted?.parentId) { const parent = nc.find(c => c.id === deleted.parentId); if (parent) { newHeadId = parent.id; newBranch = parent.branch; } }
+    if (!nc.find(c => c.id === newHeadId) || toDelete.has(newHeadId)) {
+      if (nc.length > 0) { newHeadId = nc[nc.length - 1].id; newBranch = nc[nc.length - 1].branch; }
+      else { newHeadId = null; newBranch = "main"; }
+    }
+    return { headId: newHeadId, branch: newBranch };
+  };
+  const deleteCommit = (cid) => {
+    rememberUndo("Deleted commit");
+    const toDelete = collectDescendantIds(commits, cid);
     const nc = commits.filter(c => !toDelete.has(c.id));
     setCommits(nc); cRef.current = nc;
     if (nc.length === 0 && convId) {
@@ -628,12 +642,7 @@ export default function App() {
     }
     let newHeadId = headId, newBranch = branch;
     if (toDelete.has(headId)) {
-      const deleted = commits.find(c => c.id === cid);
-      if (deleted?.parentId) { const parent = nc.find(c => c.id === deleted.parentId); if (parent) { newHeadId = parent.id; newBranch = parent.branch; } }
-      if (!nc.find(c => c.id === newHeadId) || toDelete.has(newHeadId)) {
-        if (nc.length > 0) { newHeadId = nc[nc.length - 1].id; newBranch = nc[nc.length - 1].branch; }
-        else { newHeadId = null; newBranch = "main"; }
-      }
+      ({ headId: newHeadId, branch: newBranch } = pickNextHead(nc, toDelete, cid, commits));
       setHeadId(newHeadId); setBranch(newBranch);
     }
     const existingConv = convs.find(c => c.id === convId);
