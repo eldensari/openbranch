@@ -305,7 +305,7 @@ export default function Sidebar({
                   setActiveFolderId(chatMenu.id);
                   newConv();
                 })}
-                {menuBtn("new subfolder", () => {
+                {menuBtn("new folder", () => {
                   const f = createFolder(chatMenu.id);
                   setRenameVal("Untitled");
                   setRenamingClusterId(f.id); setRenamingId(null); setRenamingBranch(null);
