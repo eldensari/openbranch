@@ -2,11 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
 import { callLLM, detectProvider, submitWaitlist, MODEL_CHOICES } from "./lib/llm";
 import herbIcon from "./assets/herb.svg";
-import seedMobyDick from "./seed-moby-dick";
 import { LIGHT, DARK, bCol } from "./theme";
 import { mkCommit, buildMsgs, getThread, bNames, bHead, shortModelName, bumpIdCounter } from "./graph/model";
 import { getBranchLabel, buildBranchTree, commitBranch, branchPathToRoot, getBranchDescendantNames } from "./graph/branches";
 import { rangeCommitsFor, cutRangeFromCommits, chooseHeadAfterCut, cloneRangeCommits, nextBranchName } from "./graph/range";
+import { formatClusterTitle, mkClusterId, getConvCreatedAt, buildClusterGroups } from "./storage/clusters";
+import { sidebarBranchKey, buildSidebarLayout } from "./storage/sidebar";
+import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade } from "./storage/conv";
 
 /* ═══════ MARKDOWN ═══════ */
 function renderInline(text, keyRef, t) {
@@ -153,131 +155,6 @@ const ChevronIcon = ({ open }) => (
     <path d="M9 18l6-6-6-6"/>
   </svg>
 );
-
-// Sidebar rule: new conversations are sibling notebooks; branches are child notebooks.
-function orderSectionItems(members) {
-  if (!members.length) return [];
-  const cmpCreated = (a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b));
-  return [...members].sort(cmpCreated).map(cv => ({ conv: cv, depth: 0 }));
-}
-
-function sidebarBranchKey(convId, branchName) {
-  return convId + ":branch:" + branchName;
-}
-
-function buildSidebarLayout(members) {
-  const cmpCreated = (a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b));
-  const sorted = [...members].sort(cmpCreated);
-  const convMap = new Map(sorted.map(cv => [cv.id, cv]));
-  const memo = new Map();
-  const rootLoc = { type: "root" };
-
-  const placementFor = (cv, stack = new Set()) => {
-    if (memo.has(cv.id)) return memo.get(cv.id);
-    if (stack.has(cv.id)) return rootLoc;
-    stack.add(cv.id);
-
-    const parent = cv.parentRef?.convId ? convMap.get(cv.parentRef.convId) : null;
-    if (!parent) {
-      memo.set(cv.id, rootLoc);
-      stack.delete(cv.id);
-      return rootLoc;
-    }
-
-    const parentLoc = placementFor(parent, stack);
-    const anchorBranch = commitBranch(parent, cv.parentRef.commitId);
-    const loc = anchorBranch && anchorBranch !== "main"
-      ? { type: "branch", convId: parent.id, branch: anchorBranch }
-      : parentLoc;
-    memo.set(cv.id, loc);
-    stack.delete(cv.id);
-    return loc;
-  };
-
-  const rootItems = [];
-  const branchChildren = new Map();
-  for (const cv of sorted) {
-    const loc = placementFor(cv);
-    if (loc.type === "branch") {
-      const key = sidebarBranchKey(loc.convId, loc.branch);
-      if (!branchChildren.has(key)) branchChildren.set(key, []);
-      branchChildren.get(key).push(cv);
-    } else {
-      rootItems.push({ conv: cv, depth: 0 });
-    }
-  }
-
-  return { rootItems, branchChildren };
-}
-
-function pad2(n) { return String(n).padStart(2, "0"); }
-function formatClusterTitle(value) {
-  const d = value ? new Date(value) : new Date();
-  if (Number.isNaN(d.getTime())) return "Untitled";
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-function mkClusterId() { return "cluster:" + Date.now() + "_" + Math.random().toString(36).slice(2, 5); }
-function getConvCreatedAt(cv) {
-  if (cv.createdAt) return cv.createdAt;
-  const firstTs = (cv.commits || []).reduce((min, c) => c.ts && (!min || c.ts < min) ? c.ts : min, null);
-  if (firstTs) return new Date(firstTs).toISOString();
-  return cv.u || new Date().toISOString();
-}
-function findRootConvForCluster(cv, convMap) {
-  const seen = new Set();
-  let cur = cv;
-  while (cur?.parentRef?.convId && !seen.has(cur.id)) {
-    seen.add(cur.id);
-    const parent = convMap.get(cur.parentRef.convId);
-    if (!parent) break;
-    cur = parent;
-  }
-  return cur || cv;
-}
-function normalizeClusters(convs, clusters) {
-  const convMap = new Map(convs.map(c => [c.id, c]));
-  const clusterMap = new Map(clusters.map(c => [c.id, c]));
-  const nextConvs = [];
-
-  for (const cv of convs) {
-    const root = findRootConvForCluster(cv, convMap);
-    const createdAt = getConvCreatedAt(cv);
-    const rootCreatedAt = getConvCreatedAt(root);
-    const clusterId = root.clusterId || cv.clusterId || ("cluster:" + root.id);
-    let cluster = clusterMap.get(clusterId);
-    if (!cluster) {
-      cluster = { id: clusterId, title: formatClusterTitle(rootCreatedAt), createdAt: rootCreatedAt, u: root.u || rootCreatedAt };
-      clusterMap.set(clusterId, cluster);
-      storage.set(cluster.id, JSON.stringify(cluster));
-    }
-    const next = { ...cv, clusterId, createdAt };
-    if (next.clusterId !== cv.clusterId || next.createdAt !== cv.createdAt) storage.set(next.id, JSON.stringify(next));
-    nextConvs.push(next);
-  }
-
-  return {
-    convs: nextConvs,
-    clusters: Array.from(clusterMap.values()).sort((a, b) => (b.u || b.createdAt || "").localeCompare(a.u || a.createdAt || "")),
-  };
-}
-function buildClusterGroups(convs, clusters) {
-  const clusterMap = new Map(clusters.map(c => [c.id, c]));
-  const groups = {};
-  for (const cv of convs) {
-    const id = cv.clusterId || "cluster:unfiled";
-    if (!groups[id]) {
-      const createdAt = getConvCreatedAt(cv);
-      groups[id] = {
-        cluster: clusterMap.get(id) || { id, title: formatClusterTitle(createdAt), createdAt, u: cv.u || createdAt },
-        items: [],
-      };
-    }
-    groups[id].items.push(cv);
-  }
-  return Object.values(groups)
-    .map(g => ({ ...g, items: g.items.sort((a, b) => getConvCreatedAt(a).localeCompare(getConvCreatedAt(b))) }))
-    .sort((a, b) => (b.cluster.u || b.cluster.createdAt || "").localeCompare(a.cluster.u || a.cluster.createdAt || ""));
-}
 
 /* ═══════ ICON BUTTON ═══════ */
 function IconBtn({ children, title, onClick, disabled, t }) {
@@ -702,22 +579,12 @@ export default function App() {
 
   // Seed data on first visit, then load convs
   useEffect(() => {
-    seedMobyDick();
-    const r = storage.list("conv:");
-    if (r?.keys?.length) {
-      const cs = [];
-      for (const k of r.keys) { const p = storage.get(k); if (p?.value) { try { cs.push(JSON.parse(p.value)); } catch {} } }
-      const cr = storage.list("cluster:");
-      const loadedClusters = [];
-      if (cr?.keys?.length) {
-        for (const k of cr.keys) { const p = storage.get(k); if (p?.value) { try { loadedClusters.push(JSON.parse(p.value)); } catch {} } }
-      }
-      const normalized = normalizeClusters(cs, loadedClusters);
-      const sorted = normalized.convs.sort((a, b) => (b.u || "").localeCompare(a.u || ""));
-      setClusters(normalized.clusters);
-      setConvs(sorted);
+    const loaded = loadAllConvsAndClusters();
+    if (loaded) {
+      setClusters(loaded.clusters);
+      setConvs(loaded.convs);
       // Auto-open Moby Dick on first visit (no conv selected yet)
-      const moby = sorted.find(c => c.id === "conv:moby_dick");
+      const moby = loaded.convs.find(c => c.id === "conv:moby_dick");
       if (moby && !convId) {
         load(moby);
         setGraph(true);
@@ -751,7 +618,7 @@ export default function App() {
     if (!cluster) {
       cluster = { id: clusterId, title: formatClusterTitle(createdAt || now), createdAt: createdAt || now, u: createdAt || now };
     }
-    storage.set(cluster.id, JSON.stringify(cluster));
+    persistCluster(cluster);
     setClusters(p => [...p.filter(c => c.id !== cluster.id), cluster]);
     return cluster;
   };
@@ -774,7 +641,7 @@ export default function App() {
     touchCluster(clusterId, createdAt);
     const finalTitle = existing?.title || title || (cm.length > 0 ? cm[0].prompt?.slice(0, 40) : "Untitled");
     const cv = { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
-    storage.set(id, JSON.stringify(cv));
+    persistConv(cv);
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
   };
@@ -794,19 +661,10 @@ export default function App() {
   // Cascade delete: remove conv + all descendant convs (parentRef chain).
   const del = id => {
     rememberUndo("Deleted conversation");
-    const toDelete = new Set([id]);
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const c of convs) {
-        if (!toDelete.has(c.id) && c.parentRef && toDelete.has(c.parentRef.convId)) {
-          toDelete.add(c.id); grew = true;
-        }
-      }
-    }
-    for (const x of toDelete) storage.del(x);
-    setConvs(p => p.filter(c => !toDelete.has(c.id)));
-    if (toDelete.has(convId)) {
+    const { deletedIds } = deleteConvCascade(convs, id);
+    for (const x of deletedIds) storage.del(x);
+    setConvs(p => p.filter(c => !deletedIds.has(c.id)));
+    if (deletedIds.has(convId)) {
       setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); setBranch("main");
     }
   };
