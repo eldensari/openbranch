@@ -307,6 +307,81 @@ export default function App() {
   const showGraph = graph || commits.length > 0;
 
   // ─── SEND ───
+  const applyCommitResult = (nc, cmId) => {
+    setCommits(nc); cRef.current = nc; setHeadId(cmId); setPending(null);
+  };
+  const sendNewFromRef = async (msg) => {
+    const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary, anchorBranch: newFromRef.anchorBranch };
+    const newId = "conv:" + Date.now();
+    if (newFromRef.anchorBranch && newFromRef.anchorBranch !== "main") {
+      setOpenSidebarItems(p => {
+        const n = new Set(p);
+        (newFromRef.branchPath || [newFromRef.anchorBranch]).forEach(b => n.add(sidebarBranchKey(newFromRef.convId, b)));
+        return n;
+      });
+    }
+    const thread = newFromRef.thread || [];
+
+    setCommits([]); cRef.current = [];
+    setHeadId(null); setBranch("main"); setConvId(newId);
+    setParentRef(pRef); setNewFromRef(null); setGraph(true);
+    save(msg.slice(0, 40), [], null, "main", pRef, newId);
+
+    setPending(msg); setThinking(true);
+    try {
+      const msgs = buildMsgs(thread, msg);
+      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
+      const cm = mkCommit(null, msg, resp, "main", null, currentModel);
+      const nc = [cm];
+      applyCommitResult(nc, cm.id);
+      save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
+    } catch (e) {
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main");
+      const nc = [cm];
+      applyCommitResult(nc, cm.id);
+      save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
+    } finally { setThinking(false); }
+  };
+  const sendEditRoot = async (msg) => {
+    setEditId(null);
+    const newId = "conv:" + Date.now();
+    setCommits([]); cRef.current = [];
+    setHeadId(null); setBranch("main"); setConvId(newId);
+    setParentRef(null);
+    save(msg.slice(0, 40), [], null, "main", null, newId);
+
+    setPending(msg); setThinking(true);
+    try {
+      const resp = await callLLM(apiKey, [{ role: "user", content: msg }], currentModel, thinkingOn);
+      const cm = mkCommit(null, msg, resp, "main", null, currentModel);
+      const nc = [cm];
+      applyCommitResult(nc, cm.id);
+      save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
+    } catch (e) {
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main");
+      const nc = [cm];
+      applyCommitResult(nc, cm.id);
+    } finally { setThinking(false); }
+  };
+  const sendNormal = async (pid, br, msg) => {
+    setPending(msg); setThinking(true);
+    try {
+      const th = getThread(cRef.current, pid);
+      const msgs = buildMsgs(th, msg);
+      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
+      const cm = mkCommit(pid, msg, resp, br, null, currentModel);
+      const nc = [...cRef.current, cm];
+      applyCommitResult(nc, cm.id);
+      save(msg.slice(0, 40), nc, cm.id, br);
+    } catch (e) {
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
+      const cm = mkCommit(pid, msg, "Error: " + e.message, br);
+      const nc = [...cRef.current, cm];
+      applyCommitResult(nc, cm.id);
+    } finally { setThinking(false); }
+  };
   const send = async (forkBranch = false) => {
     if (!input.trim() || thinking) return;
     const msg = input.trim();
@@ -324,66 +399,12 @@ export default function App() {
     // Auto-show graph on first message
     if (!graph && commits.length === 0) setGraph(true);
 
-    if (newFromRef) {
-      const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary, anchorBranch: newFromRef.anchorBranch };
-      const newId = "conv:" + Date.now();
-      if (newFromRef.anchorBranch && newFromRef.anchorBranch !== "main") {
-        setOpenSidebarItems(p => {
-          const n = new Set(p);
-          (newFromRef.branchPath || [newFromRef.anchorBranch]).forEach(b => n.add(sidebarBranchKey(newFromRef.convId, b)));
-          return n;
-        });
-      }
-
-      setCommits([]); cRef.current = [];
-      setHeadId(null); setBranch("main"); setConvId(newId);
-      setParentRef(pRef); setNewFromRef(null); setGraph(true);
-      save(msg.slice(0, 40), [], null, "main", pRef, newId);
-
-      setPending(msg); setThinking(true);
-      try {
-        const msgs = buildMsgs(newFromRef.thread || [], msg);
-        const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-        const cm = mkCommit(null, msg, resp, "main", null, currentModel);
-        const nc = [cm];
-        setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-        save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
-      } catch (e) {
-        if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-        const cm = mkCommit(null, msg, "Error: " + e.message, "main");
-        const nc = [cm];
-        setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-        save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
-      } finally { setThinking(false); }
-      return;
-    }
+    if (newFromRef) { await sendNewFromRef(msg); return; }
 
     if (editId) {
       const ec = cRef.current.find(c => c.id === editId);
       if (ec) {
-        if (!ec.parentId) {
-          setEditId(null);
-          const newId = "conv:" + Date.now();
-          setCommits([]); cRef.current = [];
-          setHeadId(null); setBranch("main"); setConvId(newId);
-          setParentRef(null);
-          save(msg.slice(0, 40), [], null, "main", null, newId);
-
-          setPending(msg); setThinking(true);
-          try {
-            const resp = await callLLM(apiKey, [{ role: "user", content: msg }], currentModel, thinkingOn);
-            const cm = mkCommit(null, msg, resp, "main", null, currentModel);
-            const nc = [cm];
-            setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-            save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
-          } catch (e) {
-            if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-            const cm = mkCommit(null, msg, "Error: " + e.message, "main");
-            const nc = [cm];
-            setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-          } finally { setThinking(false); }
-          return;
-        }
+        if (!ec.parentId) { await sendEditRoot(msg); return; }
         pid = ec.parentId; br = "branch-" + names.length; setBranch(br);
       }
       setEditId(null); setGraph(true);
@@ -405,19 +426,7 @@ export default function App() {
       setBranch(br);
     }
 
-    setPending(msg); setThinking(true);
-    try {
-      const th = getThread(cRef.current, pid);
-      const msgs = buildMsgs(th, msg);
-      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-      const cm = mkCommit(pid, msg, resp, br, null, currentModel);
-      const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-      save(msg.slice(0, 40), nc, cm.id, br);
-    } catch (e) {
-      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(pid, msg, "Error: " + e.message, br);
-      const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-    } finally { setThinking(false); }
+    await sendNormal(pid, br, msg);
   };
 
   // ─── HANDLERS ───
