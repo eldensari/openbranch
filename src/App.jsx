@@ -308,8 +308,8 @@ export default function App() {
     const folder = clusters.find(c => c.id === folderId);
     if (!folder) return;
     rememberUndo(mode === "cascade" ? "Deleted folder and contents" : "Deleted folder");
-    const affectedFolders = collectFolderDescendants(folderId);
     if (mode === "cascade") {
+      const affectedFolders = collectFolderDescendants(folderId);
       const deletedConvIds = new Set();
       for (const cv of convs) {
         if (affectedFolders.has(cv.clusterId)) {
@@ -324,24 +324,32 @@ export default function App() {
       if (deletedConvIds.has(convId)) {
         setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); setBranch("main");
       }
+      if (activeFolderId && affectedFolders.has(activeFolderId)) setActiveFolderId(null);
     } else {
       const targetParent = folder.parentId || null;
       const movedConvs = [];
       for (const cv of convs) {
-        if (affectedFolders.has(cv.clusterId)) {
+        if (cv.clusterId === folderId) {
           const updated = { ...cv, clusterId: targetParent, u: new Date().toISOString() };
           persistConv(updated);
           movedConvs.push(updated);
         }
       }
-      setConvs(p => p.map(c => {
-        const mv = movedConvs.find(m => m.id === c.id);
-        return mv || c;
-      }));
-      for (const id of affectedFolders) storage.del(id);
-      setClusters(p => p.filter(c => !affectedFolders.has(c.id)));
+      setConvs(p => p.map(c => movedConvs.find(m => m.id === c.id) || c));
+      const promotedFolders = [];
+      for (const f of clusters) {
+        if (f.parentId === folderId) {
+          const updated = { ...f, parentId: targetParent, u: new Date().toISOString() };
+          persistCluster(updated);
+          promotedFolders.push(updated);
+        }
+      }
+      storage.del(folderId);
+      setClusters(p => p
+        .filter(c => c.id !== folderId)
+        .map(c => promotedFolders.find(f => f.id === c.id) || c));
+      if (activeFolderId === folderId) setActiveFolderId(targetParent);
     }
-    if (activeFolderId && affectedFolders.has(activeFolderId)) setActiveFolderId(null);
   };
 
   const thread = getThread(commits, headId);
