@@ -119,24 +119,31 @@ export default function App() {
     return cluster;
   };
 
-  const save = (title, cm, hid, br, pRef, forceNewId) => {
-    const id = forceNewId || convId || "conv:" + Date.now();
-    // `convs` state can be a stale closure snapshot inside async flows
-    // (e.g., the second save() in the newFromRef branch runs after await callLLM
-    // and doesn't see the first save()'s addition). Fall back to storage so
-    // cluster/title/branchTitles from the prior save are preserved.
+  // `convs` state can be a stale closure snapshot inside async flows
+  // (e.g., the second save() in the newFromRef branch runs after await callLLM
+  // and doesn't see the first save()'s addition). Fall back to storage so
+  // cluster/title/branchTitles from the prior save are preserved.
+  const resolveExistingConv = (id) => {
     let existing = convs.find(c => c.id === id);
     if (!existing) {
       const stored = storage.get(id);
       if (stored?.value) { try { existing = JSON.parse(stored.value); } catch {} }
     }
+    return existing;
+  };
+  const buildConvRecord = (id, existing, title, cm, hid, br, pRef) => {
     const parentConv = pRef?.convId ? convs.find(c => c.id === pRef.convId) : null;
     const currentConv = convs.find(c => c.id === convId);
     const createdAt = existing?.createdAt || new Date().toISOString();
     const clusterId = existing?.clusterId || parentConv?.clusterId || currentConv?.clusterId || mkClusterId();
     touchCluster(clusterId, createdAt);
     const finalTitle = existing?.title || title || (cm.length > 0 ? cm[0].prompt?.slice(0, 40) : "Untitled");
-    const cv = { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
+    return { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
+  };
+  const save = (title, cm, hid, br, pRef, forceNewId) => {
+    const id = forceNewId || convId || "conv:" + Date.now();
+    const existing = resolveExistingConv(id);
+    const cv = buildConvRecord(id, existing, title, cm, hid, br, pRef);
     persistConv(cv);
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
@@ -191,10 +198,7 @@ export default function App() {
     storage.set(cvId, JSON.stringify(updated));
     setConvs(p => p.map(c => c.id === cvId ? updated : c));
   };
-  const deleteBranchCascade = (cvId, bName) => {
-    const cv = convs.find(c => c.id === cvId);
-    if (!cv) return;
-    rememberUndo("Deleted branch");
+  const computeBranchRemoval = (cv, bName) => {
     const oldCommits = cv.commits || [];
     const toRemoveSet = new Set([bName, ...getBranchDescendantNames(oldCommits, bName)]);
     const newCommits = oldCommits.filter(c => !toRemoveSet.has(c.branch));
@@ -209,6 +213,13 @@ export default function App() {
     }
     const titles = { ...(cv.branchTitles || {}) };
     for (const removed of toRemoveSet) delete titles[removed];
+    return { newCommits, newBranch, newHeadId, titles };
+  };
+  const deleteBranchCascade = (cvId, bName) => {
+    const cv = convs.find(c => c.id === cvId);
+    if (!cv) return;
+    rememberUndo("Deleted branch");
+    const { newCommits, newBranch, newHeadId, titles } = computeBranchRemoval(cv, bName);
     const updated = { ...cv, commits: newCommits, branch: newBranch, headId: newHeadId, branchTitles: titles, u: new Date().toISOString() };
     storage.set(cvId, JSON.stringify(updated));
     setConvs(p => p.map(c => c.id === cvId ? updated : c));
@@ -296,6 +307,81 @@ export default function App() {
   const showGraph = graph || commits.length > 0;
 
   // ─── SEND ───
+  const applyCommitResult = (nc, cmId) => {
+    setCommits(nc); cRef.current = nc; setHeadId(cmId); setPending(null);
+  };
+  const sendNewFromRef = async (msg) => {
+    const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary, anchorBranch: newFromRef.anchorBranch };
+    const newId = "conv:" + Date.now();
+    if (newFromRef.anchorBranch && newFromRef.anchorBranch !== "main") {
+      setOpenSidebarItems(p => {
+        const n = new Set(p);
+        (newFromRef.branchPath || [newFromRef.anchorBranch]).forEach(b => n.add(sidebarBranchKey(newFromRef.convId, b)));
+        return n;
+      });
+    }
+    const thread = newFromRef.thread || [];
+
+    setCommits([]); cRef.current = [];
+    setHeadId(null); setBranch("main"); setConvId(newId);
+    setParentRef(pRef); setNewFromRef(null); setGraph(true);
+    save(msg.slice(0, 40), [], null, "main", pRef, newId);
+
+    setPending(msg); setThinking(true);
+    try {
+      const msgs = buildMsgs(thread, msg);
+      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
+      const cm = mkCommit(null, msg, resp, "main", null, currentModel);
+      const nc = [cm];
+      applyCommitResult(nc, cm.id);
+      save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
+    } catch (e) {
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main");
+      const nc = [cm];
+      applyCommitResult(nc, cm.id);
+      save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
+    } finally { setThinking(false); }
+  };
+  const sendEditRoot = async (msg) => {
+    setEditId(null);
+    const newId = "conv:" + Date.now();
+    setCommits([]); cRef.current = [];
+    setHeadId(null); setBranch("main"); setConvId(newId);
+    setParentRef(null);
+    save(msg.slice(0, 40), [], null, "main", null, newId);
+
+    setPending(msg); setThinking(true);
+    try {
+      const resp = await callLLM(apiKey, [{ role: "user", content: msg }], currentModel, thinkingOn);
+      const cm = mkCommit(null, msg, resp, "main", null, currentModel);
+      const nc = [cm];
+      applyCommitResult(nc, cm.id);
+      save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
+    } catch (e) {
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main");
+      const nc = [cm];
+      applyCommitResult(nc, cm.id);
+    } finally { setThinking(false); }
+  };
+  const sendNormal = async (pid, br, msg) => {
+    setPending(msg); setThinking(true);
+    try {
+      const th = getThread(cRef.current, pid);
+      const msgs = buildMsgs(th, msg);
+      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
+      const cm = mkCommit(pid, msg, resp, br, null, currentModel);
+      const nc = [...cRef.current, cm];
+      applyCommitResult(nc, cm.id);
+      save(msg.slice(0, 40), nc, cm.id, br);
+    } catch (e) {
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
+      const cm = mkCommit(pid, msg, "Error: " + e.message, br);
+      const nc = [...cRef.current, cm];
+      applyCommitResult(nc, cm.id);
+    } finally { setThinking(false); }
+  };
   const send = async (forkBranch = false) => {
     if (!input.trim() || thinking) return;
     const msg = input.trim();
@@ -313,66 +399,12 @@ export default function App() {
     // Auto-show graph on first message
     if (!graph && commits.length === 0) setGraph(true);
 
-    if (newFromRef) {
-      const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary, anchorBranch: newFromRef.anchorBranch };
-      const newId = "conv:" + Date.now();
-      if (newFromRef.anchorBranch && newFromRef.anchorBranch !== "main") {
-        setOpenSidebarItems(p => {
-          const n = new Set(p);
-          (newFromRef.branchPath || [newFromRef.anchorBranch]).forEach(b => n.add(sidebarBranchKey(newFromRef.convId, b)));
-          return n;
-        });
-      }
-
-      setCommits([]); cRef.current = [];
-      setHeadId(null); setBranch("main"); setConvId(newId);
-      setParentRef(pRef); setNewFromRef(null); setGraph(true);
-      save(msg.slice(0, 40), [], null, "main", pRef, newId);
-
-      setPending(msg); setThinking(true);
-      try {
-        const msgs = buildMsgs(newFromRef.thread || [], msg);
-        const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-        const cm = mkCommit(null, msg, resp, "main", null, currentModel);
-        const nc = [cm];
-        setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-        save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
-      } catch (e) {
-        if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-        const cm = mkCommit(null, msg, "Error: " + e.message, "main");
-        const nc = [cm];
-        setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-        save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
-      } finally { setThinking(false); }
-      return;
-    }
+    if (newFromRef) { await sendNewFromRef(msg); return; }
 
     if (editId) {
       const ec = cRef.current.find(c => c.id === editId);
       if (ec) {
-        if (!ec.parentId) {
-          setEditId(null);
-          const newId = "conv:" + Date.now();
-          setCommits([]); cRef.current = [];
-          setHeadId(null); setBranch("main"); setConvId(newId);
-          setParentRef(null);
-          save(msg.slice(0, 40), [], null, "main", null, newId);
-
-          setPending(msg); setThinking(true);
-          try {
-            const resp = await callLLM(apiKey, [{ role: "user", content: msg }], currentModel, thinkingOn);
-            const cm = mkCommit(null, msg, resp, "main", null, currentModel);
-            const nc = [cm];
-            setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-            save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
-          } catch (e) {
-            if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-            const cm = mkCommit(null, msg, "Error: " + e.message, "main");
-            const nc = [cm];
-            setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-          } finally { setThinking(false); }
-          return;
-        }
+        if (!ec.parentId) { await sendEditRoot(msg); return; }
         pid = ec.parentId; br = "branch-" + names.length; setBranch(br);
       }
       setEditId(null); setGraph(true);
@@ -394,19 +426,7 @@ export default function App() {
       setBranch(br);
     }
 
-    setPending(msg); setThinking(true);
-    try {
-      const th = getThread(cRef.current, pid);
-      const msgs = buildMsgs(th, msg);
-      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-      const cm = mkCommit(pid, msg, resp, br, null, currentModel);
-      const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-      save(msg.slice(0, 40), nc, cm.id, br);
-    } catch (e) {
-      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(pid, msg, "Error: " + e.message, br);
-      const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setPending(null);
-    } finally { setThinking(false); }
+    await sendNormal(pid, br, msg);
   };
 
   // ─── HANDLERS ───
@@ -459,13 +479,7 @@ export default function App() {
       return { startId: prev.startId, endId: cid };
     });
   };
-  const rangeToNew = () => {
-    const range = rangeCommitsFor(commits, selectRange);
-    if (!range.length) return;
-    const currentConv = convs.find(c => c.id === convId);
-    if (!currentConv) return;
-    rememberUndo("Moved to New");
-
+  const buildNewConvFromRange = (range, currentConv) => {
     const originalCommits = cutRangeFromCommits(cRef.current, range);
     const originalHead = chooseHeadAfterCut(originalCommits, headId, branch);
     const clusterId = currentConv.clusterId || mkClusterId();
@@ -505,11 +519,20 @@ export default function App() {
       createdAt,
       u: createdAt,
     };
+    return { originalUpdated, newConv, pRef, nc, last };
+  };
+  const rangeToNew = () => {
+    const range = rangeCommitsFor(commits, selectRange);
+    if (!range.length) return;
+    const currentConv = convs.find(c => c.id === convId);
+    if (!currentConv) return;
+    rememberUndo("Moved to New");
+    const { originalUpdated, newConv, pRef, nc, last } = buildNewConvFromRange(range, currentConv);
     storage.set(originalUpdated.id, JSON.stringify(originalUpdated));
-    storage.set(newId, JSON.stringify(newConv));
-    setConvs(p => [newConv, originalUpdated, ...p.filter(c => c.id !== newId && c.id !== originalUpdated.id)]);
+    storage.set(newConv.id, JSON.stringify(newConv));
+    setConvs(p => [newConv, originalUpdated, ...p.filter(c => c.id !== newConv.id && c.id !== originalUpdated.id)]);
     setSelectMode(false); clearSelectRange();
-    setCommits(nc); cRef.current = nc; setHeadId(last.id); setBranch("main"); setConvId(newId); setParentRef(pRef); setGraph(true);
+    setCommits(nc); cRef.current = nc; setHeadId(last.id); setBranch("main"); setConvId(newConv.id); setParentRef(pRef); setGraph(true);
   };
   const rangeToBranch = () => {
     const range = rangeCommitsFor(commits, selectRange);
@@ -608,11 +631,25 @@ export default function App() {
     save(null, newCommits, headId, branch);
   };
 
-  const deleteCommit = (cid) => {
-    rememberUndo("Deleted commit");
+  const collectDescendantIds = (allCommits, cid) => {
     const toDelete = new Set();
     const queue = [cid];
-    while (queue.length) { const id = queue.shift(); toDelete.add(id); commits.filter(c => c.parentId === id).forEach(c => queue.push(c.id)); }
+    while (queue.length) { const id = queue.shift(); toDelete.add(id); allCommits.filter(c => c.parentId === id).forEach(c => queue.push(c.id)); }
+    return toDelete;
+  };
+  const pickNextHead = (nc, toDelete, cid, allCommits) => {
+    let newHeadId = headId, newBranch = branch;
+    const deleted = allCommits.find(c => c.id === cid);
+    if (deleted?.parentId) { const parent = nc.find(c => c.id === deleted.parentId); if (parent) { newHeadId = parent.id; newBranch = parent.branch; } }
+    if (!nc.find(c => c.id === newHeadId) || toDelete.has(newHeadId)) {
+      if (nc.length > 0) { newHeadId = nc[nc.length - 1].id; newBranch = nc[nc.length - 1].branch; }
+      else { newHeadId = null; newBranch = "main"; }
+    }
+    return { headId: newHeadId, branch: newBranch };
+  };
+  const deleteCommit = (cid) => {
+    rememberUndo("Deleted commit");
+    const toDelete = collectDescendantIds(commits, cid);
     const nc = commits.filter(c => !toDelete.has(c.id));
     setCommits(nc); cRef.current = nc;
     if (nc.length === 0 && convId) {
@@ -621,12 +658,7 @@ export default function App() {
     }
     let newHeadId = headId, newBranch = branch;
     if (toDelete.has(headId)) {
-      const deleted = commits.find(c => c.id === cid);
-      if (deleted?.parentId) { const parent = nc.find(c => c.id === deleted.parentId); if (parent) { newHeadId = parent.id; newBranch = parent.branch; } }
-      if (!nc.find(c => c.id === newHeadId) || toDelete.has(newHeadId)) {
-        if (nc.length > 0) { newHeadId = nc[nc.length - 1].id; newBranch = nc[nc.length - 1].branch; }
-        else { newHeadId = null; newBranch = "main"; }
-      }
+      ({ headId: newHeadId, branch: newBranch } = pickNextHead(nc, toDelete, cid, commits));
       setHeadId(newHeadId); setBranch(newBranch);
     }
     const existingConv = convs.find(c => c.id === convId);
