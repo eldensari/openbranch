@@ -202,14 +202,7 @@ export default function Sidebar({
           style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: isActive ? t.hover : (hasContent && !isCollapsed ? t.hoverSidebar : "transparent"), border: isActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
           onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
           onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = hasContent && !isCollapsed ? t.hoverSidebar : "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-          {hasContent ? (
-            <button onClick={e => { e.stopPropagation(); toggleCluster(folderId); }}
-              title={isCollapsed ? "Expand" : "Collapse"}
-              style={{ width: 18, height: 18, marginRight: 2, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
-              {isCollapsed ? ">" : "v"}
-            </button>
-          ) : <span style={{ width: 20, flexShrink: 0 }} />}
-          <span style={{ fontSize: 11, marginRight: 4, lineHeight: 1 }}>{isCollapsed ? "\u{1F4C1}" : "\u{1F4C2}"}</span>
+          <span style={{ fontSize: 12, marginRight: 6, lineHeight: 1 }}>{isCollapsed ? "\u{1F4C1}" : "\u{1F4C2}"}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             {isRenaming ? (
               <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
