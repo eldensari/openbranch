@@ -1,21 +1,45 @@
 import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
 import { callLLM, detectProvider, MODEL_CHOICES } from "./lib/llm";
-import { LIGHT, DARK } from "./theme";
-import { mkCommit, buildMsgs, getThread, bNames, bHead, shortModelName, bumpIdCounter } from "./graph/model";
+import { mkCommit, buildMsgs, getThread, bNames, bHead, bumpIdCounter } from "./graph/model";
 import { branchPathToRoot, getBranchDescendantNames } from "./graph/branches";
 import { rangeCommitsFor, cutRangeFromCommits, chooseHeadAfterCut, cloneRangeCommits, nextBranchName } from "./graph/range";
 import { formatClusterTitle, mkClusterId, mkFolderId, buildClusterGroups, folderAncestry } from "./storage/clusters";
 import { sidebarBranchKey } from "./storage/sidebar";
 import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade } from "./storage/conv";
-import ConfirmDialog from "./ui/ConfirmDialog";
-import Sidebar from "./ui/Sidebar";
+import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
+import { useTheme } from "./components/theme-provider";
+import {
+  Sidebar as ShadSidebar,
+  SidebarInset,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+} from "./components/ui/sidebar";
+import { Button } from "./components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Moon, Sun } from "lucide-react";
+
+const GithubIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+    <path d="M12 0C5.37 0 0 5.37 0 12a12 12 0 008.21 11.4c.6.11.82-.26.82-.58v-2.04c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.21.08 1.85 1.24 1.85 1.24 1.07 1.84 2.81 1.31 3.5 1 .1-.78.42-1.31.76-1.61-2.66-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.17 0 0 1-.32 3.3 1.23a11.5 11.5 0 016 0c2.3-1.55 3.3-1.23 3.3-1.23.66 1.65.24 2.87.12 3.17.77.84 1.24 1.91 1.24 3.22 0 4.61-2.82 5.63-5.49 5.92.43.37.82 1.1.82 2.22v3.29c0 .32.22.7.83.58A12 12 0 0024 12c0-6.63-5.37-12-12-12z" />
+  </svg>
+);
 
 /* ═══════ MAIN ═══════ */
 export default function App() {
-  const [dark, setDark] = useState(() => storage.get("theme")?.value === "dark");
-  const t = dark ? DARK : LIGHT;
+  const { theme, toggle: toggleTheme } = useTheme();
+  const dark = theme === "dark";
 
   const [apiKey, setApiKey] = useState(() => storage.get("apiKey")?.value || "");
   const [showKeyInput, setShowKeyInput] = useState(false);
@@ -70,10 +94,6 @@ export default function App() {
   const inputRef = useRef(null);
   const cRef = useRef(commits); cRef.current = commits;
   const sendRef = useRef(null);
-
-  // Persist theme
-  useEffect(() => { storage.set("theme", dark ? "dark" : "light"); }, [dark]);
-
 
   // Seed data on first visit, then load convs
   useEffect(() => {
@@ -169,7 +189,7 @@ export default function App() {
     const finalTitle = existing?.title || title || (cm.length > 0 ? cm[0].prompt?.slice(0, 40) : "Untitled");
     return { id, title: finalTitle, commits: cm, headId: hid, branch: br, parentRef: pRef || parentRef || null, branchTitles: existing?.branchTitles || {}, labels: existing?.labels || [], clusterId, createdAt, u: new Date().toISOString() };
   };
-  const save = (title, cm, hid, br, pRef, forceNewId) => {
+  const save = (title, cm, hid, br, pRef = null, forceNewId = null) => {
     const id = forceNewId || convId || "conv:" + Date.now();
     const existing = resolveExistingConv(id);
     const cv = buildConvRecord(id, existing, title, cm, hid, br, pRef);
@@ -856,61 +876,107 @@ export default function App() {
   };
 
   /* RENDER */
+  const sidebarProps = {
+    convs, clusters, clusterGroups, convId, branch,
+    activeTags, setActiveTags, renameTag, deleteTag,
+    chatMenu, setChatMenu,
+    renamingId, setRenamingId,
+    renamingBranch, setRenamingBranch,
+    renamingClusterId, setRenamingClusterId,
+    renameVal, setRenameVal,
+    expandedClusters, toggleCluster, expandFolder,
+    sidebarItemOpen, toggleSidebarItem,
+    activeFolderId, setActiveFolderId,
+    createFolder, renameFolder, deleteFolder,
+    moveConvToFolder, moveFolder,
+    apiKey, setApiKey, showKeyInput, setShowKeyInput,
+    keyDraft, setKeyDraft, hasKey, setRateLimited,
+    newConv, loadMain, loadBranch,
+    renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
+    setConfirmDialog,
+  };
+
+  const chatProps = {
+    commits, headId, branch, names, parentRef, thread,
+    convs, convId, activeTags,
+    input, setInput, inputRef, endRef,
+    pending, thinking, newFromRef, setNewFromRef,
+    editId, setEditId, startEdit,
+    branchFromId, setBranchFromId,
+    mm, setMm, sel, setSel,
+    hoveredCid, setHoveredCid,
+    graph, setGraph, graphW, setGraphW, dragging,
+    modelList, currentModel, setModel, thinkingOn, setThinkingOn,
+    selectMode, setSelectMode, selectError, selectRange, selectedRangeIds, clearSelectRange,
+    undoAction, setUndoAction, restoreUndo,
+    rateLimited, hasKey,
+    waitlistStatus, setWaitlistStatus, waitlistEmail, setWaitlistEmail,
+    apiKey, setKeyDraft, setShowKeyInput, setRateLimited,
+    send, merge,
+    copyToClipboard, retryResponse,
+    checkout, startBranchFrom, startNew, deleteCommit,
+    goToParent, goToChild, childRefs,
+    handleSelectNode, rangeToBranch, rangeToNew, deleteRange,
+    editNodeLabel, editCommitTags,
+  };
+
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: t.bg, color: t.text }}>
-      <Sidebar
-        t={t} dark={dark} setDark={setDark}
-        convs={convs} clusters={clusters} clusterGroups={clusterGroups}
-        convId={convId} branch={branch}
-        activeTags={activeTags} setActiveTags={setActiveTags} renameTag={renameTag} deleteTag={deleteTag}
-        chatMenu={chatMenu} setChatMenu={setChatMenu}
-        renamingId={renamingId} setRenamingId={setRenamingId}
-        renamingBranch={renamingBranch} setRenamingBranch={setRenamingBranch}
-        renamingClusterId={renamingClusterId} setRenamingClusterId={setRenamingClusterId}
-        renameVal={renameVal} setRenameVal={setRenameVal}
-        expandedClusters={expandedClusters} toggleCluster={toggleCluster} expandFolder={expandFolder}
-        sidebarItemOpen={sidebarItemOpen} toggleSidebarItem={toggleSidebarItem}
-        activeFolderId={activeFolderId} setActiveFolderId={setActiveFolderId}
-        createFolder={createFolder} renameFolder={renameFolder} deleteFolder={deleteFolder}
-        moveConvToFolder={moveConvToFolder} moveFolder={moveFolder}
-        apiKey={apiKey} setApiKey={setApiKey}
-        showKeyInput={showKeyInput} setShowKeyInput={setShowKeyInput}
-        keyDraft={keyDraft} setKeyDraft={setKeyDraft}
-        hasKey={hasKey} setRateLimited={setRateLimited}
-        newConv={newConv} loadMain={loadMain} loadBranch={loadBranch}
-        renameConv={renameConv} renameBranch={renameBranch}
-        del={del} countChildConvs={countChildConvs} deleteBranchCascade={deleteBranchCascade}
-        setConfirmDialog={setConfirmDialog}
-      />
+    <SidebarProvider defaultOpen>
+      <ShadSidebar collapsible="icon" variant="sidebar">
+        <AppSidebar {...sidebarProps} />
+        <SidebarRail />
+      </ShadSidebar>
+      <SidebarInset>
+        <div className="flex h-svh w-full items-stretch">
+          <div className="flex w-full flex-col">
+            <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
+              <SidebarTrigger className="size-8" />
+              <div className="flex-1" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground hover:text-foreground"
+                onClick={toggleTheme}
+                title={dark ? "Light mode" : "Dark mode"}
+              >
+                {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              </Button>
+              <a
+                href="https://github.com/eldensari/openbranch"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="GitHub"
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+              >
+                <GithubIcon className="size-4" />
+              </a>
+            </div>
+            <div className="min-h-0 flex-1">
+              <ChatPanel {...chatProps} />
+            </div>
+          </div>
+        </div>
+      </SidebarInset>
 
-      <ChatPanel
-        t={t} dark={dark}
-        commits={commits} headId={headId} branch={branch} names={names} parentRef={parentRef} thread={thread}
-        convs={convs} convId={convId}
-        activeTags={activeTags}
-        input={input} setInput={setInput} inputRef={inputRef} endRef={endRef}
-        pending={pending} thinking={thinking} newFromRef={newFromRef} setNewFromRef={setNewFromRef}
-        editId={editId} setEditId={setEditId} startEdit={startEdit}
-        branchFromId={branchFromId} setBranchFromId={setBranchFromId}
-        mm={mm} setMm={setMm} sel={sel} setSel={setSel}
-        hoveredCid={hoveredCid} setHoveredCid={setHoveredCid}
-        graph={graph} setGraph={setGraph} graphW={graphW} setGraphW={setGraphW} dragging={dragging}
-        modelList={modelList} currentModel={currentModel} setModel={setModel} thinkingOn={thinkingOn} setThinkingOn={setThinkingOn}
-        selectMode={selectMode} setSelectMode={setSelectMode} selectError={selectError} selectRange={selectRange} selectedRangeIds={selectedRangeIds} clearSelectRange={clearSelectRange}
-        undoAction={undoAction} setUndoAction={setUndoAction} restoreUndo={restoreUndo}
-        rateLimited={rateLimited} hasKey={hasKey}
-        waitlistStatus={waitlistStatus} setWaitlistStatus={setWaitlistStatus}
-        waitlistEmail={waitlistEmail} setWaitlistEmail={setWaitlistEmail}
-        apiKey={apiKey} setKeyDraft={setKeyDraft} setShowKeyInput={setShowKeyInput} setRateLimited={setRateLimited}
-        send={send} merge={merge}
-        copyToClipboard={copyToClipboard} retryResponse={retryResponse}
-        checkout={checkout} startBranchFrom={startBranchFrom} startNew={startNew} deleteCommit={deleteCommit}
-        goToParent={goToParent} goToChild={goToChild} childRefs={childRefs}
-        handleSelectNode={handleSelectNode} rangeToBranch={rangeToBranch} rangeToNew={rangeToNew} deleteRange={deleteRange}
-        editNodeLabel={editNodeLabel} editCommitTags={editCommitTags}
-      />
-
-      <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} t={t} />
-    </div>
+      <AlertDialog open={!!confirmDialog} onOpenChange={(o: boolean) => !o && setConfirmDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm</AlertDialogTitle>
+            <AlertDialogDescription className="whitespace-pre-wrap">
+              {confirmDialog?.msg}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { confirmDialog?.onConfirm?.(); setConfirmDialog(null); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SidebarProvider>
   );
 }

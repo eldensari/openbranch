@@ -1,0 +1,606 @@
+import storage from "@/lib/storage";
+import { detectProvider } from "@/lib/llm";
+import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
+import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
+import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
+import { Folder, FolderOpen, KeyRound, MoreHorizontal } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarFooter,
+  useSidebar,
+} from "@/components/ui/sidebar";
+
+const TAG_VAR_IDX = [3, 5, 0, 1, 4, 6, 2, 7];
+function colorForTag(tag: string) {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = ((hash << 5) - hash) + tag.charCodeAt(i);
+  return `var(--branch-${TAG_VAR_IDX[Math.abs(hash) % TAG_VAR_IDX.length]})`;
+}
+
+type Props = any;
+
+export default function AppSidebar(props: Props) {
+  const {
+    convs, clusters,
+    convId, branch,
+    activeTags, setActiveTags, renameTag, deleteTag,
+    renamingId, setRenamingId,
+    renamingBranch, setRenamingBranch,
+    renamingClusterId, setRenamingClusterId,
+    renameVal, setRenameVal,
+    expandedClusters, toggleCluster, expandFolder,
+    sidebarItemOpen, toggleSidebarItem,
+    activeFolderId, setActiveFolderId,
+    createFolder, renameFolder, deleteFolder, moveConvToFolder,
+    apiKey, setApiKey, showKeyInput, setShowKeyInput, keyDraft, setKeyDraft, hasKey, setRateLimited,
+    newConv, loadMain, loadBranch,
+    renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
+    setConfirmDialog,
+  } = props;
+
+  const { state } = useSidebar();
+  const collapsed = state === "collapsed";
+
+  const goToChildRef = (childCv: any) => {
+    if (childCv.clusterId) {
+      setActiveFolderId(childCv.clusterId);
+      expandFolder(childCv.clusterId);
+    }
+    loadMain(childCv);
+  };
+
+  const renderConvItem = (cv: any, keyPrefix: string, depth = 0, toggle: any = null, childRefs = new Map()) => {
+    const chain = cv.commits || [];
+    const branchTree = buildBranchTree(chain);
+    const convActive = convId === cv.id;
+    const convActiveOnMain = convActive && branch === "main";
+    const renamingThisConv = renamingId === cv.id;
+    const branchesByParent: Record<string, any[]> = {};
+    branchTree.forEach((b: any) => {
+      const parent = b.parentBranch || "main";
+      (branchesByParent[parent] || (branchesByParent[parent] = [])).push(b);
+    });
+    const rootBranches = branchesByParent["main"] || [];
+    const myChildren = childRefs.get(cv.id) || [];
+    const isNewChild = (c: any) => !c.parentRef?.anchorBranch || c.parentRef.anchorBranch === "main";
+    const branchGhosts = myChildren.filter((c: any) => !isNewChild(c));
+    const newGhosts = myChildren.filter(isNewChild);
+    const hasChildren = rootBranches.length > 0 || myChildren.length > 0;
+    const ownToggleKey = cv.id + ":conv";
+    const localToggle = !toggle && hasChildren
+      ? { open: sidebarItemOpen(ownToggleKey), onToggle: () => toggleSidebarItem(ownToggleKey) }
+      : null;
+    const activeToggle = toggle || localToggle;
+    const hasToggle = !!activeToggle;
+    const showBranches = !hasToggle || activeToggle.open;
+    const branchKey = (bName: string) => sidebarBranchKey(cv.id, bName);
+    const branchOpen = (bName: string) => sidebarItemOpen(branchKey(bName));
+    const branchSubtreeContainsActive = (bName: string): boolean => {
+      if (!convActive) return false;
+      if (bName === branch) return true;
+      const kids = branchesByParent[bName] || [];
+      return kids.some((k: any) => branchSubtreeContainsActive(k.branch));
+    };
+
+    const renderBranchNode = ({ branch: bName, depth: bDepth }: any) => {
+      const branchActive = convActive && branch === bName;
+      const renamingThisBranch = renamingBranch && renamingBranch.convId === cv.id && renamingBranch.branch === bName;
+      const displayLabel = getBranchLabel(chain, bName, cv.branchTitles);
+      const childBranches = branchesByParent[bName] || [];
+      const hasBranchChildren = childBranches.length > 0;
+      const isBranchOpen = branchOpen(bName) || branchSubtreeContainsActive(bName);
+      return (
+        <div key={keyPrefix + ":" + cv.id + ":" + bName}>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div
+                onClick={() => {
+                  if (!renamingThisBranch) {
+                    if (hasBranchChildren && !isBranchOpen) toggleSidebarItem(branchKey(bName));
+                    loadBranch(cv, bName);
+                  }
+                }}
+                className={cn(
+                  "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic transition-colors",
+                  branchActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground opacity-100"
+                    : "text-sidebar-foreground/70 opacity-80 hover:bg-sidebar-accent/60 hover:opacity-100",
+                )}
+                style={{ paddingLeft: 8 + (depth + bDepth) * 14 + (depth > 0 ? 18 : 0) }}
+              >
+                <div className="min-w-0 flex-1">
+                  {renamingThisBranch ? (
+                    <Input
+                      autoFocus
+                      value={renameVal}
+                      onChange={(e) => setRenameVal(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }
+                        if (e.key === "Escape") setRenamingBranch(null);
+                      }}
+                      onBlur={() => { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-6 px-1.5 text-sm"
+                    />
+                  ) : (
+                    <div className={cn("truncate", hasBranchChildren && isBranchOpen && "font-semibold")} title={displayLabel}>
+                      {displayLabel}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem
+                onSelect={() => {
+                  setRenameVal(displayLabel);
+                  setRenamingBranch({ convId: cv.id, branch: bName });
+                  setRenamingId(null);
+                  setRenamingClusterId(null);
+                }}
+              >
+                Rename
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                variant="destructive"
+                onSelect={() => {
+                  const descs = getBranchDescendantNames(cv.commits || [], bName);
+                  const msg = descs.length > 0
+                    ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
+                    : `Delete branch "${bName}"?`;
+                  setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cv.id, bName) });
+                }}
+              >
+                Delete
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+          {hasBranchChildren && isBranchOpen && childBranches.map(renderBranchNode)}
+        </div>
+      );
+    };
+
+    return (
+      <div key={keyPrefix + ":" + cv.id}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div
+              onClick={() => {
+                if (!renamingThisConv) {
+                  if (hasToggle) activeToggle.onToggle();
+                  loadMain(cv);
+                }
+              }}
+              className={cn(
+                "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm transition-colors",
+                convActiveOnMain
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : hasToggle && activeToggle.open
+                  ? "bg-sidebar-accent/50"
+                  : "hover:bg-sidebar-accent/60",
+              )}
+              style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
+            >
+              <div className="min-w-0 flex-1">
+                {renamingThisConv ? (
+                  <Input
+                    autoFocus
+                    value={renameVal}
+                    onChange={(e) => setRenameVal(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { renameConv(cv.id, renameVal); setRenamingId(null); }
+                      if (e.key === "Escape") setRenamingId(null);
+                    }}
+                    onBlur={() => { renameConv(cv.id, renameVal); setRenamingId(null); }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-6 px-1.5 text-sm"
+                  />
+                ) : (
+                  <div className={cn("truncate", hasToggle && activeToggle.open && "font-semibold")} title={cv.title || "Untitled"}>
+                    {cv.title || "Untitled"}
+                  </div>
+                )}
+              </div>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              onSelect={() => {
+                setRenameVal(cv.title || "");
+                setRenamingId(cv.id);
+                setRenamingBranch(null);
+                setRenamingClusterId(null);
+              }}
+            >
+              Rename
+            </ContextMenuItem>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>Move to folder</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                <ContextMenuItem onSelect={() => moveConvToFolder(cv.id, null)}>
+                  <span className="italic text-muted-foreground">(top level)</span>
+                </ContextMenuItem>
+                {flattenFolders().map(({ folder, depth }) => (
+                  <ContextMenuItem
+                    key={folder.id}
+                    onSelect={() => { moveConvToFolder(cv.id, folder.id); expandFolder(folder.id); }}
+                    style={{ paddingLeft: 8 + depth * 10 }}
+                  >
+                    <Folder className="size-3.5" /> {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              variant="destructive"
+              onSelect={() => {
+                const n = countChildConvs(cv.id);
+                const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
+                setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
+              }}
+            >
+              Delete
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+
+        {showBranches && rootBranches.map(renderBranchNode)}
+        {showBranches && branchGhosts.map((child: any) => (
+          <div
+            key={keyPrefix + ":" + cv.id + ":bref:" + child.id}
+            onClick={(e) => { e.stopPropagation(); goToChildRef(child); }}
+            title={child.title || "Untitled"}
+            className="flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic text-sidebar-foreground/60 opacity-70 hover:bg-sidebar-accent/50 hover:opacity-100"
+            style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
+          >
+            <div className="min-w-0 flex-1 truncate">{child.title || "Untitled"}</div>
+          </div>
+        ))}
+        {showBranches && newGhosts.map((child: any) => (
+          <div
+            key={keyPrefix + ":" + cv.id + ":nref:" + child.id}
+            onClick={(e) => { e.stopPropagation(); goToChildRef(child); }}
+            title={child.title || "Untitled"}
+            className="flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic text-sidebar-foreground/60 opacity-70 hover:bg-sidebar-accent/50 hover:opacity-100"
+            style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
+          >
+            <div className="min-w-0 flex-1 truncate">{child.title || "Untitled"}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const tagCounts: Record<string, number> = {};
+  convs.forEach((cv: any) =>
+    (cv.commits || []).forEach((c: any) => (c.tags || []).forEach((tg: string) => {
+      tagCounts[tg] = (tagCounts[tg] || 0) + 1;
+    })),
+  );
+  const tagEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+
+  const liveTags = new Set<string>();
+  convs.forEach((cv: any) => (cv.commits || []).forEach((c: any) => (c.tags || []).forEach((tg: string) => liveTags.add(tg))));
+  const liveActive = new Set<string>([...(activeTags as Set<string>)].filter((tg: string) => liveTags.has(tg)));
+  const convHasAnyTag = (cv: any) => (cv.commits || []).some((c: any) => (c.tags || []).some((tg: string) => liveActive.has(tg)));
+  const filteredConvs = liveActive.size ? convs.filter(convHasAnyTag) : convs;
+  const { topLevelConvs, rootFolders: folderGroupsAll } = buildFolderGroups(filteredConvs, clusters);
+  const pruneEmpty = (group: any): any => {
+    const prunedChildren = group.children.map(pruneEmpty).filter(Boolean);
+    if (group.items.length === 0 && prunedChildren.length === 0) return null;
+    return { ...group, children: prunedChildren };
+  };
+  const folderGroups = liveActive.size ? folderGroupsAll.map(pruneEmpty).filter(Boolean) : folderGroupsAll;
+  const { rootItems: topRootItems, childRefs: topChildRefs } = buildSidebarLayout(topLevelConvs);
+  const userClusters = clusters.filter((c: any) => c.auto !== true);
+
+  function flattenFolders() {
+    const { rootFolders, childrenByParentId } = buildFolderTree(userClusters);
+    const out: { folder: any; depth: number }[] = [];
+    const walk = (arr: any[], depth: number) => {
+      for (const f of arr) {
+        out.push({ folder: f, depth });
+        walk(childrenByParentId.get(f.id) || [], depth + 1);
+      }
+    };
+    walk(rootFolders, 0);
+    return out;
+  }
+
+  const renderFolder = (group: any, depth: number) => {
+    const folder = group.folder;
+    const folderId = folder.id;
+    const isCollapsed = !expandedClusters.has(folderId);
+    const isRenaming = renamingClusterId === folderId;
+    const hasContent = group.items.length > 0 || group.children.length > 0;
+    const { rootItems, childRefs } = buildSidebarLayout(group.items);
+    return (
+      <div key={folderId}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div
+              onClick={() => {
+                if (!isRenaming) {
+                  setActiveFolderId(folderId);
+                  if (hasContent) toggleCluster(folderId);
+                }
+              }}
+              className="flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1.5 text-sm font-semibold transition-colors hover:bg-sidebar-accent/60"
+              style={{ paddingLeft: 8 + depth * 14 }}
+            >
+              {isCollapsed ? <Folder className="size-4 shrink-0" /> : <FolderOpen className="size-4 shrink-0" />}
+              <div className="min-w-0 flex-1">
+                {isRenaming ? (
+                  <Input
+                    autoFocus
+                    value={renameVal}
+                    onChange={(e) => setRenameVal(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { renameFolder(folderId, renameVal); setRenamingClusterId(null); }
+                      if (e.key === "Escape") setRenamingClusterId(null);
+                    }}
+                    onBlur={() => { renameFolder(folderId, renameVal); setRenamingClusterId(null); }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-6 px-1.5 text-sm"
+                  />
+                ) : (
+                  <div className="truncate" title={folder.title || "Untitled"}>
+                    {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+                  </div>
+                )}
+              </div>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              onSelect={() => {
+                setActiveFolderId(folderId);
+                expandFolder(folderId);
+                newConv();
+              }}
+            >
+              New chat
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => {
+                expandFolder(folderId);
+                const f = createFolder(folderId);
+                setRenameVal("Untitled");
+                setRenamingClusterId(f.id);
+                setRenamingId(null);
+                setRenamingBranch(null);
+              }}
+            >
+              New folder
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => {
+                setRenameVal(folder.title || "");
+                setRenamingClusterId(folderId);
+                setRenamingId(null);
+                setRenamingBranch(null);
+              }}
+            >
+              Rename
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              variant="destructive"
+              onSelect={() => {
+                const folderTitle = folder.title || "this folder";
+                const affected: any[] = [];
+                const set = new Set([folderId]);
+                let grew = true;
+                while (grew) {
+                  grew = false;
+                  for (const c of clusters) {
+                    if (!set.has(c.id) && c.parentId && set.has(c.parentId)) { set.add(c.id); grew = true; }
+                  }
+                }
+                for (const cv of convs) if (set.has(cv.clusterId)) affected.push(cv);
+                const n = affected.length;
+                const msg = n > 0
+                  ? `Delete folder "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent folder. Subfolders stay; only the folder itself is removed.`
+                  : `Delete folder "${folderTitle}"?`;
+                setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
+              }}
+            >
+              Delete folder
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+        {!isCollapsed && (
+          <>
+            {rootItems.map((item: any) => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null, childRefs))}
+            {group.children.map((child: any) => renderFolder(child, depth + 1))}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <SidebarHeader className="gap-2 p-3">
+        <Button onClick={newConv} className="w-full">+ New chat</Button>
+      </SidebarHeader>
+
+      <SidebarContent>
+        {!collapsed && tagEntries.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Tags</SidebarGroupLabel>
+            <div className="flex flex-wrap gap-1.5 px-2 pt-1 pb-2">
+              {tagEntries.map(([tg, n]) => {
+                const on = activeTags.has(tg);
+                const color = colorForTag(tg);
+                return (
+                  <ContextMenu key={tg}>
+                    <ContextMenuTrigger asChild>
+                      <span
+                        onClick={() =>
+                          setActiveTags((p: Set<string>) => {
+                            const s = new Set(p);
+                            s.has(tg) ? s.delete(tg) : s.add(tg);
+                            return s;
+                          })
+                        }
+                        className={cn(
+                          "inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors select-none",
+                          on ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/60",
+                        )}
+                      >
+                        <span className="size-2 rounded-full" style={{ background: color }} />
+                        {tg}
+                        <span className="text-[10px] text-muted-foreground">{n}</span>
+                      </span>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        onSelect={() => {
+                          const nv = window.prompt("Rename tag", tg);
+                          if (nv != null) renameTag(tg, nv);
+                        }}
+                      >
+                        Rename
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        variant="destructive"
+                        onSelect={() =>
+                          setConfirmDialog({
+                            msg: `Remove tag "${tg}" from all commits?`,
+                            onConfirm: () => deleteTag(tg),
+                          })
+                        }
+                      >
+                        Delete
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })}
+            </div>
+          </SidebarGroup>
+        )}
+
+        {!collapsed && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Chats</SidebarGroupLabel>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div className="flex flex-col px-1">
+                  {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
+                  {folderGroups.map((group: any) => renderFolder(group, 0))}
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  onSelect={() => {
+                    const f = createFolder(null);
+                    setRenameVal("Untitled");
+                    setRenamingClusterId(f.id);
+                    setRenamingId(null);
+                    setRenamingBranch(null);
+                  }}
+                >
+                  New folder
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          </SidebarGroup>
+        )}
+      </SidebarContent>
+
+      <SidebarFooter className="border-t p-2">
+        {!collapsed && (
+          <>
+            {!showKeyInput ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "w-full justify-start gap-2 text-sm",
+                  hasKey ? "text-[color:var(--branch-0)]" : "text-muted-foreground",
+                )}
+                onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
+              >
+                <KeyRound className="size-3.5" />
+                {hasKey ? "Connected" : "API Key"}
+                {hasKey && detectProvider(apiKey) && (
+                  <span className="ml-auto text-[10px] font-medium" style={{ color: detectProvider(apiKey).color }}>
+                    {detectProvider(apiKey).name}
+                  </span>
+                )}
+              </Button>
+            ) : (
+              <div className="flex flex-col gap-1.5 px-1 py-1">
+                <Input
+                  autoFocus
+                  type="password"
+                  value={keyDraft}
+                  onChange={(e) => setKeyDraft(e.target.value)}
+                  placeholder="sk-ant-... or sk-..."
+                  className="h-8 font-mono text-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setApiKey(keyDraft.trim());
+                      storage.set("apiKey", keyDraft.trim());
+                      setShowKeyInput(false);
+                      setRateLimited(false);
+                    }
+                    if (e.key === "Escape") setShowKeyInput(false);
+                  }}
+                />
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    className="h-7 flex-1 text-xs"
+                    onClick={() => {
+                      setApiKey(keyDraft.trim());
+                      storage.set("apiKey", keyDraft.trim());
+                      setShowKeyInput(false);
+                      setRateLimited(false);
+                    }}
+                  >
+                    Save
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 flex-1 text-xs" onClick={() => setShowKeyInput(false)}>
+                    Cancel
+                  </Button>
+                </div>
+                {keyDraft.trim() && detectProvider(keyDraft) && (
+                  <div className="text-[10px] font-medium" style={{ color: detectProvider(keyDraft).color }}>
+                    ✓ {detectProvider(keyDraft).name}
+                  </div>
+                )}
+                {keyDraft.trim() && !detectProvider(keyDraft) && (
+                  <div className="text-[10px] text-destructive">✗ Unknown format</div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </SidebarFooter>
+    </>
+  );
+}

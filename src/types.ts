@@ -1,0 +1,44 @@
+export type CommitId = string;
+
+export type Commit = {
+  id: CommitId;
+  parentId: CommitId | null;
+  mergeIds?: CommitId[];
+  branch: string;
+  ts: number;
+  prompt: string;
+  response: string;
+  model?: string;
+  thinking?: boolean;
+  ratelimitExceeded?: boolean;
+  editing?: boolean;
+  rewriting?: boolean;
+  locked?: boolean;
+  loading?: boolean;
+};
+
+export type Conversation = {
+  id: string;
+  title: string;
+  commits: Commit[];
+  headId: CommitId | null;
+  branch: string;
+  parentRef?: { convId: string; commitId: CommitId };
+  u: number;
+};
+
+export type Folder = {
+  id: string;
+  name: string;
+  convIds: string[];
+  parentId?: string | null;
+  expanded?: boolean;
+};
+
+export type Tag = {
+  id: string;
+  name: string;
+  color?: string;
+};
+
+export type Theme = "light" | "dark";

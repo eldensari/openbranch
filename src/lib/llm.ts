@@ -1,3 +1,4 @@
+// @ts-nocheck
 /* ═══════ LLM API — BYOK + Free mode ═══════
  * API 키 있으면 브라우저에서 직접 호출 (BYOK).
  * API 키 없으면 /.netlify/functions/chat 경유 (무료, rate limited).
@@ -109,7 +110,7 @@ async function callBYOK(apiKey, messages, model, thinking) {
   throw new Error("Unsupported provider.");
 }
 
-export async function callLLM(apiKey, messages, model, thinking) {
+export async function callLLM(apiKey, messages, model = null, thinking = false) {
   if (apiKey && apiKey.trim()) {
     return callBYOK(apiKey, messages, model, thinking);
   }

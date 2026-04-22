@@ -1,3 +1,4 @@
+// @ts-nocheck
 import storage from "../lib/storage";
 
 function pad2(n) { return String(n).padStart(2, "0"); }

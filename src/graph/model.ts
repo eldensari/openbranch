@@ -1,3 +1,4 @@
+// @ts-nocheck
 /* ═══════ DATA ═══════ */
 let cc = 100; // start high to avoid conflicts with demo IDs
 
@@ -16,7 +17,7 @@ export function shortModelName(id) {
   return id.slice(0, 10);
 }
 
-export function mkCommit(parentId, prompt, response, branch, mergeIds, model) {
+export function mkCommit(parentId, prompt, response, branch, mergeIds = null, model = null) {
   const c = {
     id: mkId(), parentId, mergeIds: mergeIds || [], prompt, response, branch, ts: Date.now(),
   };

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { mkCommit, bNames } from "./model";
 
 export function rangeCommitsFor(source, range) {

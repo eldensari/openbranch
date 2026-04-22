@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Display label for a branch. Unified across sidebar + graph tabs.
 // 1. branchTitles override (user rename)
 // 2. "main" stays literal (well-known)
