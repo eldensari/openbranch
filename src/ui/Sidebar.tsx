@@ -24,7 +24,6 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarFooter,
-  useSidebar,
 } from "@/components/ui/sidebar";
 
 const TAG_VAR_IDX = [3, 5, 0, 1, 4, 6, 2, 7];
@@ -55,8 +54,7 @@ export default function AppSidebar(props: Props) {
     setConfirmDialog,
   } = props;
 
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
+  const collapsed = false;
 
   const goToChildRef = (childCv: any) => {
     if (childCv.clusterId) {
