@@ -23,8 +23,12 @@ export type Conversation = {
   commits: Commit[];
   headId: CommitId | null;
   branch: string;
-  parentRef?: { convId: string; commitId: CommitId };
-  u: number;
+  parentRef?: { convId: string; commitId: CommitId; [k: string]: unknown } | null;
+  u?: string;
+  clusterId?: string | null;
+  createdAt?: string;
+  branchTitles?: Record<string, string>;
+  labels?: string[];
 };
 
 export type Folder = {

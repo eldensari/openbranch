@@ -131,9 +131,9 @@ export default function App() {
       }
       itemSet.add(cv.id + ":conv");
       const matchingBranches = new Set(matchingCommits.map(c => c.branch));
-      matchingBranches.forEach(bName => {
+      matchingBranches.forEach((bName: string) => {
         const path = branchPathToRoot(cv.commits || [], bName);
-        path.forEach(b => itemSet.add(sidebarBranchKey(cv.id, b)));
+        path.forEach((b: string) => itemSet.add(sidebarBranchKey(cv.id, b)));
       });
     });
     setExpandedClusters(folderSet);
@@ -370,9 +370,9 @@ export default function App() {
           deletedIds.forEach(id => deletedConvIds.add(id));
         }
       }
-      for (const id of deletedConvIds) storage.del(id);
+      for (const id of deletedConvIds as Set<string>) storage.del(id);
       setConvs(p => p.filter(c => !deletedConvIds.has(c.id)));
-      for (const id of affectedFolders) storage.del(id);
+      for (const id of affectedFolders as Set<string>) storage.del(id);
       setClusters(p => p.filter(c => !affectedFolders.has(c.id)));
       if (deletedConvIds.has(convId)) {
         setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); setBranch("main");

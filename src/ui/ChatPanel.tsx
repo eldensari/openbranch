@@ -449,7 +449,6 @@ export default function ChatPanel(props: Props) {
   if (!graphArea) return chatArea;
 
   return (
-    // @ts-expect-error react-resizable-panels v4 type defs omit direction prop
     <ResizablePanelGroup direction="horizontal">
       <ResizablePanel defaultSize={65} minSize={30}>{chatArea}</ResizablePanel>
       <ResizableHandle withHandle />

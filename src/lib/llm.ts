@@ -1,19 +1,27 @@
-// @ts-nocheck
-/* ═══════ LLM API — BYOK + Free mode ═══════
- * API 키 있으면 브라우저에서 직접 호출 (BYOK).
- * API 키 없으면 /.netlify/functions/chat 경유 (무료, rate limited).
- */
+/* ═══════ LLM API — BYOK + Free mode ═══════ */
 
-export function detectProvider(key) {
+export type Provider = { id: "anthropic" | "openai" | "gemini"; name: string; color: string };
+export type ChatMessage = { role: "user" | "assistant"; content: string };
+export type ModelMeta = { id: string; label: string; desc: string; thinking?: boolean };
+
+class RateLimitError extends Error {
+  code = "RATE_LIMIT" as const;
+  constructor(msg: string) {
+    super(msg);
+  }
+}
+
+export function detectProvider(key: string | null | undefined): Provider | null {
   if (!key) return null;
   const k = key.trim();
   if (k.startsWith("sk-ant-")) return { id: "anthropic", name: "Anthropic", color: "#D97706" };
-  if (k.startsWith("sk-") || k.startsWith("sk-proj-")) return { id: "openai", name: "OpenAI", color: "#10A37F" };
+  if (k.startsWith("sk-") || k.startsWith("sk-proj-"))
+    return { id: "openai", name: "OpenAI", color: "#10A37F" };
   if (k.startsWith("AI")) return { id: "gemini", name: "Gemini", color: "#4285F4" };
   return null;
 }
 
-export const MODEL_CHOICES = {
+export const MODEL_CHOICES: Record<string, ModelMeta[]> = {
   anthropic: [
     { id: "claude-opus-4-20250514", label: "Opus 4", desc: "Most capable for ambitious work", thinking: true },
     { id: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Most efficient for everyday tasks", thinking: true },
@@ -30,7 +38,7 @@ export const MODEL_CHOICES = {
   free: [{ id: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Free tier", thinking: true }],
 };
 
-async function callFree(messages, model) {
+async function callFree(messages: ChatMessage[], model: string | null): Promise<string> {
   const res = await fetch("/.netlify/functions/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -40,9 +48,7 @@ async function callFree(messages, model) {
 
   if (res.status === 429) {
     const data = await res.json().catch(() => ({}));
-    const err = new Error(data.message || "Rate limit reached.");
-    err.code = "RATE_LIMIT";
-    throw err;
+    throw new RateLimitError(data.message || "Rate limit reached.");
   }
 
   if (!res.ok) {
@@ -54,17 +60,37 @@ async function callFree(messages, model) {
   return d.content?.[0]?.text || "";
 }
 
-async function callBYOK(apiKey, messages, model, thinking) {
+type AnthropicBody = {
+  model: string;
+  max_tokens: number;
+  messages: ChatMessage[];
+  thinking?: { type: string; budget_tokens: number };
+};
+
+async function callBYOK(
+  apiKey: string,
+  messages: ChatMessage[],
+  model: string | null = null,
+  thinking: boolean = false,
+): Promise<string> {
   const key = apiKey.trim().replace(/[^\x20-\x7E]/g, "");
   const provider = detectProvider(key);
   if (!provider) throw new Error("Unknown API key format.");
 
-  const pickModel = (fallback) => model && MODEL_CHOICES[provider.id]?.some(m => m.id === model) ? model : fallback;
-  const modelSupportsThinking = MODEL_CHOICES[provider.id]?.find(m => m.id === pickModel(""))?.thinking;
+  const pickModel = (fallback: string) =>
+    model && MODEL_CHOICES[provider.id]?.some((m) => m.id === model) ? model : fallback;
+  const modelSupportsThinking = MODEL_CHOICES[provider.id]?.find(
+    (m) => m.id === pickModel(""),
+  )?.thinking;
 
   if (provider.id === "anthropic") {
-    const body = { model: pickModel("claude-sonnet-4-20250514"), max_tokens: 16000, messages };
-    if (thinking && modelSupportsThinking) body.thinking = { type: "enabled", budget_tokens: 10000 };
+    const body: AnthropicBody = {
+      model: pickModel("claude-sonnet-4-20250514"),
+      max_tokens: 16000,
+      messages,
+    };
+    if (thinking && modelSupportsThinking)
+      body.thinking = { type: "enabled", budget_tokens: 10000 };
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -78,15 +104,14 @@ async function callBYOK(apiKey, messages, model, thinking) {
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
-    // For thinking-enabled responses, find the text block (not the thinking block)
-    const textBlock = (d.content || []).find(b => b.type === "text");
+    const textBlock = (d.content || []).find((b: { type: string }) => b.type === "text");
     return textBlock?.text || "";
   }
 
   if (provider.id === "openai") {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
       body: JSON.stringify({ model: pickModel("gpt-4o"), max_tokens: 4096, messages }),
       signal: AbortSignal.timeout(120000),
     });
@@ -96,12 +121,15 @@ async function callBYOK(apiKey, messages, model, thinking) {
   }
 
   if (provider.id === "gemini") {
-    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ model: pickModel("gemini-2.0-flash"), max_tokens: 4096, messages }),
-      signal: AbortSignal.timeout(120000),
-    });
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+        body: JSON.stringify({ model: pickModel("gemini-2.0-flash"), max_tokens: 4096, messages }),
+        signal: AbortSignal.timeout(120000),
+      },
+    );
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
     return d.choices?.[0]?.message?.content || "";
@@ -110,23 +138,31 @@ async function callBYOK(apiKey, messages, model, thinking) {
   throw new Error("Unsupported provider.");
 }
 
-export async function callLLM(apiKey, messages, model = null, thinking = false) {
+export async function callLLM(
+  apiKey: string,
+  messages: ChatMessage[],
+  model: string | null = null,
+  thinking: boolean = false,
+): Promise<string> {
   if (apiKey && apiKey.trim()) {
     return callBYOK(apiKey, messages, model, thinking);
   }
   return callFree(messages, model);
 }
 
-export async function summarizeThread(apiKey, thread) {
-  const conversationText = thread.map(c =>
-    "User: " + c.prompt + "\nAssistant: " + (c.response || "(no response)")
-  ).join("\n\n");
+type ThreadCommit = { prompt: string; response?: string };
 
-  const prompt = "Summarize the following conversation in 300 words or less. Focus on key decisions, conclusions, and context that would be useful for continuing the conversation. Use third-person narrative.\n\n---\n\n" + conversationText;
-  const messages = [{ role: "user", content: prompt }];
+export async function summarizeThread(apiKey: string, thread: ThreadCommit[]): Promise<string> {
+  const conversationText = thread
+    .map((c) => "User: " + c.prompt + "\nAssistant: " + (c.response || "(no response)"))
+    .join("\n\n");
+
+  const prompt =
+    "Summarize the following conversation in 300 words or less. Focus on key decisions, conclusions, and context that would be useful for continuing the conversation. Use third-person narrative.\n\n---\n\n" +
+    conversationText;
+  const messages: ChatMessage[] = [{ role: "user", content: prompt }];
 
   if (!apiKey || !apiKey.trim()) {
-    // Free tier via netlify function — request Haiku model.
     const res = await fetch("/.netlify/functions/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -135,9 +171,7 @@ export async function summarizeThread(apiKey, thread) {
     });
     if (res.status === 429) {
       const data = await res.json().catch(() => ({}));
-      const err = new Error(data.message || "Rate limit reached.");
-      err.code = "RATE_LIMIT";
-      throw err;
+      throw new RateLimitError(data.message || "Rate limit reached.");
     }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -166,20 +200,19 @@ export async function summarizeThread(apiKey, thread) {
     return d.content?.[0]?.text || "";
   }
 
-  // OpenAI / Gemini: Haiku is unavailable — fall back to provider's default model via callLLM.
   return callLLM(apiKey, messages);
 }
 
-export async function validateKey(key) {
+export async function validateKey(key: string): Promise<{ ok: boolean; error?: string }> {
   try {
     await callBYOK(key, [{ role: "user", content: "hello" }]);
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: (e as Error).message };
   }
 }
 
-export async function submitWaitlist(email) {
+export async function submitWaitlist(email: string): Promise<{ ok?: boolean; [k: string]: unknown }> {
   const res = await fetch("/.netlify/functions/waitlist", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
