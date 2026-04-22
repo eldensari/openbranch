@@ -104,7 +104,7 @@ export default function Sidebar({
     return (
       <div key={keyPrefix + ":" + cv.id}>
         <div className="chat-item"
-          onClick={() => { if (!renamingThisConv) { if (hasToggle && !activeToggle.open) activeToggle.onToggle(); loadMain(cv); } }}
+          onClick={() => { if (!renamingThisConv) { if (hasToggle) activeToggle.onToggle(); loadMain(cv); } }}
           onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "conv", id: cv.id, x: e.clientX, y: e.clientY }); }}
           style={{ padding: "6px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: itemBg, border: itemBorder, display: "flex", alignItems: "center", position: "relative" }}
           onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
