@@ -86,7 +86,7 @@ export default function Sidebar({
           <div className="chat-item"
             onClick={() => { if (!renamingThisBranch) { if (hasBranchChildren && !isBranchOpen) toggleSidebarItem(branchKey(bName)); loadBranch(cv, bName); } }}
             onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "branch", convId: cv.id, branch: bName, x: e.clientX, y: e.clientY }); }}
-            style={{ padding: "5px 6px", paddingLeft: 6 + (depth + bDepth) * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : (hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"), border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative", opacity: branchActive ? 1 : 0.55, fontStyle: "italic" }}
+            style={{ padding: "5px 6px", paddingLeft: 6 + (depth + bDepth) * 12 + (depth > 0 ? 18 : 0), marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : (hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"), border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative", opacity: branchActive ? 1 : 0.55, fontStyle: "italic" }}
             onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
             onMouseLeave={e => { if (!branchActive) { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"; } e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -117,7 +117,7 @@ export default function Sidebar({
         <div className="chat-item"
           onClick={() => { if (!renamingThisConv) { if (hasToggle) activeToggle.onToggle(); loadMain(cv); } }}
           onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "conv", id: cv.id, x: e.clientX, y: e.clientY }); }}
-          style={{ padding: "6px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: itemBg, border: itemBorder, display: "flex", alignItems: "center", position: "relative" }}
+          style={{ padding: "6px 6px", paddingLeft: 6 + depth * 12 + (depth > 0 ? 18 : 0), marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: itemBg, border: itemBorder, display: "flex", alignItems: "center", position: "relative" }}
           onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
           onMouseLeave={e => { if (!convActiveOnMain) e.currentTarget.style.background = itemBg; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -142,7 +142,7 @@ export default function Sidebar({
           <div key={keyPrefix + ":" + cv.id + ":bref:" + child.id}
             onClick={e => { e.stopPropagation(); goToChildRef(child); }}
             title={child.title || "Untitled"}
-            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
+            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12 + (depth > 0 ? 18 : 0), marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
             onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -156,7 +156,7 @@ export default function Sidebar({
           <div key={keyPrefix + ":" + cv.id + ":nref:" + child.id}
             onClick={e => { e.stopPropagation(); goToChildRef(child); }}
             title={child.title || "Untitled"}
-            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
+            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12 + (depth > 0 ? 18 : 0), marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
             onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
             <div style={{ flex: 1, minWidth: 0 }}>
