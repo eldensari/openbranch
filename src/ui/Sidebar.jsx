@@ -5,11 +5,22 @@ import { sidebarBranchKey, buildSidebarLayout } from "../storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "../storage/clusters";
 import { SunIcon, MoonIcon, GitHubIcon } from "./icons";
 
+const TAG_PALETTE = ["#E67E22", "#C58A00", "#27AE60", "#2980B9", "#8E44AD", "#C0392B", "#16A085", "#D35400"];
+function colorForTag(tag) {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = ((hash << 5) - hash) + tag.charCodeAt(i);
+  return TAG_PALETTE[Math.abs(hash) % TAG_PALETTE.length];
+}
+function hexWithAlpha(hex, alpha) {
+  const a = Math.round(alpha * 255).toString(16).padStart(2, "0");
+  return hex + a;
+}
+
 export default function Sidebar({
   t, dark, setDark,
   convs, clusters, clusterGroups,
   convId, branch,
-  activeTags, setActiveTags,
+  activeTags, setActiveTags, renameTag, deleteTag,
   chatMenu, setChatMenu,
   renamingId, setRenamingId,
   renamingBranch, setRenamingBranch,
@@ -228,16 +239,22 @@ export default function Sidebar({
     <div style={{ width: 180, display: "flex", flexDirection: "column", borderRight: "0.5px solid " + t.border, background: t.sidebar }}>
       <div style={{ padding: "8px 6px" }}><button onClick={newConv} style={{ width: "100%", padding: "6px", fontSize: 10, fontWeight: 500, borderRadius: 4, background: t.accent, color: t.accentText, border: "none", cursor: "pointer" }}>+ New</button></div>
       {tagEntries.length > 0 && (
-        <div style={{ padding: "4px 8px 8px", borderBottom: "0.5px solid " + t.border, marginBottom: 4 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: t.textSub, padding: "4px 2px 6px" }}>Tags</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+        <div style={{ padding: "6px 10px 10px", borderBottom: "0.5px solid " + t.border, marginBottom: 4 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: t.textMuted, padding: "4px 2px 8px", textTransform: "uppercase" }}>Tags</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, rowGap: 6 }}>
             {tagEntries.map(([tg, n]) => {
               const on = activeTags.has(tg);
+              const color = colorForTag(tg);
               return (
                 <span key={tg}
                   onClick={() => setActiveTags(p => { const s = new Set(p); s.has(tg) ? s.delete(tg) : s.add(tg); return s; })}
-                  style={{ fontSize: 11, fontWeight: 500, color: on ? "#fff" : "#378ADD", background: on ? "#378ADD" : t.hoverSidebar, padding: "3px 9px", borderRadius: 12, cursor: "pointer", userSelect: "none" }}>
-                  #{tg} <span style={{ color: on ? "#cfe4ff" : t.textMuted, fontSize: 10 }}>{n}</span>
+                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "tag", name: tg, x: e.clientX, y: e.clientY }); }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, fontWeight: 500, color: t.text, background: on ? hexWithAlpha(color, 0.18) : "transparent", padding: "3px 8px", borderRadius: 99, cursor: "pointer", userSelect: "none", transition: "background 0.15s" }}
+                  onMouseEnter={e => { if (!on) e.currentTarget.style.background = t.hoverSidebar; }}
+                  onMouseLeave={e => { if (!on) e.currentTarget.style.background = "transparent"; }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                  {tg}
+                  <span style={{ fontSize: 9, color: t.textMuted }}>{n}</span>
                 </span>
               );
             })}
@@ -371,6 +388,16 @@ export default function Sidebar({
                     No folders yet. Right-click empty space to create one.
                   </div>
                 )}
+              </>)}
+              {chatMenu.kind === "tag" && (<>
+                {menuBtn("rename", () => {
+                  const nv = window.prompt("Rename tag", chatMenu.name);
+                  if (nv != null) renameTag(chatMenu.name, nv);
+                })}
+                {divider}
+                {menuBtn("delete", () => {
+                  setConfirmDialog({ msg: `Remove tag "${chatMenu.name}" from all commits?`, onConfirm: () => deleteTag(chatMenu.name) });
+                }, { danger: true })}
               </>)}
             </div>
           </div>

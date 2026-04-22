@@ -725,6 +725,56 @@ export default function App() {
 
   // Per-commit custom display label for the graph node. Empty clears it.
   // commit.prompt (conversation content) is never mutated.
+  const renameTag = (oldName, newName) => {
+    const trimmed = (newName || "").trim().replace(/^#+/, "");
+    if (!trimmed || trimmed === oldName) return;
+    const touched = [];
+    const nextConvs = convs.map(cv => {
+      let changed = false;
+      const newCommits = (cv.commits || []).map(c => {
+        if (!(c.tags || []).includes(oldName)) return c;
+        changed = true;
+        const merged = c.tags.map(tg => tg === oldName ? trimmed : tg);
+        const deduped = [...new Set(merged)];
+        return { ...c, tags: deduped };
+      });
+      if (!changed) return cv;
+      const updated = { ...cv, commits: newCommits, u: new Date().toISOString() };
+      touched.push(updated);
+      return updated;
+    });
+    touched.forEach(persistConv);
+    setConvs(nextConvs);
+    const currentCv = nextConvs.find(c => c.id === convId);
+    if (currentCv) { setCommits(currentCv.commits); cRef.current = currentCv.commits; }
+    setActiveTags(p => {
+      if (!p.has(oldName)) return p;
+      const n = new Set(p); n.delete(oldName); n.add(trimmed); return n;
+    });
+  };
+  const deleteTag = (name) => {
+    const touched = [];
+    const nextConvs = convs.map(cv => {
+      let changed = false;
+      const newCommits = (cv.commits || []).map(c => {
+        if (!(c.tags || []).includes(name)) return c;
+        changed = true;
+        const filtered = c.tags.filter(tg => tg !== name);
+        if (filtered.length === 0) { const { tags: _drop, ...rest } = c; return rest; }
+        return { ...c, tags: filtered };
+      });
+      if (!changed) return cv;
+      const updated = { ...cv, commits: newCommits, u: new Date().toISOString() };
+      touched.push(updated);
+      return updated;
+    });
+    touched.forEach(persistConv);
+    setConvs(nextConvs);
+    const currentCv = nextConvs.find(c => c.id === convId);
+    if (currentCv) { setCommits(currentCv.commits); cRef.current = currentCv.commits; }
+    setActiveTags(p => { if (!p.has(name)) return p; const n = new Set(p); n.delete(name); return n; });
+  };
+
   const editCommitTags = (cid, tagsInput) => {
     const tags = (tagsInput || "")
       .split(",")
@@ -812,7 +862,7 @@ export default function App() {
         t={t} dark={dark} setDark={setDark}
         convs={convs} clusters={clusters} clusterGroups={clusterGroups}
         convId={convId} branch={branch}
-        activeTags={activeTags} setActiveTags={setActiveTags}
+        activeTags={activeTags} setActiveTags={setActiveTags} renameTag={renameTag} deleteTag={deleteTag}
         chatMenu={chatMenu} setChatMenu={setChatMenu}
         renamingId={renamingId} setRenamingId={setRenamingId}
         renamingBranch={renamingBranch} setRenamingBranch={setRenamingBranch}
