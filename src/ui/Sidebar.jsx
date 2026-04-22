@@ -185,9 +185,9 @@ export default function Sidebar({
         <div className="chat-item"
           onClick={() => { if (!isRenaming) { setActiveFolderId(folderId); if (hasContent) toggleCluster(folderId); } }}
           onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "folder", id: folderId, x: e.clientX, y: e.clientY }); }}
-          style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: isActive ? t.hover : (hasContent && !isCollapsed ? t.hoverSidebar : "transparent"), border: isActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
+          style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: "transparent", border: "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
           onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
-          onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = hasContent && !isCollapsed ? t.hoverSidebar : "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
           <span style={{ fontSize: 12, marginRight: 6, lineHeight: 1 }}>{isCollapsed ? "\u{1F4C1}" : "\u{1F4C2}"}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             {isRenaming ? (
