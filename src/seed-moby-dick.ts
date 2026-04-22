@@ -15,7 +15,7 @@ export default function seedMobyDick() {
   if (existing?.keys?.length) return;
 
   const ts = Date.now();
-  const t = (offset) => ts - offset;
+  const t = (offset: number) => ts - offset;
 
   // ═══════════════════════════════════════
   // MAIN TRUNK (c1–c2)
