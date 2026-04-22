@@ -78,13 +78,6 @@ export default function Sidebar({
             style={{ padding: "5px 6px", paddingLeft: 6 + (depth + bDepth) * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : (hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"), border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative", opacity: branchActive ? 1 : 0.55, fontStyle: "italic" }}
             onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
             onMouseLeave={e => { if (!branchActive) { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"; } e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-            {hasBranchChildren ? (
-              <button onClick={e => { e.stopPropagation(); toggleSidebarItem(branchKey(bName)); }}
-                title={isBranchOpen ? "Collapse" : "Expand"}
-                style={{ width: 18, height: 18, marginRight: 4, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
-                {isBranchOpen ? "v" : ">"}
-              </button>
-            ) : <span style={{ width: 22, flexShrink: 0 }} />}
             <div style={{ flex: 1, minWidth: 0 }}>
               {renamingThisBranch ? (
                 <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
@@ -116,13 +109,6 @@ export default function Sidebar({
           style={{ padding: "6px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: itemBg, border: itemBorder, display: "flex", alignItems: "center", position: "relative" }}
           onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
           onMouseLeave={e => { if (!convActiveOnMain) e.currentTarget.style.background = itemBg; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-          {hasToggle ? (
-            <button onClick={e => { e.stopPropagation(); activeToggle.onToggle(); }}
-              title={activeToggle.open ? "Collapse" : "Expand"}
-              style={{ width: 18, height: 18, marginRight: 4, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
-              {activeToggle.open ? "v" : ">"}
-            </button>
-          ) : <span style={{ width: 22, flexShrink: 0 }} />}
           <div style={{ flex: 1, minWidth: 0 }}>
             {renamingThisConv ? (
               <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
@@ -145,7 +131,7 @@ export default function Sidebar({
           <div key={keyPrefix + ":" + cv.id + ":bref:" + child.id}
             onClick={e => { e.stopPropagation(); goToChildRef(child); }}
             title={child.title || "Untitled"}
-            style={{ padding: "5px 6px", paddingLeft: 6 + (depth + 1) * 12 + 22, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
+            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
             onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -159,7 +145,7 @@ export default function Sidebar({
           <div key={keyPrefix + ":" + cv.id + ":nref:" + child.id}
             onClick={e => { e.stopPropagation(); goToChildRef(child); }}
             title={child.title || "Untitled"}
-            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12 + 22, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
+            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
             onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
             <div style={{ flex: 1, minWidth: 0 }}>
