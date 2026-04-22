@@ -10,7 +10,7 @@ import Graph from "./Graph";
 export default function ChatPanel({
   t, dark,
   commits, headId, branch, names, parentRef, thread,
-  convs, convId,
+  convs, convId, activeTags,
   input, setInput, inputRef, endRef,
   pending, thinking, newFromRef, setNewFromRef,
   editId, setEditId, startEdit,
@@ -229,7 +229,7 @@ export default function ChatPanel({
               {selectMode && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: selectError ? "#fee" : "#EAF3FF", color: selectError ? "#c00" : "#1F6FB2" }}>{selectError || (selectRange.endId ? selectedRangeIds.length + " selected" : selectRange.startId ? "Pick end" : "Pick start")}</span>}
             </div>
           </div>
-          <Graph commits={commits} headId={headId} activeBranch={branch} names={names} onCheckout={checkout} onBranch={startBranchFrom} onNew={startNew} onDelete={deleteCommit} mergeMode={mm} selected={sel} onToggleSel={id => setSel(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} selectMode={selectMode} selectedRangeIds={selectedRangeIds} onSelectNode={handleSelectNode} onRangeBranch={rangeToBranch} onRangeNew={rangeToNew} onRangeDelete={deleteRange} parentRef={parentRef} onGoToParent={goToParent} childRefs={childRefs} onGoToChild={goToChild} hoveredCid={hoveredCid} panelW={graphW} t={t} branchTitles={convs.find(c => c.id === convId)?.branchTitles || {}} onEditLabel={editNodeLabel} onEditTags={editCommitTags} allTags={Array.from(new Set(convs.flatMap(cv => (cv.commits || []).flatMap(c => c.tags || []))))} />
+          <Graph commits={commits} headId={headId} activeBranch={branch} names={names} onCheckout={checkout} onBranch={startBranchFrom} onNew={startNew} onDelete={deleteCommit} mergeMode={mm} selected={sel} onToggleSel={id => setSel(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])} selectMode={selectMode} selectedRangeIds={selectedRangeIds} onSelectNode={handleSelectNode} onRangeBranch={rangeToBranch} onRangeNew={rangeToNew} onRangeDelete={deleteRange} parentRef={parentRef} onGoToParent={goToParent} childRefs={childRefs} onGoToChild={goToChild} hoveredCid={hoveredCid} panelW={graphW} t={t} branchTitles={convs.find(c => c.id === convId)?.branchTitles || {}} onEditLabel={editNodeLabel} onEditTags={editCommitTags} allTags={Array.from(new Set(convs.flatMap(cv => (cv.commits || []).flatMap(c => c.tags || []))))} activeTags={activeTags} />
         </div>
       )}
     </>

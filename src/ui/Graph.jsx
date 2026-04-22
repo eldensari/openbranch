@@ -3,7 +3,7 @@ import { bCol } from "../theme";
 import { bHead, shortModelName } from "../graph/model";
 import { getBranchLabel } from "../graph/branches";
 
-export default function Graph({ commits, headId, activeBranch, names, onCheckout, onBranch, onNew, onDelete, mergeMode, selected, onToggleSel, selectMode, selectedRangeIds, onSelectNode, onRangeBranch, onRangeNew, onRangeDelete, parentRef, onGoToParent, childRefs, onGoToChild, hoveredCid, panelW, t, branchTitles, onEditLabel, onEditTags, allTags = [] }) {
+export default function Graph({ commits, headId, activeBranch, names, onCheckout, onBranch, onNew, onDelete, mergeMode, selected, onToggleSel, selectMode, selectedRangeIds, onSelectNode, onRangeBranch, onRangeNew, onRangeDelete, parentRef, onGoToParent, childRefs, onGoToChild, hoveredCid, panelW, t, branchTitles, onEditLabel, onEditTags, allTags = [], activeTags }) {
   const [ctx, setCtx] = useState(null);
   const [editingNodeId, setEditingNodeId] = useState(null);
   const [labelDraft, setLabelDraft] = useState("");
@@ -148,13 +148,17 @@ export default function Graph({ commits, headId, activeBranch, names, onCheckout
           const rangeSel = selectedRangeIds?.includes(n.cid);
           const sel = mergeSel || rangeSel;
           const hov = hoveredCid === n.cid;
+          const hasActiveTag = activeTags && activeTags.size > 0 && (cm?.tags || []).some(tg => activeTags.has(tg));
           const r = cur ? 5 : (isMrg ? 5 : nR);
           const isEditing = editingNodeId === n.cid;
           const displayText = cm?.displayLabel || (cm?.prompt || "").replace(/\s+/g, " ").trim();
 
           const nodeOn = cidOnPath(n.cid);
+          const hasFilter = activeTags && activeTags.size > 0;
+          const dimByTag = hasFilter && !hasActiveTag;
+          const nodeOpacity = (nodeOn && !dimByTag) ? 1 : 0.12;
           return (
-            <g key={n.vid} style={{ cursor: "pointer", opacity: nodeOn ? 1 : 0.12, transition: dimTrans }}
+            <g key={n.vid} style={{ cursor: "pointer", opacity: nodeOpacity, transition: dimTrans }}
               onMouseEnter={() => setHoverNodeId(n.cid)} onMouseLeave={() => setHoverNodeId(p => p === n.cid ? null : p)}
               onClick={e => { if (isEditing) return; e.stopPropagation(); setCtx(null); if (selectMode) { onSelectNode(n.cid); return; } if (mergeMode) { onToggleSel(n.cid); return; } if (cm) onCheckout(cm.id, cm.branch); }}
               onDoubleClick={e => { e.stopPropagation(); if (!cm) return; setLabelDraft(cm.displayLabel || (cm.prompt || "").replace(/\s+/g, " ").trim()); setEditingNodeId(n.cid); }}

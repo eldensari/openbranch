@@ -810,6 +810,7 @@ export default function App() {
         t={t} dark={dark}
         commits={commits} headId={headId} branch={branch} names={names} parentRef={parentRef} thread={thread}
         convs={convs} convId={convId}
+        activeTags={activeTags}
         input={input} setInput={setInput} inputRef={inputRef} endRef={endRef}
         pending={pending} thinking={thinking} newFromRef={newFromRef} setNewFromRef={setNewFromRef}
         editId={editId} setEditId={setEditId} startEdit={startEdit}

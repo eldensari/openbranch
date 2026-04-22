@@ -168,7 +168,15 @@ export default function Sidebar({
   const liveActive = new Set([...activeTags].filter(tg => liveTags.has(tg)));
   const convHasAnyTag = cv => (cv.commits || []).some(c => (c.tags || []).some(tg => liveActive.has(tg)));
   const filteredConvs = liveActive.size ? convs.filter(convHasAnyTag) : convs;
-  const { topLevelConvs, rootFolders: folderGroups } = buildFolderGroups(filteredConvs, clusters);
+  const { topLevelConvs, rootFolders: folderGroupsAll } = buildFolderGroups(filteredConvs, clusters);
+  const pruneEmpty = (group) => {
+    const prunedChildren = group.children.map(pruneEmpty).filter(Boolean);
+    if (group.items.length === 0 && prunedChildren.length === 0) return null;
+    return { ...group, children: prunedChildren };
+  };
+  const folderGroups = liveActive.size
+    ? folderGroupsAll.map(pruneEmpty).filter(Boolean)
+    : folderGroupsAll;
   const { rootItems: topRootItems, childRefs: topChildRefs } = buildSidebarLayout(topLevelConvs);
   const userClusters = clusters.filter(c => c.auto !== true);
 
