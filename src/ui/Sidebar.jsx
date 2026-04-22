@@ -261,6 +261,7 @@ export default function Sidebar({
           </div>
         </div>
       )}
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: t.textMuted, padding: "8px 12px 4px", textTransform: "uppercase" }}>Chats</div>
       <div style={{ flex: 1, overflowY: "auto", padding: "0 4px 4px" }}
         onClick={() => setChatMenu(null)}
         onContextMenu={e => { e.preventDefault(); setChatMenu({ kind: "sidebar-bg", x: e.clientX, y: e.clientY }); }}>
