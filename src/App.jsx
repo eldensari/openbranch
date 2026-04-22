@@ -92,6 +92,33 @@ export default function App() {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commits, headId, pending]);
 
+  // Auto-expand folder/conv/branch chain when a tag filter is activated
+  useEffect(() => {
+    if (activeTags.size === 0) return;
+    const clusterMap = new Map(clusters.map(c => [c.id, c]));
+    const folderSet = new Set(expandedClusters);
+    const itemSet = new Set(openSidebarItems);
+    convs.forEach(cv => {
+      const matchingCommits = (cv.commits || []).filter(c => (c.tags || []).some(tg => activeTags.has(tg)));
+      if (!matchingCommits.length) return;
+      let fid = cv.clusterId;
+      const seen = new Set();
+      while (fid && !seen.has(fid)) {
+        seen.add(fid);
+        folderSet.add(fid);
+        fid = clusterMap.get(fid)?.parentId || null;
+      }
+      itemSet.add(cv.id + ":conv");
+      const matchingBranches = new Set(matchingCommits.map(c => c.branch));
+      matchingBranches.forEach(bName => {
+        const path = branchPathToRoot(cv.commits || [], bName);
+        path.forEach(b => itemSet.add(sidebarBranchKey(cv.id, b)));
+      });
+    });
+    setExpandedClusters(folderSet);
+    setOpenSidebarItems(itemSet);
+  }, [activeTags]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-send from starter cards (use setTimeout to ensure state is settled)
   useEffect(() => {
     if (sendRef.current && input === sendRef.current) {
