@@ -2,26 +2,47 @@ import storage from "../lib/storage";
 import { detectProvider } from "../lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "../graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "../storage/sidebar";
+import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "../storage/clusters";
 import { SunIcon, MoonIcon, GitHubIcon } from "./icons";
+
+const TAG_PALETTE = ["#E67E22", "#C58A00", "#27AE60", "#2980B9", "#8E44AD", "#C0392B", "#16A085", "#D35400"];
+function colorForTag(tag) {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = ((hash << 5) - hash) + tag.charCodeAt(i);
+  return TAG_PALETTE[Math.abs(hash) % TAG_PALETTE.length];
+}
+function hexWithAlpha(hex, alpha) {
+  const a = Math.round(alpha * 255).toString(16).padStart(2, "0");
+  return hex + a;
+}
 
 export default function Sidebar({
   t, dark, setDark,
   convs, clusters, clusterGroups,
   convId, branch,
-  activeTags, setActiveTags,
+  activeTags, setActiveTags, renameTag, deleteTag,
   chatMenu, setChatMenu,
   renamingId, setRenamingId,
   renamingBranch, setRenamingBranch,
-  setRenamingClusterId,
+  renamingClusterId, setRenamingClusterId,
   renameVal, setRenameVal,
-  collapsedClusters, toggleCluster,
+  expandedClusters, toggleCluster, expandFolder,
   sidebarItemOpen, toggleSidebarItem,
+  activeFolderId, setActiveFolderId,
+  createFolder, renameFolder, deleteFolder, moveConvToFolder, moveFolder,
   apiKey, setApiKey, showKeyInput, setShowKeyInput, keyDraft, setKeyDraft, hasKey, setRateLimited,
   newConv, loadMain, loadBranch,
   renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
   setConfirmDialog,
 }) {
-  const renderConvItem = (cv, keyPrefix, depth = 0, toggle = null, branchChildren = new Map()) => {
+  const goToChildRef = (childCv) => {
+    if (childCv.clusterId) {
+      setActiveFolderId(childCv.clusterId);
+      expandFolder(childCv.clusterId);
+    }
+    loadMain(childCv);
+  };
+  const renderConvItem = (cv, keyPrefix, depth = 0, toggle = null, childRefs = new Map()) => {
     const chain = cv.commits || [];
     const branchTree = buildBranchTree(chain);
     const convActive = convId === cv.id;
@@ -33,50 +54,41 @@ export default function Sidebar({
       (branchesByParent[parent] || (branchesByParent[parent] = [])).push(b);
     });
     const rootBranches = branchesByParent["main"] || [];
+    const myChildren = childRefs.get(cv.id) || [];
+    const isNewChild = (c) => !c.parentRef?.anchorBranch || c.parentRef.anchorBranch === "main";
+    const branchGhosts = myChildren.filter(c => !isNewChild(c));
+    const newGhosts = myChildren.filter(isNewChild);
+    const hasChildren = rootBranches.length > 0 || myChildren.length > 0;
     const ownToggleKey = cv.id + ":conv";
-    const localToggle = !toggle && rootBranches.length > 0
-      ? { open: sidebarItemOpen(ownToggleKey, true), onToggle: () => toggleSidebarItem(ownToggleKey, true) }
+    const localToggle = !toggle && hasChildren
+      ? { open: sidebarItemOpen(ownToggleKey), onToggle: () => toggleSidebarItem(ownToggleKey) }
       : null;
     const activeToggle = toggle || localToggle;
     const hasToggle = !!activeToggle;
     const showBranches = !hasToggle || activeToggle.open;
     const branchKey = bName => sidebarBranchKey(cv.id, bName);
     const branchOpen = bName => sidebarItemOpen(branchKey(bName));
-    const containsActiveConv = (items, seen = new Set()) => items.some(child => {
-      if (child.id === convId) return true;
-      if (seen.has(child.id)) return false;
-      seen.add(child.id);
-      return buildBranchTree(child.commits || []).some(b => {
-        const kids = branchChildren.get(sidebarBranchKey(child.id, b.branch)) || [];
-        return containsActiveConv(kids, seen);
-      });
-    });
-    const newSiblingsContainActive = bName => containsActiveConv(branchChildren.get(branchKey(bName)) || []);
-    const branchSubtreeContainsActive = bName => (branchesByParent[bName] || []).some(child =>
-      newSiblingsContainActive(child.branch) || branchSubtreeContainsActive(child.branch)
-    );
+    const branchSubtreeContainsActive = bName => {
+      if (!convActive) return false;
+      if (bName === branch) return true;
+      const kids = branchesByParent[bName] || [];
+      return kids.some(k => branchSubtreeContainsActive(k.branch));
+    };
     const renderBranchNode = ({ branch: bName, depth: bDepth }) => {
       const branchActive = convActive && branch === bName;
       const renamingThisBranch = renamingBranch && renamingBranch.convId === cv.id && renamingBranch.branch === bName;
       const displayLabel = getBranchLabel(chain, bName, cv.branchTitles);
       const childBranches = branchesByParent[bName] || [];
-      const siblingConvs = branchChildren.get(branchKey(bName)) || [];
       const hasBranchChildren = childBranches.length > 0;
       const isBranchOpen = branchOpen(bName) || branchSubtreeContainsActive(bName);
       return (
         <div key={keyPrefix + ":" + cv.id + ":" + bName}>
           <div className="chat-item"
             onClick={() => { if (!renamingThisBranch) { if (hasBranchChildren && !isBranchOpen) toggleSidebarItem(branchKey(bName)); loadBranch(cv, bName); } }}
-            style={{ padding: "5px 6px", paddingLeft: 6 + (depth + bDepth) * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : (hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"), border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
-            onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
-            onMouseLeave={e => { if (!branchActive) e.currentTarget.style.background = hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-            {hasBranchChildren ? (
-              <button onClick={e => { e.stopPropagation(); toggleSidebarItem(branchKey(bName)); }}
-                title={isBranchOpen ? "Collapse" : "Expand"}
-                style={{ width: 18, height: 18, marginRight: 4, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
-                {isBranchOpen ? "v" : ">"}
-              </button>
-            ) : <span style={{ width: 22, flexShrink: 0 }} />}
+            onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "branch", convId: cv.id, branch: bName, x: e.clientX, y: e.clientY }); }}
+            style={{ padding: "5px 6px", paddingLeft: 6 + (depth + bDepth) * 12 + (depth > 0 ? 18 : 0), marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: branchActive ? t.hover : (hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"), border: branchActive ? "0.5px solid " + t.border : "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative", opacity: branchActive ? 1 : 0.55, fontStyle: "italic" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
+            onMouseLeave={e => { if (!branchActive) { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = hasBranchChildren && isBranchOpen ? t.hoverSidebar : "transparent"; } e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               {renamingThisBranch ? (
                 <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
@@ -85,7 +97,7 @@ export default function Sidebar({
                   onClick={e => e.stopPropagation()}
                   style={{ width: "100%", fontSize: 10, fontWeight: 500, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
               ) : (
-                <div style={{ fontSize: 10, fontWeight: hasBranchChildren && isBranchOpen ? 650 : 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={displayLabel}>
+                <div style={{ fontSize: 10, fontWeight: hasBranchChildren && isBranchOpen ? 650 : 500, color: branchActive ? t.text : t.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={displayLabel}>
                   {displayLabel}
                 </div>
               )}
@@ -95,13 +107,6 @@ export default function Sidebar({
               style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"⋯"}</span>}
           </div>
           {hasBranchChildren && isBranchOpen && childBranches.map(renderBranchNode)}
-          {siblingConvs.map(childCv => renderConvItem(
-            childCv,
-            keyPrefix + ":" + cv.id + ":" + bName,
-            depth + bDepth,
-            null,
-            branchChildren
-          ))}
         </div>
       );
     };
@@ -110,17 +115,11 @@ export default function Sidebar({
     return (
       <div key={keyPrefix + ":" + cv.id}>
         <div className="chat-item"
-          onClick={() => { if (!renamingThisConv) { if (hasToggle && !activeToggle.open) activeToggle.onToggle(); loadMain(cv); } }}
-          style={{ padding: "6px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: itemBg, border: itemBorder, display: "flex", alignItems: "center", position: "relative" }}
+          onClick={() => { if (!renamingThisConv) { if (hasToggle) activeToggle.onToggle(); loadMain(cv); } }}
+          onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "conv", id: cv.id, x: e.clientX, y: e.clientY }); }}
+          style={{ padding: "6px 6px", paddingLeft: 6 + depth * 12 + (depth > 0 ? 18 : 0), marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: itemBg, border: itemBorder, display: "flex", alignItems: "center", position: "relative" }}
           onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
           onMouseLeave={e => { if (!convActiveOnMain) e.currentTarget.style.background = itemBg; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
-          {hasToggle ? (
-            <button onClick={e => { e.stopPropagation(); activeToggle.onToggle(); }}
-              title={activeToggle.open ? "Collapse" : "Expand"}
-              style={{ width: 18, height: 18, marginRight: 4, padding: 0, border: "none", background: "transparent", color: t.textSub, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: "18px" }}>
-              {activeToggle.open ? "v" : ">"}
-            </button>
-          ) : <span style={{ width: 22, flexShrink: 0 }} />}
           <div style={{ flex: 1, minWidth: 0 }}>
             {renamingThisConv ? (
               <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
@@ -139,6 +138,34 @@ export default function Sidebar({
             style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"⋯"}</span>}
         </div>
         {showBranches && rootBranches.map(renderBranchNode)}
+        {showBranches && branchGhosts.map(child => (
+          <div key={keyPrefix + ":" + cv.id + ":bref:" + child.id}
+            onClick={e => { e.stopPropagation(); goToChildRef(child); }}
+            title={child.title || "Untitled"}
+            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12 + (depth > 0 ? 18 : 0), marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 500, color: t.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {child.title || "Untitled"}
+              </div>
+            </div>
+          </div>
+        ))}
+        {showBranches && newGhosts.map(child => (
+          <div key={keyPrefix + ":" + cv.id + ":nref:" + child.id}
+            onClick={e => { e.stopPropagation(); goToChildRef(child); }}
+            title={child.title || "Untitled"}
+            style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12 + (depth > 0 ? 18 : 0), marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, border: "0.5px solid transparent", display: "flex", alignItems: "center", opacity: 0.55, fontStyle: "italic" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = t.hover; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 500, color: t.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {child.title || "Untitled"}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     );
   };
@@ -151,103 +178,232 @@ export default function Sidebar({
   convs.forEach(cv => (cv.commits || []).forEach(c => (c.tags || []).forEach(tg => liveTags.add(tg))));
   const liveActive = new Set([...activeTags].filter(tg => liveTags.has(tg)));
   const convHasAnyTag = cv => (cv.commits || []).some(c => (c.tags || []).some(tg => liveActive.has(tg)));
-  const filteredGroups = liveActive.size
-    ? clusterGroups.map(g => ({ ...g, items: g.items.filter(convHasAnyTag) })).filter(g => g.items.length)
-    : clusterGroups;
+  const filteredConvs = liveActive.size ? convs.filter(convHasAnyTag) : convs;
+  const { topLevelConvs, rootFolders: folderGroupsAll } = buildFolderGroups(filteredConvs, clusters);
+  const pruneEmpty = (group) => {
+    const prunedChildren = group.children.map(pruneEmpty).filter(Boolean);
+    if (group.items.length === 0 && prunedChildren.length === 0) return null;
+    return { ...group, children: prunedChildren };
+  };
+  const folderGroups = liveActive.size
+    ? folderGroupsAll.map(pruneEmpty).filter(Boolean)
+    : folderGroupsAll;
+  const { rootItems: topRootItems, childRefs: topChildRefs } = buildSidebarLayout(topLevelConvs);
+  const userClusters = clusters.filter(c => c.auto !== true);
+
+  const renderFolder = (group, depth) => {
+    const folder = group.folder;
+    const folderId = folder.id;
+    const isCollapsed = !expandedClusters.has(folderId);
+    const isRenaming = renamingClusterId === folderId;
+    const isActive = activeFolderId === folderId;
+    const hasContent = group.items.length > 0 || group.children.length > 0;
+    const { rootItems, childRefs } = buildSidebarLayout(group.items);
+    return (
+      <div key={folderId}>
+        <div className="chat-item"
+          onClick={() => { if (!isRenaming) { setActiveFolderId(folderId); if (hasContent) toggleCluster(folderId); } }}
+          onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "folder", id: folderId, x: e.clientX, y: e.clientY }); }}
+          style={{ padding: "5px 6px", paddingLeft: 6 + depth * 12, marginBottom: 1, borderRadius: 4, cursor: "pointer", fontSize: 10, background: "transparent", border: "0.5px solid transparent", display: "flex", alignItems: "center", position: "relative" }}
+          onMouseEnter={e => { e.currentTarget.style.background = t.hover; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "1"); }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.querySelector(".dots") && (e.currentTarget.querySelector(".dots").style.opacity = "0"); }}>
+          <span style={{ fontSize: 12, marginRight: 6, lineHeight: 1 }}>{isCollapsed ? "\u{1F4C1}" : "\u{1F4C2}"}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {isRenaming ? (
+              <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { renameFolder(folderId, renameVal); setRenamingClusterId(null); } if (e.key === "Escape") setRenamingClusterId(null); }}
+                onBlur={() => { renameFolder(folderId, renameVal); setRenamingClusterId(null); }}
+                onClick={e => e.stopPropagation()}
+                style={{ width: "100%", fontSize: 10, fontWeight: 600, padding: "1px 3px", border: "1px solid #378ADD", borderRadius: 3, outline: "none", boxSizing: "border-box", background: t.bg, color: t.text }} />
+            ) : (
+              <div style={{ fontSize: 10, fontWeight: 650, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={folder.title || "Untitled"}>
+                {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+              </div>
+            )}
+          </div>
+          {!isRenaming && <span className="dots"
+            onClick={e => { e.stopPropagation(); setChatMenu(chatMenu?.kind === "folder" && chatMenu.id === folderId ? null : { kind: "folder", id: folderId, x: e.clientX, y: e.clientY }); }}
+            style={{ opacity: 0, fontSize: 14, color: t.textMuted, padding: "0 4px", cursor: "pointer", transition: "opacity 0.15s", flexShrink: 0, lineHeight: 1 }}>{"\u22EF"}</span>}
+        </div>
+        {!isCollapsed && (
+          <>
+            {rootItems.map(item => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null, childRefs))}
+            {group.children.map(child => renderFolder(child, depth + 1))}
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ width: 180, display: "flex", flexDirection: "column", borderRight: "0.5px solid " + t.border, background: t.sidebar }}>
       <div style={{ padding: "8px 6px" }}><button onClick={newConv} style={{ width: "100%", padding: "6px", fontSize: 10, fontWeight: 500, borderRadius: 4, background: t.accent, color: t.accentText, border: "none", cursor: "pointer" }}>+ New</button></div>
       {tagEntries.length > 0 && (
-        <div style={{ padding: "4px 8px 8px", borderBottom: "0.5px solid " + t.border, marginBottom: 4 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: t.textSub, padding: "4px 2px 6px" }}>Tags</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+        <div style={{ padding: "6px 10px 10px", borderBottom: "0.5px solid " + t.border, marginBottom: 4 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: t.textMuted, padding: "4px 2px 8px", textTransform: "uppercase" }}>Tags</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, rowGap: 6 }}>
             {tagEntries.map(([tg, n]) => {
               const on = activeTags.has(tg);
+              const color = colorForTag(tg);
               return (
                 <span key={tg}
                   onClick={() => setActiveTags(p => { const s = new Set(p); s.has(tg) ? s.delete(tg) : s.add(tg); return s; })}
-                  style={{ fontSize: 11, fontWeight: 500, color: on ? "#fff" : "#378ADD", background: on ? "#378ADD" : t.hoverSidebar, padding: "3px 9px", borderRadius: 12, cursor: "pointer", userSelect: "none" }}>
-                  #{tg} <span style={{ color: on ? "#cfe4ff" : t.textMuted, fontSize: 10 }}>{n}</span>
+                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChatMenu({ kind: "tag", name: tg, x: e.clientX, y: e.clientY }); }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, fontWeight: 500, color: t.text, background: on ? hexWithAlpha(color, 0.18) : "transparent", padding: "3px 8px", borderRadius: 99, cursor: "pointer", userSelect: "none", transition: "background 0.15s" }}
+                  onMouseEnter={e => { if (!on) e.currentTarget.style.background = t.hoverSidebar; }}
+                  onMouseLeave={e => { if (!on) e.currentTarget.style.background = "transparent"; }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                  {tg}
+                  <span style={{ fontSize: 9, color: t.textMuted }}>{n}</span>
                 </span>
               );
             })}
           </div>
         </div>
       )}
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 4px 4px" }} onClick={() => setChatMenu(null)}>
-        {filteredGroups.map(group => {
-          const { rootItems: ordered, branchChildren } = buildSidebarLayout(group.items);
-          const groupOpen = collapsedClusters.has(group.cluster.id);
-          const visible = groupOpen ? ordered : ordered.slice(0, 1);
-          return (
-            <div key={group.cluster.id} style={{ marginBottom: 6 }}>
-              {visible.map((item, idx) => {
-                const isGroupRoot = item.conv.id === ordered[0]?.conv.id;
-                const hasRootChildren = ordered.length > 1 || buildBranchTree(item.conv.commits || []).length > 0;
-                const toggle = isGroupRoot && hasRootChildren
-                  ? { open: groupOpen, onToggle: () => toggleCluster(group.cluster.id) }
-                  : null;
-                return renderConvItem(
-                  item.conv,
-                  "cl:" + group.cluster.id,
-                  groupOpen ? item.depth : 0,
-                  toggle,
-                  branchChildren
-                );
-              })}
-            </div>
-          );
-        })}
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: t.textMuted, padding: "8px 12px 4px", textTransform: "uppercase" }}>Chats</div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 4px 4px" }}
+        onClick={() => setChatMenu(null)}
+        onContextMenu={e => { e.preventDefault(); setChatMenu({ kind: "sidebar-bg", x: e.clientX, y: e.clientY }); }}>
+        {topRootItems.map(item => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
+        {folderGroups.map(group => renderFolder(group, 0))}
       </div>
 
-      {/* Chat context menu (kind: "conv" | "branch") */}
-      {chatMenu && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 98 }} onClick={() => setChatMenu(null)}>
-          <div style={{ position: "fixed", left: chatMenu.x, top: chatMenu.y, zIndex: 100, background: t.bg, border: "0.5px solid " + t.border, borderRadius: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.12)", padding: "4px 0", minWidth: 100 }}
-            onClick={e => e.stopPropagation()}>
-            <button onClick={() => {
-                if (chatMenu.kind === "conv") {
+      {/* Chat context menu (kind: "conv" | "branch" | "folder" | "sidebar-bg" | "move-target") */}
+      {chatMenu && (() => {
+        const menuBtn = (label, handler, opts = {}) => (
+          <button onClick={() => { handler(); if (!opts.keepOpen) setChatMenu(null); }}
+            style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: opts.danger ? "#c00" : t.text, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+            onMouseEnter={e => e.currentTarget.style.background = opts.danger ? "#fee" : t.hoverSidebar}
+            onMouseLeave={e => e.currentTarget.style.background = "none"}>
+            {label}
+          </button>
+        );
+        const divider = <div style={{ height: 1, background: t.border, margin: "2px 0" }} />;
+        const flattenFolders = () => {
+          const { rootFolders, childrenByParentId } = buildFolderTree(userClusters);
+          const out = [];
+          const walk = (arr, depth) => { for (const f of arr) { out.push({ folder: f, depth }); walk(childrenByParentId.get(f.id) || [], depth + 1); } };
+          walk(rootFolders, 0);
+          return out;
+        };
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 98 }} onClick={() => setChatMenu(null)} onContextMenu={e => { e.preventDefault(); setChatMenu(null); }}>
+            <div style={{ position: "fixed", left: chatMenu.x, top: chatMenu.y, zIndex: 100, background: t.bg, border: "0.5px solid " + t.border, borderRadius: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.12)", padding: "4px 0", minWidth: 140, maxHeight: 320, overflowY: "auto" }}
+              onClick={e => e.stopPropagation()}>
+              {chatMenu.kind === "conv" && (<>
+                {menuBtn("rename", () => {
                   const cv = convs.find(c => c.id === chatMenu.id);
                   setRenameVal(cv?.title || ""); setRenamingId(chatMenu.id); setRenamingBranch(null); setRenamingClusterId(null);
-                } else if (chatMenu.kind === "branch") {
-                  const cv = convs.find(c => c.id === chatMenu.convId);
-                  setRenameVal(getBranchLabel(cv?.commits || [], chatMenu.branch, cv?.branchTitles));
-                  setRenamingBranch({ convId: chatMenu.convId, branch: chatMenu.branch }); setRenamingId(null); setRenamingClusterId(null);
-                }
-                setChatMenu(null);
-              }}
-              style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: t.text, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-              onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar} onMouseLeave={e => e.currentTarget.style.background = "none"}>
-              rename
-            </button>
-            <div style={{ height: 1, background: t.border, margin: "2px 0" }} />
-            <button onClick={() => {
-                if (chatMenu.kind === "conv") {
+                })}
+                {menuBtn("move to folder \u25B8", () => {
+                  setChatMenu({ kind: "move-target", convId: chatMenu.id, x: chatMenu.x, y: chatMenu.y });
+                }, { keepOpen: true })}
+                {divider}
+                {menuBtn("delete", () => {
                   const n = countChildConvs(chatMenu.id);
                   const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
                   const id = chatMenu.id;
                   setConfirmDialog({ msg, onConfirm: () => del(id) });
-                } else if (chatMenu.kind === "branch") {
+                }, { danger: true })}
+              </>)}
+              {chatMenu.kind === "branch" && (<>
+                {menuBtn("rename", () => {
                   const cv = convs.find(c => c.id === chatMenu.convId);
-                  if (cv) {
-                    const descs = getBranchDescendantNames(cv.commits || [], chatMenu.branch);
-                    const msg = descs.length > 0
-                      ? `Delete branch "${chatMenu.branch}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
-                      : `Delete branch "${chatMenu.branch}"?`;
-                    const cid = chatMenu.convId, b = chatMenu.branch;
-                    setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cid, b) });
-                  }
-                }
-                setChatMenu(null);
-              }}
-              style={{ display: "block", width: "100%", padding: "6px 14px", fontSize: 11, color: "#c00", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#fee"} onMouseLeave={e => e.currentTarget.style.background = "none"}>
-              delete
-            </button>
+                  setRenameVal(getBranchLabel(cv?.commits || [], chatMenu.branch, cv?.branchTitles));
+                  setRenamingBranch({ convId: chatMenu.convId, branch: chatMenu.branch }); setRenamingId(null); setRenamingClusterId(null);
+                })}
+                {divider}
+                {menuBtn("delete", () => {
+                  const cv = convs.find(c => c.id === chatMenu.convId);
+                  if (!cv) return;
+                  const descs = getBranchDescendantNames(cv.commits || [], chatMenu.branch);
+                  const msg = descs.length > 0
+                    ? `Delete branch "${chatMenu.branch}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
+                    : `Delete branch "${chatMenu.branch}"?`;
+                  const cid = chatMenu.convId, b = chatMenu.branch;
+                  setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cid, b) });
+                }, { danger: true })}
+              </>)}
+              {chatMenu.kind === "folder" && (<>
+                {menuBtn("new chat", () => {
+                  setActiveFolderId(chatMenu.id);
+                  expandFolder(chatMenu.id);
+                  newConv();
+                })}
+                {menuBtn("new folder", () => {
+                  expandFolder(chatMenu.id);
+                  const f = createFolder(chatMenu.id);
+                  setRenameVal("Untitled");
+                  setRenamingClusterId(f.id); setRenamingId(null); setRenamingBranch(null);
+                })}
+                {divider}
+                {menuBtn("rename", () => {
+                  const folder = clusters.find(c => c.id === chatMenu.id);
+                  setRenameVal(folder?.title || "");
+                  setRenamingClusterId(chatMenu.id); setRenamingId(null); setRenamingBranch(null);
+                })}
+                {divider}
+                {menuBtn("delete folder", () => {
+                  const affectedConvs = convs.filter(cv => {
+                    const set = new Set([chatMenu.id]);
+                    let grew = true;
+                    while (grew) { grew = false; for (const c of clusters) { if (!set.has(c.id) && c.parentId && set.has(c.parentId)) { set.add(c.id); grew = true; } } }
+                    return set.has(cv.clusterId);
+                  });
+                  const folder = clusters.find(c => c.id === chatMenu.id);
+                  const folderTitle = folder?.title || "this folder";
+                  const n = affectedConvs.length;
+                  const msg = n > 0
+                    ? `Delete folder "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent folder. Subfolders stay; only the folder itself is removed.`
+                    : `Delete folder "${folderTitle}"?`;
+                  const id = chatMenu.id;
+                  setConfirmDialog({ msg, onConfirm: () => deleteFolder(id) });
+                }, { danger: true })}
+              </>)}
+              {chatMenu.kind === "sidebar-bg" && (<>
+                {menuBtn("new folder", () => {
+                  const f = createFolder(null);
+                  setRenameVal("Untitled");
+                  setRenamingClusterId(f.id); setRenamingId(null); setRenamingBranch(null);
+                })}
+              </>)}
+              {chatMenu.kind === "move-target" && (<>
+                <div style={{ fontSize: 10, fontWeight: 600, color: t.textSub, padding: "6px 14px 4px" }}>Move to folder</div>
+                <button onClick={() => { moveConvToFolder(chatMenu.convId, null); setChatMenu(null); }}
+                  style={{ display: "block", width: "100%", padding: "5px 14px", fontSize: 11, fontStyle: "italic", color: t.textSub, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                  onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                  (top level)
+                </button>
+                {flattenFolders().map(({ folder, depth }) => (
+                  <button key={folder.id} onClick={() => { moveConvToFolder(chatMenu.convId, folder.id); expandFolder(folder.id); setChatMenu(null); }}
+                    style={{ display: "block", width: "100%", padding: "5px 14px", paddingLeft: 14 + depth * 10, fontSize: 11, color: t.text, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                    onMouseEnter={e => e.currentTarget.style.background = t.hoverSidebar}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                    {"\u{1F4C1} "}{folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+                  </button>
+                ))}
+                {userClusters.length === 0 && (
+                  <div style={{ fontSize: 10, fontStyle: "italic", color: t.textSub, padding: "4px 14px 6px" }}>
+                    No folders yet. Right-click empty space to create one.
+                  </div>
+                )}
+              </>)}
+              {chatMenu.kind === "tag" && (<>
+                {menuBtn("rename", () => {
+                  const nv = window.prompt("Rename tag", chatMenu.name);
+                  if (nv != null) renameTag(chatMenu.name, nv);
+                })}
+                {divider}
+                {menuBtn("delete", () => {
+                  setConfirmDialog({ msg: `Remove tag "${chatMenu.name}" from all commits?`, onConfirm: () => deleteTag(chatMenu.name) });
+                }, { danger: true })}
+              </>)}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* API Key */}
       <div style={{ borderTop: "0.5px solid " + t.border, padding: "6px 6px 0" }}>
