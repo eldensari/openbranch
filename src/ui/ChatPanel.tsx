@@ -1,4 +1,3 @@
-import { bCol } from "@/lib/branch-colors";
 import { submitWaitlist } from "@/lib/llm";
 import storage from "@/lib/storage";
 import {
@@ -18,6 +17,8 @@ import {
   Globe,
   X,
   FileText,
+  GitBranch,
+  Square,
 } from "lucide-react";
 import { useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -54,7 +55,7 @@ export default function ChatPanel(props: Props) {
     undoAction, setUndoAction, restoreUndo,
     rateLimited, hasKey, waitlistStatus, setWaitlistStatus, waitlistEmail, setWaitlistEmail,
     apiKey, setKeyDraft, setShowKeyInput, setRateLimited,
-    send, merge,
+    send, merge, stop,
     copyToClipboard, retryResponse,
     checkout, startBranchFrom, startNew, deleteCommit,
     goToParent, goToChild, childRefs,
@@ -62,7 +63,6 @@ export default function ChatPanel(props: Props) {
     editNodeLabel, editCommitTags,
   } = props;
 
-  const branchColor = names.length > 0 ? bCol(names, branch) : "var(--muted-foreground)";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const onFilesPicked = async (files: FileList | null) => {
@@ -239,18 +239,30 @@ export default function ChatPanel(props: Props) {
             thinking={thinkingOn}
             onThinkingChange={(v: boolean) => { setThinkingOn(v); storage.set("thinkingOn", v ? "1" : "0"); }}
           />
-          <Button
-            onClick={() => (mm && sel.length ? merge() : send())}
-            disabled={thinking || !hasContent || (mm && !sel.length)}
-            size="sm"
-            className="h-8 gap-1.5"
-          >
-            {branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : newFromRef ? "Send" : (
-              <>
-                Send <ArrowUp className="size-3.5" />
-              </>
-            )}
-          </Button>
+          {thinking ? (
+            <Button
+              onClick={stop}
+              size="sm"
+              variant="destructive"
+              className="h-8 gap-1.5"
+              title="Stop generation"
+            >
+              <Square className="size-3 fill-current" /> Stop
+            </Button>
+          ) : (
+            <Button
+              onClick={() => (mm && sel.length ? merge() : send())}
+              disabled={!hasContent || (mm && !sel.length)}
+              size="sm"
+              className="h-8 gap-1.5"
+            >
+              {branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : newFromRef ? "Send" : (
+                <>
+                  Send <ArrowUp className="size-3.5" />
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -279,38 +291,6 @@ export default function ChatPanel(props: Props) {
 
   const chatArea = (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-2 text-base font-semibold">
-            <img src={herbIcon} alt="" className="size-5" /> OpenBranch
-          </span>
-          {names.length > 0 && (
-            <span
-              className="rounded-md px-2 py-0.5 font-mono text-xs font-medium"
-              style={{
-                color: branchColor,
-                background: `color-mix(in oklch, ${branchColor} 14%, transparent)`,
-              }}
-            >
-              {branch}
-            </span>
-          )}
-          {parentRef && (
-            <button
-              onClick={goToParent}
-              className="text-xs text-[color:var(--branch-1)] hover:underline"
-            >
-              ↗ from: {parentRef.convTitle?.slice(0, 20)}
-            </button>
-          )}
-        </div>
-        {commits.length > 0 && (
-          <Button variant={graph ? "default" : "outline"} size="sm" onClick={() => setGraph(!graph)}>
-            {graph ? "Hide graph" : "Show graph"}
-          </Button>
-        )}
-      </header>
-
       <div className="flex-1 overflow-y-auto px-4 pb-6 pt-6">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
           {thread.length === 0 && !pending && !newFromRef && (
@@ -546,12 +526,37 @@ export default function ChatPanel(props: Props) {
 
   const graphArea = graph && commits.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
-      <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3">
-        <span className="text-sm font-medium text-muted-foreground">Graph</span>
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-background/40 px-3 backdrop-blur">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-muted-foreground/80">
-            HEAD {headId?.slice(0, 7)}
-          </span>
+          <GitBranch className="size-3.5 text-muted-foreground" />
+          <span className="text-sm font-semibold">Graph</span>
+          {headId && (
+            <span className="hidden font-mono text-[10px] text-muted-foreground/70 md:inline">
+              HEAD {headId.slice(0, 7)}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {mm && (
+            <span className="rounded-full bg-[color:var(--branch-5)] px-2 py-0.5 text-[10px] font-medium text-white">
+              Select commits
+            </span>
+          )}
+          {selectMode && (
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                selectError ? "bg-destructive/10 text-destructive" : "bg-[color:var(--branch-1)]/15 text-[color:var(--branch-1)]",
+              )}
+            >
+              {selectError ||
+                (selectRange.endId
+                  ? selectedRangeIds.length + " selected"
+                  : selectRange.startId
+                  ? "Pick end"
+                  : "Pick start")}
+            </span>
+          )}
           {!mm && (
             <Button
               size="sm"
@@ -562,7 +567,7 @@ export default function ChatPanel(props: Props) {
                 setSel([]);
                 clearSelectRange();
               }}
-              className="h-7 px-2 text-xs"
+              className="h-7 rounded-full px-2.5 text-xs"
             >
               Select
             </Button>
@@ -577,31 +582,11 @@ export default function ChatPanel(props: Props) {
                 setMm(true);
                 setSel([]);
               }}
-              className="h-7 px-2 text-xs"
+              className="h-7 rounded-full px-2.5 text-xs"
               style={{ color: "var(--branch-5)", borderColor: "var(--branch-5)" }}
             >
               Merge
             </Button>
-          )}
-          {mm && (
-            <span className="rounded-md bg-[color:var(--branch-5)] px-2 py-0.5 text-[10px] font-medium text-white">
-              Select commits
-            </span>
-          )}
-          {selectMode && (
-            <span
-              className={cn(
-                "rounded-md px-2 py-0.5 text-[10px] font-medium",
-                selectError ? "bg-destructive/10 text-destructive" : "bg-[color:var(--branch-1)]/15 text-[color:var(--branch-1)]",
-              )}
-            >
-              {selectError ||
-                (selectRange.endId
-                  ? selectedRangeIds.length + " selected"
-                  : selectRange.startId
-                  ? "Pick end"
-                  : "Pick start")}
-            </span>
           )}
         </div>
       </div>

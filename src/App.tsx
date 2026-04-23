@@ -20,7 +20,9 @@ import {
 } from "./components/ui/resizable";
 import type { ImperativePanelHandle } from "react-resizable-panels";
 import { Button } from "./components/ui/button";
-import { PanelLeft } from "lucide-react";
+import { PanelLeft, GitBranch } from "lucide-react";
+import herbIcon from "./assets/herb.svg";
+import { bCol } from "./lib/branch-colors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -106,6 +108,13 @@ export default function App() {
   const inputRef = useRef(null);
   const cRef = useRef(commits); cRef.current = commits;
   const sendRef = useRef(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const stop = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  };
+  const isAbortError = (e: any) =>
+    e?.name === "AbortError" || e?.code === "ABORT_ERR" || e?.code === 20;
 
   // Seed data on first visit, then load convs
   useEffect(() => {
@@ -495,20 +504,23 @@ export default function App() {
     save(msg.slice(0, 40), [], null, "main", pRef, newId);
 
     setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
       const msgs = buildMsgs(thread, msg, atts);
-      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
       const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
     } catch (e) {
+      if (isAbortError(e)) { setPending(null); return; }
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
       const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
-    } finally { setThinking(false); }
+    } finally { abortRef.current = null; setThinking(false); }
   };
   const sendEditRoot = async (msg, atts, useSearch) => {
     setEditId(null);
@@ -519,36 +531,42 @@ export default function App() {
     save(msg.slice(0, 40), [], null, "main", null, newId);
 
     setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
       const rootMsg = atts?.length ? { role: "user" as const, content: msg, attachments: atts } : { role: "user" as const, content: msg };
-      const resp = await callLLM(apiKey, [rootMsg], { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
+      const resp = await callLLM(apiKey, [rootMsg], { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
       const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
     } catch (e) {
+      if (isAbortError(e)) { setPending(null); return; }
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
       const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
-    } finally { setThinking(false); }
+    } finally { abortRef.current = null; setThinking(false); }
   };
   const sendNormal = async (pid, br, msg, atts, useSearch) => {
     setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
       const th = getThread(cRef.current, pid).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
       const msgs = buildMsgs(th, msg, atts);
-      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
       const cm = mkCommit(pid, msg, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, br);
     } catch (e) {
+      if (isAbortError(e)) { setPending(null); return; }
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
       const cm = mkCommit(pid, msg, "Error: " + e.message, br, null, null, { attachments: atts });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
-    } finally { setThinking(false); }
+    } finally { abortRef.current = null; setThinking(false); }
   };
   const send = async (forkBranch = false) => {
     if ((!input.trim() && !attachments.length) || thinking) return;
@@ -602,7 +620,17 @@ export default function App() {
   };
 
   // ─── HANDLERS ───
-  const startEdit = cid => { const cm = commits.find(c => c.id === cid); if (!cm) return; setEditId(cid); setBranchFromId(null); setNewFromRef(null); setInput(cm.prompt); inputRef.current?.focus(); };
+  const startEdit = cid => {
+    const cm = commits.find(c => c.id === cid);
+    if (!cm) return;
+    setEditId(cid);
+    setBranchFromId(null);
+    setNewFromRef(null);
+    setInput(cm.prompt);
+    const hydrated = hydrateAttachments(cm.attachments);
+    setAttachments(hydrated && hydrated.length ? [...hydrated] : []);
+    inputRef.current?.focus();
+  };
   const startBranchFrom = cid => {
     const cm = commits.find(c => c.id === cid);
     if (!cm) return;
@@ -621,20 +649,25 @@ export default function App() {
     const msgs = buildMsgs(parentThread, cm.prompt, atts);
     setHeadId(parentId); setBranch(br);
     setPending(cm.prompt); setThinking(true); setMm(false); setSel([]); setEditId(null); setBranchFromId(null); setNewFromRef(null);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
       const newCm = mkCommit(parentId, cm.prompt, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [...cRef.current, newCm];
       setCommits(nc); cRef.current = nc; setHeadId(newCm.id); setScrollTarget(newCm.id);
       save(null, nc, newCm.id, br);
     } catch (e) {
-      const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel, { attachments: atts });
-      const nc = [...cRef.current, newCm];
-      setCommits(nc); cRef.current = nc; setHeadId(newCm.id);
-      save(null, nc, newCm.id, br);
-      if (e.code === "RATE_LIMIT") setRateLimited(true);
+      if (isAbortError(e)) { /* cancelled */ }
+      else {
+        const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel, { attachments: atts });
+        const nc = [...cRef.current, newCm];
+        setCommits(nc); cRef.current = nc; setHeadId(newCm.id);
+        save(null, nc, newCm.id, br);
+        if (e.code === "RATE_LIMIT") setRateLimited(true);
+      }
     } finally {
-      setPending(null); setThinking(false);
+      abortRef.current = null; setPending(null); setThinking(false);
     }
   };
   const copyToClipboard = (text) => { try { navigator.clipboard.writeText(text || ""); } catch {} };
@@ -892,18 +925,21 @@ export default function App() {
   const merge = async () => {
     if (!input.trim() || !sel.length) return;
     const msg = input.trim(); setInput(""); setMm(false); setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
       const curTh = getThread(cRef.current, headId).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n");
       const selCtx = sel.map(sid => { const sc = cRef.current.find(c => c.id === sid); if (!sc) return ""; return "[" + sc.branch + "]:\n" + getThread(cRef.current, sid).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n"); }).join("\n---\n");
-      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], { model: currentModel, thinking: thinkingOn });
+      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], { model: currentModel, thinking: thinkingOn, signal: ac.signal });
       const cm = mkCommit(headId, msg, resp.text, branch, sel, currentModel);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
       save(null, nc, cm.id, branch);
     } catch (e) {
+      if (isAbortError(e)) { setPending(null); setSel([]); return; }
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setSel([]); setThinking(false); return; }
       const cm = mkCommit(headId, msg, "Merge error: " + e.message, branch);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
-    } finally { setThinking(false); }
+    } finally { abortRef.current = null; setThinking(false); }
   };
 
   /* RENDER */
@@ -954,7 +990,7 @@ export default function App() {
     waitlistStatus, setWaitlistStatus, waitlistEmail, setWaitlistEmail,
     apiKey, setKeyDraft, setShowKeyInput, setRateLimited,
     toast, setToast, showToast,
-    send, merge,
+    send, merge, stop,
     copyToClipboard, retryResponse,
     checkout, startBranchFrom, startNew, deleteCommit,
     goToParent, goToChild, childRefs,
@@ -969,6 +1005,10 @@ export default function App() {
     if (!p) return;
     if (p.isCollapsed()) p.expand(); else p.collapse();
   };
+
+  const activeConv = convs.find(c => c.id === convId);
+  const convTitle = activeConv?.title || "";
+  const topBarBranchColor = names.length > 0 ? bCol(names, branch) : "var(--muted-foreground)";
 
   return (
     <SidebarProvider defaultOpen>
@@ -993,7 +1033,7 @@ export default function App() {
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={80} minSize={40}>
               <div className="flex h-full w-full flex-col">
-                <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
+                <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-background/60 px-3 backdrop-blur">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1003,7 +1043,54 @@ export default function App() {
                   >
                     <PanelLeft className="size-4" />
                   </Button>
+                  <span className="flex items-center gap-1.5 text-sm font-semibold">
+                    <img src={herbIcon} alt="" className="size-4" />
+                    OpenBranch
+                  </span>
+                  {convTitle && (
+                    <>
+                      <span className="text-muted-foreground/50">/</span>
+                      <span className="max-w-[280px] truncate text-sm text-foreground/90" title={convTitle}>
+                        {convTitle}
+                      </span>
+                    </>
+                  )}
+                  {names.length > 0 && (
+                    <span
+                      className="ml-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium"
+                      style={{
+                        color: topBarBranchColor,
+                        background: `color-mix(in oklch, ${topBarBranchColor} 14%, transparent)`,
+                      }}
+                      title={`Current branch: ${branch}`}
+                    >
+                      <GitBranch className="size-3" />
+                      {branch}
+                    </span>
+                  )}
+                  {parentRef && (
+                    <button
+                      onClick={() => {
+                        const pcv = convs.find(c => c.id === parentRef.convId);
+                        if (pcv) { load(pcv); setScrollTarget(parentRef.commitId); }
+                      }}
+                      className="text-xs text-[color:var(--branch-1)] hover:underline"
+                      title={`Go back to ${parentRef.convTitle}`}
+                    >
+                      ↗ from: {parentRef.convTitle?.slice(0, 20)}
+                    </button>
+                  )}
                   <div className="flex-1" />
+                  {commits.length > 0 && (
+                    <Button
+                      variant={graph ? "default" : "outline"}
+                      size="sm"
+                      className="h-8"
+                      onClick={() => setGraph(!graph)}
+                    >
+                      {graph ? "Hide graph" : "Show graph"}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"

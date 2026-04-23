@@ -14,7 +14,21 @@ export type LLMOptions = {
   model?: string | null;
   thinking?: boolean;
   webSearch?: boolean;
+  signal?: AbortSignal;
 };
+
+function mergeSignals(userSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!userSignal) return timeout;
+  const anyFn = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === "function") return anyFn([timeout, userSignal]);
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  timeout.addEventListener("abort", onAbort, { once: true });
+  userSignal.addEventListener("abort", onAbort, { once: true });
+  if (timeout.aborted || userSignal.aborted) controller.abort();
+  return controller.signal;
+}
 
 export type LLMResponse = {
   text: string;
@@ -167,6 +181,7 @@ async function callFree(
   messages: ChatMessage[],
   model: string | null,
   webSearch: boolean,
+  userSignal?: AbortSignal,
 ): Promise<LLMResponse> {
   const res = await fetch("/.netlify/functions/chat", {
     method: "POST",
@@ -176,7 +191,7 @@ async function callFree(
       model: model || "claude-sonnet-4-20250514",
       webSearch: !!webSearch,
     }),
-    signal: AbortSignal.timeout(120000),
+    signal: mergeSignals(userSignal, 120000),
   });
 
   if (res.status === 429) {
@@ -215,7 +230,7 @@ async function callBYOK(
   messages: ChatMessage[],
   opts: LLMOptions = {},
 ): Promise<LLMResponse> {
-  const { model = null, thinking = false, webSearch = false } = opts;
+  const { model = null, thinking = false, webSearch = false, signal } = opts;
   const key = apiKey.trim().replace(/[^\x20-\x7E]/g, "");
   const provider = detectProvider(key);
   if (!provider) throw new Error("Unknown API key format.");
@@ -245,7 +260,7 @@ async function callBYOK(
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(180000),
+      signal: mergeSignals(signal, 180000),
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
@@ -268,7 +283,7 @@ async function callBYOK(
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(180000),
+      signal: mergeSignals(signal, 180000),
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
@@ -304,7 +319,7 @@ async function callBYOK(
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(180000),
+        signal: mergeSignals(signal, 180000),
       },
     );
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
@@ -323,7 +338,7 @@ export async function callLLM(
   if (apiKey && apiKey.trim()) {
     return callBYOK(apiKey, messages, opts);
   }
-  return callFree(messages, opts.model || null, !!opts.webSearch);
+  return callFree(messages, opts.model || null, !!opts.webSearch, opts.signal);
 }
 
 type ThreadCommit = { prompt: string; response?: string };
