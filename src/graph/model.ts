@@ -1,4 +1,4 @@
-import type { Commit, CommitId } from "@/types";
+import type { Attachment, Citation, Commit, CommitId } from "@/types";
 
 /* ═══════ DATA ═══════ */
 let cc = 100; // start high to avoid conflicts with demo IDs
@@ -29,6 +29,7 @@ export function mkCommit(
   branch: string,
   mergeIds: CommitId[] | null = null,
   model: string | null = null,
+  extras?: { attachments?: Attachment[]; citations?: Citation[]; webSearch?: boolean },
 ): Commit {
   const c: Commit = {
     id: mkId(),
@@ -40,18 +41,33 @@ export function mkCommit(
     ts: Date.now(),
   };
   if (model) c.model = model;
+  if (extras?.attachments?.length) c.attachments = extras.attachments;
+  if (extras?.citations?.length) c.citations = extras.citations;
+  if (extras?.webSearch) c.webSearch = true;
   return c;
 }
 
-export type ChatMsg = { role: "user" | "assistant"; content: string };
+export type ChatMsg = {
+  role: "user" | "assistant";
+  content: string;
+  attachments?: Attachment[];
+};
 
-export function buildMsgs(thread: Commit[], finalUserMsg: string): ChatMsg[] {
+export function buildMsgs(
+  thread: Commit[],
+  finalUserMsg: string,
+  finalAttachments?: Attachment[],
+): ChatMsg[] {
   const msgs: ChatMsg[] = [];
   for (const c of thread) {
-    msgs.push({ role: "user", content: c.prompt });
+    const m: ChatMsg = { role: "user", content: c.prompt };
+    if (c.attachments?.length) m.attachments = c.attachments;
+    msgs.push(m);
     if (c.response) msgs.push({ role: "assistant", content: c.response });
   }
-  msgs.push({ role: "user", content: finalUserMsg });
+  const last: ChatMsg = { role: "user", content: finalUserMsg };
+  if (finalAttachments?.length) last.attachments = finalAttachments;
+  msgs.push(last);
   return msgs;
 }
 

@@ -2,10 +2,19 @@ import { bCol } from "@/lib/branch-colors";
 import { submitWaitlist } from "@/lib/llm";
 import storage from "@/lib/storage";
 import herbIcon from "@/assets/herb.svg";
-import { renderMd, ThinkingDots } from "./Markdown";
+import { renderMd, renderCitations, ThinkingDots } from "./Markdown";
 import ModelPicker from "./ModelPicker";
 import Graph from "./Graph";
-import { Copy, RotateCcw, ArrowUp } from "lucide-react";
+import {
+  Copy,
+  RotateCcw,
+  ArrowUp,
+  Paperclip,
+  Globe,
+  X,
+  FileText,
+} from "lucide-react";
+import { useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,11 +27,29 @@ import {
 
 type Props = any;
 
+const MAX_ATTACHMENTS = 5;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const result = (r.result as string) || "";
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
 export default function ChatPanel(props: Props) {
   const {
     commits, headId, branch, names, parentRef, thread,
     convs, convId, activeTags,
     input, setInput, inputRef, endRef,
+    attachments, setAttachments,
+    webSearchOn, toggleWebSearch,
     pending, thinking, newFromRef, setNewFromRef,
     editId, setEditId, startEdit,
     branchFromId, setBranchFromId,
@@ -43,11 +70,75 @@ export default function ChatPanel(props: Props) {
   } = props;
 
   const branchColor = names.length > 0 ? bCol(names, branch) : "var(--muted-foreground)";
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onFilesPicked = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    const existing = attachments || [];
+    if (existing.length >= MAX_ATTACHMENTS) return;
+    const slots = MAX_ATTACHMENTS - existing.length;
+    const picked = Array.from(files).slice(0, slots);
+    const next = [...existing];
+    for (const f of picked) {
+      if (f.size > MAX_FILE_BYTES) continue;
+      const isImage = f.type.startsWith("image/");
+      const isPdf = f.type === "application/pdf";
+      if (!isImage && !isPdf) continue;
+      try {
+        const data = await readAsBase64(f);
+        next.push({
+          type: isImage ? "image" : "pdf",
+          mediaType: f.type,
+          name: f.name,
+          data,
+        });
+      } catch {
+        // skip failed file
+      }
+    }
+    setAttachments(next);
+  };
+
+  const removeAttachment = (idx: number) => {
+    setAttachments((attachments || []).filter((_: unknown, i: number) => i !== idx));
+  };
+
+  const hasContent = (input && input.trim().length > 0) || (attachments && attachments.length > 0);
+
+  const attachmentChipRow = attachments && attachments.length > 0 && (
+    <div className="flex flex-wrap gap-2 border-b border-border/50 px-3 pt-3 pb-3">
+      {attachments.map((a: any, i: number) => (
+        <div
+          key={i}
+          className="group relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted"
+          title={a.name}
+        >
+          {a.type === "image" ? (
+            <img
+              src={`data:${a.mediaType};base64,${a.data}`}
+              alt={a.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <FileText className="size-5 text-muted-foreground" />
+          )}
+          <button
+            type="button"
+            onClick={() => removeAttachment(i)}
+            className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+            aria-label="Remove attachment"
+          >
+            <X className="size-2.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 
   const composer = (
     <div
       className={cn(
-        "flex flex-col rounded-2xl border bg-card px-4 pt-3 pb-2 shadow-sm transition-colors",
+        "flex flex-col overflow-hidden rounded-3xl border bg-card shadow-md transition-colors focus-within:shadow-lg",
         branchFromId || editId
           ? "ring-2 ring-[color:var(--branch-1)]/40 border-[color:var(--branch-1)]/50"
           : newFromRef
@@ -57,36 +148,91 @@ export default function ChatPanel(props: Props) {
           : "",
       )}
     >
-      <Textarea
-        ref={inputRef}
-        value={input}
-        onChange={(e: any) => setInput(e.target.value)}
-        onKeyDown={(e: any) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            if (mm && sel.length) { merge(); return; }
-            if (e.metaKey || e.ctrlKey) { send(true); return; }
-            send(false);
+      {attachmentChipRow}
+      <div className="flex flex-col px-4 pt-3 pb-2">
+        <Textarea
+          ref={inputRef}
+          value={input}
+          onChange={(e: any) => setInput(e.target.value)}
+          onKeyDown={(e: any) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (mm && sel.length) { merge(); return; }
+              if (e.metaKey || e.ctrlKey) { send(true); return; }
+              send(false);
+            }
+          }}
+          onPaste={async (e: any) => {
+            const items = Array.from(e.clipboardData?.items || []) as DataTransferItem[];
+            const files: File[] = [];
+            for (const it of items) {
+              if (it.kind === "file") {
+                const f = it.getAsFile();
+                if (f) files.push(f);
+              }
+            }
+            if (files.length) {
+              e.preventDefault();
+              const dt = new DataTransfer();
+              files.forEach((f) => dt.items.add(f));
+              await onFilesPicked(dt.files);
+            }
+          }}
+          placeholder={
+            branchFromId ? "Write the first message for this branch..."
+            : editId ? "Edit your question..."
+            : newFromRef ? "Start new conversation..."
+            : mm ? "Merge instruction..."
+            : thread.length === 0 ? "How can I help you today?"
+            : "Reply..."
           }
-        }}
-        placeholder={
-          branchFromId ? "Write the first message for this branch..."
-          : editId ? "Edit your question..."
-          : newFromRef ? "Start new conversation..."
-          : mm ? "Merge instruction..."
-          : thread.length === 0 ? "How can I help you today?"
-          : "Reply..."
-        }
-        rows={1}
-        className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 md:text-base"
-        onInput={(e: any) => {
-          e.target.style.height = "auto";
-          e.target.style.height = Math.min(e.target.scrollHeight, 240) + "px";
-        }}
-      />
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <div />
-        <div className="flex items-center gap-1">
+          rows={1}
+          className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 md:text-base"
+          onInput={(e: any) => {
+            e.target.style.height = "auto";
+            e.target.style.height = Math.min(e.target.scrollHeight, 240) + "px";
+          }}
+        />
+        <div className="mt-2 flex items-center gap-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+            className="hidden"
+            onChange={async (e) => {
+              await onFilesPicked(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+            title="Attach file"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={attachments?.length >= MAX_ATTACHMENTS}
+          >
+            <Paperclip className="size-4" />
+          </Button>
+          <Button
+            variant={webSearchOn ? "default" : "ghost"}
+            size="sm"
+            type="button"
+            className={cn(
+              "h-8 gap-1.5 rounded-full px-3 text-xs font-medium",
+              webSearchOn
+                ? "bg-[color:var(--branch-1)]/15 text-[color:var(--branch-1)] hover:bg-[color:var(--branch-1)]/25"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            title={webSearchOn ? "Web search ON" : "Web search OFF"}
+            onClick={toggleWebSearch}
+          >
+            <Globe className="size-3.5" />
+            Search
+          </Button>
+          <div className="flex-1" />
           <ModelPicker
             models={modelList}
             value={currentModel}
@@ -96,9 +242,9 @@ export default function ChatPanel(props: Props) {
           />
           <Button
             onClick={() => (mm && sel.length ? merge() : send())}
-            disabled={thinking || !input.trim() || (mm && !sel.length)}
+            disabled={thinking || !hasContent || (mm && !sel.length)}
             size="sm"
-            className="gap-1.5"
+            className="h-8 gap-1.5"
           >
             {branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : newFromRef ? "Send" : (
               <>
@@ -108,6 +254,28 @@ export default function ChatPanel(props: Props) {
           </Button>
         </div>
       </div>
+    </div>
+  );
+
+  const renderAttachments = (atts: any[]) => (
+    <div className="mt-1 flex flex-wrap gap-1.5 justify-end">
+      {atts.map((a, i) => (
+        <div
+          key={i}
+          className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border bg-background/60"
+          title={a.name}
+        >
+          {a.type === "image" ? (
+            <img
+              src={`data:${a.mediaType};base64,${a.data}`}
+              alt={a.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <FileText className="size-4 text-muted-foreground" />
+          )}
+        </div>
+      ))}
     </div>
   );
 
@@ -164,11 +332,11 @@ export default function ChatPanel(props: Props) {
               <div
                 key={cm.id}
                 id={"cm-" + cm.id}
-                className="flex flex-col gap-2"
+                className="group/cm flex flex-col gap-2"
                 onMouseEnter={() => setHoveredCid(cm.id)}
                 onMouseLeave={() => setHoveredCid(null)}
               >
-                <div className="self-end max-w-[82%]">
+                <div className="self-end max-w-[82%] flex flex-col items-end">
                   <div
                     className={cn(
                       "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
@@ -182,6 +350,7 @@ export default function ChatPanel(props: Props) {
                     )}
                     {cm.prompt}
                   </div>
+                  {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
                   <div className="mt-0.5 flex justify-end">
                     <button
                       onClick={() => startEdit(cm.id)}
@@ -197,10 +366,16 @@ export default function ChatPanel(props: Props) {
                   </div>
                 </div>
                 <div className="self-start max-w-[82%] flex flex-col gap-1.5">
+                  {cm.webSearch && (
+                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Globe className="size-3" /> Used web search
+                    </div>
+                  )}
                   <div className="rounded-2xl bg-ai-bubble px-4 py-3 text-[15px] leading-relaxed text-ai-foreground">
                     {renderMd(cm.response)}
+                    {cm.citations?.length > 0 && renderCitations(cm.citations)}
                   </div>
-                  <div className="ml-2 flex gap-0.5 opacity-50 transition-opacity hover:opacity-100">
+                  <div className="ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
                     <Button
                       variant="ghost"
                       size="icon"

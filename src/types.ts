@@ -1,5 +1,18 @@
 export type CommitId = string;
 
+export type Attachment = {
+  type: "image" | "pdf";
+  mediaType: string;
+  name: string;
+  data: string;
+};
+
+export type Citation = {
+  url: string;
+  title: string;
+  snippet?: string;
+};
+
 export type Commit = {
   id: CommitId;
   parentId: CommitId | null;
@@ -15,6 +28,9 @@ export type Commit = {
   rewriting?: boolean;
   locked?: boolean;
   loading?: boolean;
+  attachments?: Attachment[];
+  citations?: Citation[];
+  webSearch?: boolean;
 };
 
 export type Conversation = {

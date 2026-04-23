@@ -227,6 +227,46 @@ export function renderMd(text: string): React.ReactNode[] | null {
   return elements;
 }
 
+export function renderCitations(
+  citations: { url: string; title: string; snippet?: string }[],
+): React.ReactNode {
+  if (!citations?.length) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-1.5 border-t border-border/60 pt-2">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        Sources
+      </div>
+      <div className="flex flex-col gap-1">
+        {citations.map((c, i) => {
+          let host = "";
+          try { host = new URL(c.url).hostname.replace(/^www\./, ""); } catch { host = ""; }
+          return (
+            <a
+              key={i}
+              href={c.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-baseline gap-2 rounded-md px-2 py-1 text-[13px] leading-snug hover:bg-muted/60"
+            >
+              <span className="text-muted-foreground/60 font-mono text-[10px]">
+                {i + 1}
+              </span>
+              <span className="truncate font-medium text-[color:var(--branch-1)] hover:underline">
+                {c.title || host || c.url}
+              </span>
+              {host && (
+                <span className="shrink-0 truncate text-[11px] text-muted-foreground">
+                  {host}
+                </span>
+              )}
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function ThinkingDots() {
   const [dots, setDots] = useState("");
   useEffect(() => {

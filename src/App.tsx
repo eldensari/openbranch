@@ -60,6 +60,8 @@ export default function App() {
   const [headId, setHeadId] = useState(null);
   const [branch, setBranch] = useState("main");
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [webSearchOn, setWebSearchOn] = useState(() => storage.get("webSearchOn")?.value === "1");
   const [thinking, setThinking] = useState(false);
   const [pending, setPending] = useState(null);
   const [graph, setGraph] = useState(true);
@@ -204,7 +206,7 @@ export default function App() {
     setCommits(commits); setHeadId(cv.headId); setBranch(cv.branch || "main");
     setConvId(cv.id); setParentRef(cv.parentRef || null);
     bumpIdCounter(commits.length + 10);
-    setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null);
+    setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); setAttachments([]);
   };
   const loadMain = cv => {
     load(cv);
@@ -313,7 +315,7 @@ export default function App() {
     });
   };
   const sidebarItemOpen = (id, defaultOpen = false) => defaultOpen ? !closedSidebarItems.has(id) : openSidebarItems.has(id);
-  const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); };
+  const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); setAttachments([]); };
 
   const renameFolder = renameCluster;
   const createFolder = (parentId = null) => {
@@ -454,7 +456,7 @@ export default function App() {
   const applyCommitResult = (nc, cmId) => {
     setCommits(nc); cRef.current = nc; setHeadId(cmId); setPending(null);
   };
-  const sendNewFromRef = async (msg) => {
+  const sendNewFromRef = async (msg, atts, useSearch) => {
     const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary, anchorBranch: newFromRef.anchorBranch };
     const newId = "conv:" + Date.now();
     if (newFromRef.anchorBranch && newFromRef.anchorBranch !== "main") {
@@ -473,21 +475,21 @@ export default function App() {
 
     setPending(msg); setThinking(true);
     try {
-      const msgs = buildMsgs(thread, msg);
-      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-      const cm = mkCommit(null, msg, resp, "main", null, currentModel);
+      const msgs = buildMsgs(thread, msg, atts);
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
+      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
     } catch (e) {
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(null, msg, "Error: " + e.message, "main");
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
     } finally { setThinking(false); }
   };
-  const sendEditRoot = async (msg) => {
+  const sendEditRoot = async (msg, atts, useSearch) => {
     setEditId(null);
     const newId = "conv:" + Date.now();
     setCommits([]); cRef.current = [];
@@ -497,58 +499,63 @@ export default function App() {
 
     setPending(msg); setThinking(true);
     try {
-      const resp = await callLLM(apiKey, [{ role: "user", content: msg }], currentModel, thinkingOn);
-      const cm = mkCommit(null, msg, resp, "main", null, currentModel);
+      const rootMsg = atts?.length ? { role: "user" as const, content: msg, attachments: atts } : { role: "user" as const, content: msg };
+      const resp = await callLLM(apiKey, [rootMsg], { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
+      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
     } catch (e) {
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(null, msg, "Error: " + e.message, "main");
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
     } finally { setThinking(false); }
   };
-  const sendNormal = async (pid, br, msg) => {
+  const sendNormal = async (pid, br, msg, atts, useSearch) => {
     setPending(msg); setThinking(true);
     try {
       const th = getThread(cRef.current, pid);
-      const msgs = buildMsgs(th, msg);
-      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-      const cm = mkCommit(pid, msg, resp, br, null, currentModel);
+      const msgs = buildMsgs(th, msg, atts);
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
+      const cm = mkCommit(pid, msg, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, br);
     } catch (e) {
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(pid, msg, "Error: " + e.message, br);
+      const cm = mkCommit(pid, msg, "Error: " + e.message, br, null, null, { attachments: atts });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
     } finally { setThinking(false); }
   };
   const send = async (forkBranch = false) => {
-    if (!input.trim() || thinking) return;
+    if ((!input.trim() && !attachments.length) || thinking) return;
     const msg = input.trim();
+    const atts = attachments.length ? attachments : undefined;
+    const useSearch = webSearchOn;
 
     // Slash commands
     if (msg === "/new" && headId) {
       setInput("");
+      setAttachments([]);
       startNew(headId);
       return;
     }
 
     setInput("");
+    setAttachments([]);
     let pid = headId, br = branch;
 
     // Auto-show graph on first message
     if (!graph && commits.length === 0) setGraph(true);
 
-    if (newFromRef) { await sendNewFromRef(msg); return; }
+    if (newFromRef) { await sendNewFromRef(msg, atts, useSearch); return; }
 
     if (editId) {
       const ec = cRef.current.find(c => c.id === editId);
       if (ec) {
-        if (!ec.parentId) { await sendEditRoot(msg); return; }
+        if (!ec.parentId) { await sendEditRoot(msg, atts, useSearch); return; }
         pid = ec.parentId; br = "branch-" + names.length; setBranch(br);
       }
       setEditId(null); setGraph(true);
@@ -570,7 +577,7 @@ export default function App() {
       setBranch(br);
     }
 
-    await sendNormal(pid, br, msg);
+    await sendNormal(pid, br, msg, atts, useSearch);
   };
 
   // ─── HANDLERS ───
@@ -588,17 +595,19 @@ export default function App() {
     const parentId = cm.parentId || null;
     const br = nextBranchName(cRef.current);
     const parentThread = getThread(cRef.current, parentId);
-    const msgs = buildMsgs(parentThread, cm.prompt);
+    const atts = cm.attachments;
+    const useSearch = !!cm.webSearch;
+    const msgs = buildMsgs(parentThread, cm.prompt, atts);
     setHeadId(parentId); setBranch(br);
     setPending(cm.prompt); setThinking(true); setMm(false); setSel([]); setEditId(null); setBranchFromId(null); setNewFromRef(null);
     try {
-      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-      const newCm = mkCommit(parentId, cm.prompt, resp, br, null, currentModel);
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
+      const newCm = mkCommit(parentId, cm.prompt, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [...cRef.current, newCm];
       setCommits(nc); cRef.current = nc; setHeadId(newCm.id); setScrollTarget(newCm.id);
       save(null, nc, newCm.id, br);
     } catch (e) {
-      const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel);
+      const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel, { attachments: atts });
       const nc = [...cRef.current, newCm];
       setCommits(nc); cRef.current = nc; setHeadId(newCm.id);
       save(null, nc, newCm.id, br);
@@ -865,8 +874,8 @@ export default function App() {
     try {
       const curTh = getThread(cRef.current, headId).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n");
       const selCtx = sel.map(sid => { const sc = cRef.current.find(c => c.id === sid); if (!sc) return ""; return "[" + sc.branch + "]:\n" + getThread(cRef.current, sid).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n"); }).join("\n---\n");
-      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], currentModel, thinkingOn);
-      const cm = mkCommit(headId, msg, resp, branch, sel, currentModel);
+      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], { model: currentModel, thinking: thinkingOn });
+      const cm = mkCommit(headId, msg, resp.text, branch, sel, currentModel);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
       save(null, nc, cm.id, branch);
     } catch (e) {
@@ -897,10 +906,20 @@ export default function App() {
     setConfirmDialog,
   };
 
+  const toggleWebSearch = () => {
+    setWebSearchOn(p => {
+      const next = !p;
+      storage.set("webSearchOn", next ? "1" : "0");
+      return next;
+    });
+  };
+
   const chatProps = {
     commits, headId, branch, names, parentRef, thread,
     convs, convId, activeTags,
     input, setInput, inputRef, endRef,
+    attachments, setAttachments,
+    webSearchOn, toggleWebSearch,
     pending, thinking, newFromRef, setNewFromRef,
     editId, setEditId, startEdit,
     branchFromId, setBranchFromId,
