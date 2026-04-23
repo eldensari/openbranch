@@ -4,7 +4,7 @@ import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { Folder, FolderOpen, KeyRound, MoreHorizontal, Search, Plus, X as XIcon } from "lucide-react";
+import { Folder, FolderOpen, KeyRound, MoreHorizontal, Search, Plus, X as XIcon, Pencil, Trash2, FolderInput, FolderPlus, MessageSquarePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,16 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   SidebarContent,
   SidebarGroup,
@@ -185,6 +195,45 @@ export default function AppSidebar(props: Props) {
                     </div>
                   )}
                 </div>
+                {!renamingThisBranch && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="More actions"
+                        className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                      >
+                        <MoreHorizontal className="size-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setRenameVal(displayLabel);
+                          setRenamingBranch({ convId: cv.id, branch: bName });
+                          setRenamingId(null);
+                          setRenamingClusterId(null);
+                        }}
+                      >
+                        <Pencil className="size-3.5" /> Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => {
+                          const descs = getBranchDescendantNames(cv.commits || [], bName);
+                          const msg = descs.length > 0
+                            ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
+                            : `Delete branch "${bName}"?`;
+                          setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cv.id, bName) });
+                        }}
+                      >
+                        <Trash2 className="size-3.5" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent>
@@ -259,6 +308,62 @@ export default function AppSidebar(props: Props) {
                   </div>
                 )}
               </div>
+              {!renamingThisConv && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="More actions"
+                      className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                    >
+                      <MoreHorizontal className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setRenameVal(cv.title || "");
+                        setRenamingId(cv.id);
+                        setRenamingBranch(null);
+                        setRenamingClusterId(null);
+                      }}
+                    >
+                      <Pencil className="size-3.5" /> Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <FolderInput className="size-3.5" /> Move to folder
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        <DropdownMenuItem onSelect={() => moveConvToFolder(cv.id, null)}>
+                          <span className="italic text-muted-foreground">(top level)</span>
+                        </DropdownMenuItem>
+                        {flattenFolders().map(({ folder, depth: fd }) => (
+                          <DropdownMenuItem
+                            key={folder.id}
+                            onSelect={() => { moveConvToFolder(cv.id, folder.id); expandFolder(folder.id); }}
+                            style={{ paddingLeft: 8 + fd * 10 }}
+                          >
+                            <Folder className="size-3.5" /> {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onSelect={() => {
+                        const n = countChildConvs(cv.id);
+                        const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
+                        setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
+                      }}
+                    >
+                      <Trash2 className="size-3.5" /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
@@ -386,6 +491,45 @@ export default function AppSidebar(props: Props) {
     const isRenaming = renamingClusterId === folderId;
     const hasContent = group.items.length > 0 || group.children.length > 0;
     const { rootItems, childRefs } = buildSidebarLayout(group.items);
+    const folderActions = {
+      newChat: () => {
+        setActiveFolderId(folderId);
+        expandFolder(folderId);
+        newConv();
+      },
+      newFolder: () => {
+        expandFolder(folderId);
+        const f = createFolder(folderId);
+        setRenameVal("Untitled");
+        setRenamingClusterId(f.id);
+        setRenamingId(null);
+        setRenamingBranch(null);
+      },
+      rename: () => {
+        setRenameVal(folder.title || "");
+        setRenamingClusterId(folderId);
+        setRenamingId(null);
+        setRenamingBranch(null);
+      },
+      delete: () => {
+        const folderTitle = folder.title || "this folder";
+        const affected: any[] = [];
+        const set = new Set([folderId]);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (const c of clusters) {
+            if (!set.has(c.id) && c.parentId && set.has(c.parentId)) { set.add(c.id); grew = true; }
+          }
+        }
+        for (const cv of convs) if (set.has(cv.clusterId)) affected.push(cv);
+        const n = affected.length;
+        const msg = n > 0
+          ? `Delete folder "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent folder. Subfolders stay; only the folder itself is removed.`
+          : `Delete folder "${folderTitle}"?`;
+        setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
+      },
+    };
     return (
       <div key={folderId}>
         <ContextMenu>
@@ -397,7 +541,7 @@ export default function AppSidebar(props: Props) {
                   if (hasContent) toggleCluster(folderId);
                 }
               }}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1.5 text-sm font-semibold transition-colors hover:bg-sidebar-accent/60"
+              className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent/60"
               style={{ paddingLeft: 8 + depth * 14 }}
             >
               {isCollapsed ? <Folder className="size-4 shrink-0" /> : <FolderOpen className="size-4 shrink-0" />}
@@ -421,6 +565,36 @@ export default function AppSidebar(props: Props) {
                   </div>
                 )}
               </div>
+              {!isRenaming && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="More actions"
+                      className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                    >
+                      <MoreHorizontal className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem onSelect={folderActions.newChat}>
+                      <MessageSquarePlus className="size-3.5" /> New chat
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={folderActions.newFolder}>
+                      <FolderPlus className="size-3.5" /> New folder
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={folderActions.rename}>
+                      <Pencil className="size-3.5" /> Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onSelect={folderActions.delete}>
+                      <Trash2 className="size-3.5" /> Delete folder
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
