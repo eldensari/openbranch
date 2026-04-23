@@ -4,7 +4,8 @@ export type Attachment = {
   type: "image" | "pdf";
   mediaType: string;
   name: string;
-  data: string;
+  data?: string;
+  ref?: string;
 };
 
 export type Citation = {

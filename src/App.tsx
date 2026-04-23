@@ -7,6 +7,8 @@ import { rangeCommitsFor, cutRangeFromCommits, chooseHeadAfterCut, cloneRangeCom
 import { formatClusterTitle, mkClusterId, mkFolderId, buildClusterGroups, folderAncestry } from "./storage/clusters";
 import { sidebarBranchKey } from "./storage/sidebar";
 import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade } from "./storage/conv";
+import { hydrateAttachments } from "./lib/attachments";
+import { QuotaExceededError } from "./lib/storage";
 import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
 import { useTheme } from "./components/theme-provider";
@@ -55,6 +57,13 @@ export default function App() {
   const [rateLimited, setRateLimited] = useState(false);
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistStatus, setWaitlistStatus] = useState(null); // null | "sending" | "done" | "error"
+  const [toast, setToast] = useState(null); // { message, kind } | null
+  const toastTimer = useRef(null);
+  const showToast = (message, kind = "error") => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, kind });
+    toastTimer.current = setTimeout(() => setToast(null), 6000);
+  };
 
   const [commits, setCommits] = useState([]);
   const [headId, setHeadId] = useState(null);
@@ -196,7 +205,15 @@ export default function App() {
     const id = forceNewId || convId || "conv:" + Date.now();
     const existing = resolveExistingConv(id);
     const cv = buildConvRecord(id, existing, title, cm, hid, br, pRef);
-    persistConv(cv);
+    try {
+      persistConv(cv);
+    } catch (e) {
+      if (e instanceof QuotaExceededError) {
+        showToast("Browser storage is full. Delete old conversations or remove attachments to free space.");
+      } else {
+        showToast("Failed to save: " + (e?.message || "unknown error"));
+      }
+    }
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
   };
@@ -216,8 +233,9 @@ export default function App() {
   // Cascade delete: remove conv + all descendant convs (parentRef chain).
   const del = id => {
     rememberUndo("Deleted conversation");
-    const { deletedIds } = deleteConvCascade(convs, id);
+    const { deletedIds, attachmentRefs } = deleteConvCascade(convs, id);
     for (const x of deletedIds) storage.del(x);
+    for (const ref of attachmentRefs) storage.del(ref);
     setConvs(p => p.filter(c => !deletedIds.has(c.id)));
     if (deletedIds.has(convId)) {
       setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); setBranch("main");
@@ -366,13 +384,16 @@ export default function App() {
     if (mode === "cascade") {
       const affectedFolders = collectFolderDescendants(folderId);
       const deletedConvIds = new Set();
+      const affectedAttachmentRefs = [];
       for (const cv of convs) {
         if (affectedFolders.has(cv.clusterId)) {
-          const { deletedIds } = deleteConvCascade(convs, cv.id);
+          const { deletedIds, attachmentRefs } = deleteConvCascade(convs, cv.id);
           deletedIds.forEach(id => deletedConvIds.add(id));
+          affectedAttachmentRefs.push(...attachmentRefs);
         }
       }
       for (const id of deletedConvIds as Set<string>) storage.del(id);
+      for (const ref of affectedAttachmentRefs) storage.del(ref);
       setConvs(p => p.filter(c => !deletedConvIds.has(c.id)));
       for (const id of affectedFolders as Set<string>) storage.del(id);
       setClusters(p => p.filter(c => !affectedFolders.has(c.id)));
@@ -466,7 +487,7 @@ export default function App() {
         return n;
       });
     }
-    const thread = newFromRef.thread || [];
+    const thread = (newFromRef.thread || []).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
 
     setCommits([]); cRef.current = [];
     setHeadId(null); setBranch("main"); setConvId(newId);
@@ -515,7 +536,7 @@ export default function App() {
   const sendNormal = async (pid, br, msg, atts, useSearch) => {
     setPending(msg); setThinking(true);
     try {
-      const th = getThread(cRef.current, pid);
+      const th = getThread(cRef.current, pid).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
       const msgs = buildMsgs(th, msg, atts);
       const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch });
       const cm = mkCommit(pid, msg, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
@@ -594,8 +615,8 @@ export default function App() {
     if (!cm || thinking) return;
     const parentId = cm.parentId || null;
     const br = nextBranchName(cRef.current);
-    const parentThread = getThread(cRef.current, parentId);
-    const atts = cm.attachments;
+    const parentThread = getThread(cRef.current, parentId).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
+    const atts = hydrateAttachments(cm.attachments);
     const useSearch = !!cm.webSearch;
     const msgs = buildMsgs(parentThread, cm.prompt, atts);
     setHeadId(parentId); setBranch(br);
@@ -932,6 +953,7 @@ export default function App() {
     rateLimited, hasKey,
     waitlistStatus, setWaitlistStatus, waitlistEmail, setWaitlistEmail,
     apiKey, setKeyDraft, setShowKeyInput, setRateLimited,
+    toast, setToast, showToast,
     send, merge,
     copyToClipboard, retryResponse,
     checkout, startBranchFrom, startNew, deleteCommit,

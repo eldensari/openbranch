@@ -1,6 +1,11 @@
 import { bCol } from "@/lib/branch-colors";
 import { submitWaitlist } from "@/lib/llm";
 import storage from "@/lib/storage";
+import {
+  getAttachmentSrc,
+  readFileAsBase64,
+  resizeImageFile,
+} from "@/lib/attachments";
 import herbIcon from "@/assets/herb.svg";
 import { renderMd, renderCitations, ThinkingDots } from "./Markdown";
 import ModelPicker from "./ModelPicker";
@@ -28,20 +33,7 @@ import {
 type Props = any;
 
 const MAX_ATTACHMENTS = 5;
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
-
-function readAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => {
-      const result = (r.result as string) || "";
-      const comma = result.indexOf(",");
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(file);
-  });
-}
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 export default function ChatPanel(props: Props) {
   const {
@@ -50,6 +42,7 @@ export default function ChatPanel(props: Props) {
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
     webSearchOn, toggleWebSearch,
+    toast, setToast, showToast,
     pending, thinking, newFromRef, setNewFromRef,
     editId, setEditId, startEdit,
     branchFromId, setBranchFromId,
@@ -75,27 +68,33 @@ export default function ChatPanel(props: Props) {
   const onFilesPicked = async (files: FileList | null) => {
     if (!files || !files.length) return;
     const existing = attachments || [];
-    if (existing.length >= MAX_ATTACHMENTS) return;
+    if (existing.length >= MAX_ATTACHMENTS) {
+      showToast?.("You can attach up to " + MAX_ATTACHMENTS + " files per message.", "info");
+      return;
+    }
     const slots = MAX_ATTACHMENTS - existing.length;
     const picked = Array.from(files).slice(0, slots);
     const next = [...existing];
+    let tooBig = 0, unsupported = 0;
     for (const f of picked) {
-      if (f.size > MAX_FILE_BYTES) continue;
+      if (f.size > MAX_FILE_BYTES) { tooBig++; continue; }
       const isImage = f.type.startsWith("image/");
       const isPdf = f.type === "application/pdf";
-      if (!isImage && !isPdf) continue;
+      if (!isImage && !isPdf) { unsupported++; continue; }
       try {
-        const data = await readAsBase64(f);
-        next.push({
-          type: isImage ? "image" : "pdf",
-          mediaType: f.type,
-          name: f.name,
-          data,
-        });
+        if (isImage) {
+          const { data, mediaType } = await resizeImageFile(f);
+          next.push({ type: "image", mediaType, name: f.name, data });
+        } else {
+          const data = await readFileAsBase64(f);
+          next.push({ type: "pdf", mediaType: "application/pdf", name: f.name, data });
+        }
       } catch {
-        // skip failed file
+        showToast?.("Failed to read " + f.name, "error");
       }
     }
+    if (tooBig) showToast?.(tooBig + " file(s) exceeded 10MB and were skipped.", "info");
+    if (unsupported) showToast?.(unsupported + " file(s) skipped (only images and PDFs supported).", "info");
     setAttachments(next);
   };
 
@@ -115,7 +114,7 @@ export default function ChatPanel(props: Props) {
         >
           {a.type === "image" ? (
             <img
-              src={`data:${a.mediaType};base64,${a.data}`}
+              src={getAttachmentSrc(a)}
               alt={a.name}
               className="h-full w-full object-cover"
             />
@@ -259,23 +258,22 @@ export default function ChatPanel(props: Props) {
 
   const renderAttachments = (atts: any[]) => (
     <div className="mt-1 flex flex-wrap gap-1.5 justify-end">
-      {atts.map((a, i) => (
-        <div
-          key={i}
-          className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border bg-background/60"
-          title={a.name}
-        >
-          {a.type === "image" ? (
-            <img
-              src={`data:${a.mediaType};base64,${a.data}`}
-              alt={a.name}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <FileText className="size-4 text-muted-foreground" />
-          )}
-        </div>
-      ))}
+      {atts.map((a, i) => {
+        const src = getAttachmentSrc(a);
+        return (
+          <div
+            key={i}
+            className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border bg-background/60"
+            title={a.name}
+          >
+            {a.type === "image" && src ? (
+              <img src={src} alt={a.name} className="h-full w-full object-cover" />
+            ) : (
+              <FileText className="size-4 text-muted-foreground" />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 
@@ -518,6 +516,29 @@ export default function ChatPanel(props: Props) {
       {(thread.length > 0 || pending || newFromRef) && (
         <div className="shrink-0 border-t px-4 pb-5 pt-3">
           <div className="mx-auto w-full max-w-3xl">{composer}</div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center">
+          <div
+            className={cn(
+              "pointer-events-auto flex max-w-md items-start gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur",
+              toast.kind === "info"
+                ? "border-[color:var(--branch-1)]/40 bg-[color:var(--branch-1)]/10 text-[color:var(--branch-1)]"
+                : "border-destructive/40 bg-destructive/10 text-destructive",
+            )}
+          >
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button
+              type="button"
+              className="shrink-0 opacity-70 hover:opacity-100"
+              onClick={() => setToast(null)}
+              aria-label="Dismiss"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>
