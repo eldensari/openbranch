@@ -1,9 +1,10 @@
+import { useState } from "react";
 import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { Folder, FolderOpen, KeyRound, MoreHorizontal } from "lucide-react";
+import { Folder, FolderOpen, KeyRound, MoreHorizontal, Search, Plus, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,44 @@ function colorForTag(tag: string) {
   return `var(--branch-${TAG_VAR_IDX[Math.abs(hash) % TAG_VAR_IDX.length]})`;
 }
 
+type TimeBucket = "today" | "yesterday" | "week" | "month" | "older";
+const BUCKET_LABELS: Record<TimeBucket, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  week: "Previous 7 days",
+  month: "Previous 30 days",
+  older: "Older",
+};
+const BUCKET_ORDER: TimeBucket[] = ["today", "yesterday", "week", "month", "older"];
+
+function timeBucketOf(ts?: string): TimeBucket {
+  if (!ts) return "older";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "older";
+  const start = (x: Date) => {
+    const y = new Date(x);
+    y.setHours(0, 0, 0, 0);
+    return y.getTime();
+  };
+  const day = 24 * 60 * 60 * 1000;
+  const days = Math.floor((start(new Date()) - start(d)) / day);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days <= 7) return "week";
+  if (days <= 30) return "month";
+  return "older";
+}
+
+function convMatchesQuery(cv: any, q: string): boolean {
+  if (!q) return true;
+  if ((cv.title || "").toLowerCase().includes(q)) return true;
+  for (const c of cv.commits || []) {
+    if ((c.prompt || "").toLowerCase().includes(q)) return true;
+    if ((c.response || "").toLowerCase().includes(q)) return true;
+  }
+  return false;
+}
+
 type Props = any;
 
 export default function AppSidebar(props: Props) {
@@ -55,6 +94,9 @@ export default function AppSidebar(props: Props) {
   } = props;
 
   const collapsed = false;
+  const [searchQuery, setSearchQuery] = useState("");
+  const q = searchQuery.trim().toLowerCase();
+  const searching = q.length > 0;
 
   const goToChildRef = (childCv: any) => {
     if (childCv.clusterId) {
@@ -116,9 +158,9 @@ export default function AppSidebar(props: Props) {
                   }
                 }}
                 className={cn(
-                  "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic transition-colors",
+                  "group relative flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic transition-colors",
                   branchActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground opacity-100"
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground opacity-100 before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:rounded-full before:bg-foreground/80"
                     : "text-sidebar-foreground/70 opacity-80 hover:bg-sidebar-accent/60 hover:opacity-100",
                 )}
                 style={{ paddingLeft: 8 + (depth + bDepth) * 14 + (depth > 0 ? 18 : 0) }}
@@ -188,9 +230,9 @@ export default function AppSidebar(props: Props) {
                 }
               }}
               className={cn(
-                "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm transition-colors",
+                "group relative flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm transition-colors",
                 convActiveOnMain
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:rounded-full before:bg-foreground/80"
                   : hasToggle && activeToggle.open
                   ? "bg-sidebar-accent/50"
                   : "hover:bg-sidebar-accent/60",
@@ -300,16 +342,29 @@ export default function AppSidebar(props: Props) {
   convs.forEach((cv: any) => (cv.commits || []).forEach((c: any) => (c.tags || []).forEach((tg: string) => liveTags.add(tg))));
   const liveActive = new Set<string>([...(activeTags as Set<string>)].filter((tg: string) => liveTags.has(tg)));
   const convHasAnyTag = (cv: any) => (cv.commits || []).some((c: any) => (c.tags || []).some((tg: string) => liveActive.has(tg)));
-  const filteredConvs = liveActive.size ? convs.filter(convHasAnyTag) : convs;
+  const tagFiltered = liveActive.size ? convs.filter(convHasAnyTag) : convs;
+  const filteredConvs = searching
+    ? tagFiltered.filter((cv: any) => convMatchesQuery(cv, q))
+    : tagFiltered;
   const { topLevelConvs, rootFolders: folderGroupsAll } = buildFolderGroups(filteredConvs, clusters);
   const pruneEmpty = (group: any): any => {
     const prunedChildren = group.children.map(pruneEmpty).filter(Boolean);
     if (group.items.length === 0 && prunedChildren.length === 0) return null;
     return { ...group, children: prunedChildren };
   };
-  const folderGroups = liveActive.size ? folderGroupsAll.map(pruneEmpty).filter(Boolean) : folderGroupsAll;
+  const folderGroups = (liveActive.size || searching) ? folderGroupsAll.map(pruneEmpty).filter(Boolean) : folderGroupsAll;
   const { rootItems: topRootItems, childRefs: topChildRefs } = buildSidebarLayout(topLevelConvs);
   const userClusters = clusters.filter((c: any) => c.auto !== true);
+
+  const timeGroups: Record<TimeBucket, any[]> = {
+    today: [], yesterday: [], week: [], month: [], older: [],
+  };
+  for (const item of topRootItems) {
+    timeGroups[timeBucketOf(item.conv?.u)].push(item);
+  }
+  const hasAnyTopItems = topRootItems.length > 0;
+  const hasAnyFolders = folderGroups.length > 0;
+  const noResults = searching && !hasAnyTopItems && !hasAnyFolders;
 
   function flattenFolders() {
     const { rootFolders, childrenByParentId } = buildFolderTree(userClusters);
@@ -440,7 +495,28 @@ export default function AppSidebar(props: Props) {
   return (
     <>
       <SidebarHeader className="gap-2 p-3">
-        <Button onClick={newConv} className="w-full">+ New chat</Button>
+        <Button onClick={newConv} className="w-full justify-start gap-2">
+          <Plus className="size-4" /> New chat
+        </Button>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search conversations..."
+            className="h-8 bg-background/40 pl-8 pr-7 text-sm"
+          />
+          {searching && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <XIcon className="size-3" />
+            </button>
+          )}
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
@@ -503,11 +579,37 @@ export default function AppSidebar(props: Props) {
 
         {!collapsed && (
           <SidebarGroup>
-            <SidebarGroupLabel>Chats</SidebarGroupLabel>
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div className="flex flex-col px-1">
-                  {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
+                  {noResults && (
+                    <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                      No matches for "{searchQuery}"
+                    </div>
+                  )}
+                  {searching
+                    ? topRootItems.map((item: any) =>
+                        renderConvItem(item.conv, "top", 0, null, topChildRefs),
+                      )
+                    : BUCKET_ORDER.map((bucket) => {
+                        const items = timeGroups[bucket];
+                        if (!items.length) return null;
+                        return (
+                          <div key={bucket} className="mb-1">
+                            <div className="px-2 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {BUCKET_LABELS[bucket]}
+                            </div>
+                            {items.map((item: any) =>
+                              renderConvItem(item.conv, "top", 0, null, topChildRefs),
+                            )}
+                          </div>
+                        );
+                      })}
+                  {folderGroups.length > 0 && (hasAnyTopItems || searching) && (
+                    <div className="mt-2 px-2 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Folders
+                    </div>
+                  )}
                   {folderGroups.map((group: any) => renderFolder(group, 0))}
                 </div>
               </ContextMenuTrigger>
