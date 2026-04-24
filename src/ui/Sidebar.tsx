@@ -4,7 +4,7 @@ import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { Folder, FolderOpen, KeyRound, MoreHorizontal, Menu, Search, SquarePen, X as XIcon } from "lucide-react";
+import { Folder, FolderOpen, KeyRound, MoreHorizontal, Menu, Search, SquarePen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,12 +26,40 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 const TAG_VAR_IDX = [3, 5, 0, 1, 4, 6, 2, 7];
 function colorForTag(tag: string) {
   let hash = 0;
   for (let i = 0; i < tag.length; i++) hash = ((hash << 5) - hash) + tag.charCodeAt(i);
   return `var(--branch-${TAG_VAR_IDX[Math.abs(hash) % TAG_VAR_IDX.length]})`;
+}
+
+type TimeBucket = "today" | "yesterday" | "week" | "month" | "older";
+const BUCKET_LABELS: Record<TimeBucket, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  week: "Previous 7 Days",
+  month: "Previous 30 Days",
+  older: "Older",
+};
+const BUCKET_ORDER: TimeBucket[] = ["today", "yesterday", "week", "month", "older"];
+
+function timeBucketOf(ts?: string): TimeBucket {
+  if (!ts) return "older";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "older";
+  const startOfDay = (x: Date) => {
+    const y = new Date(x);
+    y.setHours(0, 0, 0, 0);
+    return y.getTime();
+  };
+  const days = Math.floor((startOfDay(new Date()) - startOfDay(d)) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days <= 7) return "week";
+  if (days <= 30) return "month";
+  return "older";
 }
 
 type Props = any;
@@ -57,41 +85,128 @@ export default function AppSidebar(props: Props) {
     toggleSidebar,
   } = props;
 
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const q = searchQuery.trim().toLowerCase();
-  const searching = q.length > 0;
+
+  const openSearch = () => {
+    setSearchQuery("");
+    setSearchOpen(true);
+  };
+
+  const dialogConvs = convs.filter((cv: any) => {
+    if (!q) return true;
+    if ((cv.title || "").toLowerCase().includes(q)) return true;
+    return (cv.commits || []).some(
+      (c: any) =>
+        (c.prompt || "").toLowerCase().includes(q) ||
+        (c.response || "").toLowerCase().includes(q),
+    );
+  });
+  const dialogGroups: Record<TimeBucket, any[]> = {
+    today: [], yesterday: [], week: [], month: [], older: [],
+  };
+  dialogConvs.forEach((cv: any) => {
+    dialogGroups[timeBucketOf(cv.u || cv.createdAt)].push(cv);
+  });
+  BUCKET_ORDER.forEach((b) =>
+    dialogGroups[b].sort((a: any, b: any) => (b.u || "").localeCompare(a.u || "")),
+  );
+
+  const searchDialog = (
+    <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <Search className="size-4 shrink-0 text-muted-foreground" />
+          <Input
+            autoFocus
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search chats..."
+            className="h-8 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+          />
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto py-2">
+          <button
+            type="button"
+            onClick={() => {
+              newConv();
+              setSearchOpen(false);
+            }}
+            className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-accent"
+          >
+            <SquarePen className="size-4" />
+            New chat
+          </button>
+          {BUCKET_ORDER.map((bucket) => {
+            const items = dialogGroups[bucket];
+            if (!items.length) return null;
+            return (
+              <div key={bucket} className="mt-1">
+                <div className="px-4 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {BUCKET_LABELS[bucket]}
+                </div>
+                {items.map((cv: any) => (
+                  <button
+                    key={cv.id}
+                    type="button"
+                    onClick={() => {
+                      loadMain(cv);
+                      setSearchOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-accent"
+                  >
+                    <span className="truncate">{cv.title || "Untitled"}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+          {dialogConvs.length === 0 && (
+            <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+              No chats found
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 
   if (collapsed) {
     return (
-      <div className="flex h-full flex-col items-start gap-1 p-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9"
-          onClick={toggleSidebar}
-          title="Expand sidebar"
-        >
-          <Menu className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9"
-          onClick={newConv}
-          title="New chat"
-        >
-          <SquarePen className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9"
-          onClick={toggleSidebar}
-          title="Search chats"
-        >
-          <Search className="size-4" />
-        </Button>
-      </div>
+      <>
+        <div className="flex h-full flex-col items-start gap-1 p-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9"
+            onClick={toggleSidebar}
+            title="Expand sidebar"
+          >
+            <Menu className="size-4" />
+          </Button>
+          <div className="h-2" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9"
+            onClick={newConv}
+            title="New chat"
+          >
+            <SquarePen className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9"
+            onClick={openSearch}
+            title="Search chats"
+          >
+            <Search className="size-4" />
+          </Button>
+        </div>
+        {searchDialog}
+      </>
     );
   }
 
@@ -339,20 +454,7 @@ export default function AppSidebar(props: Props) {
   convs.forEach((cv: any) => (cv.commits || []).forEach((c: any) => (c.tags || []).forEach((tg: string) => liveTags.add(tg))));
   const liveActive = new Set<string>([...(activeTags as Set<string>)].filter((tg: string) => liveTags.has(tg)));
   const convHasAnyTag = (cv: any) => (cv.commits || []).some((c: any) => (c.tags || []).some((tg: string) => liveActive.has(tg)));
-  const convMatchesSearch = (cv: any) => {
-    if (!searching) return true;
-    if ((cv.title || "").toLowerCase().includes(q)) return true;
-    return (cv.commits || []).some(
-      (c: any) =>
-        (c.prompt || "").toLowerCase().includes(q) ||
-        (c.response || "").toLowerCase().includes(q),
-    );
-  };
-  const filteredConvs = convs.filter((cv: any) => {
-    if (liveActive.size && !convHasAnyTag(cv)) return false;
-    if (searching && !convMatchesSearch(cv)) return false;
-    return true;
-  });
+  const filteredConvs = liveActive.size ? convs.filter(convHasAnyTag) : convs;
   const { topLevelConvs, rootFolders: folderGroupsAll } = buildFolderGroups(filteredConvs, clusters);
   const pruneEmpty = (group: any): any => {
     const prunedChildren = group.children.map(pruneEmpty).filter(Boolean);
@@ -492,7 +594,7 @@ export default function AppSidebar(props: Props) {
   return (
     <>
       <SidebarHeader className="gap-1 p-2">
-        <div className="px-1 py-1">
+        <div className="mb-3 px-1 py-1">
           <Button
             variant="ghost"
             size="icon"
@@ -511,25 +613,14 @@ export default function AppSidebar(props: Props) {
           <SquarePen className="size-4" />
           New chat
         </Button>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search chats"
-            className="h-9 border-0 bg-transparent pl-8 pr-7 shadow-none hover:bg-sidebar-accent/60 focus-visible:bg-sidebar-accent/40 focus-visible:ring-0"
-          />
-          {searching && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery("")}
-              className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-              aria-label="Clear search"
-            >
-              <XIcon className="size-3" />
-            </button>
-          )}
-        </div>
+        <Button
+          variant="ghost"
+          onClick={openSearch}
+          className="w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
+        >
+          <Search className="size-4" />
+          Search chats
+        </Button>
       </SidebarHeader>
 
       <SidebarContent>
@@ -688,6 +779,7 @@ export default function AppSidebar(props: Props) {
           </>
         )}
       </SidebarFooter>
+      {searchDialog}
     </>
   );
 }
