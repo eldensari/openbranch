@@ -696,15 +696,13 @@ export default function ChatPanel(props: Props) {
   const sourcesArea = sourcesOpen && allSources.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3">
-        <span className="text-sm font-medium text-muted-foreground">
-          Sources <span className="text-xs">({allSources.length})</span>
-        </span>
+        <span className="text-sm font-medium">Sources</span>
         <Button
           variant="ghost"
           size="icon"
           className="size-7"
           onClick={() => setSourcesOpen(false)}
-          title="Close"
+          title="Cancel"
         >
           <X className="size-4" />
         </Button>
