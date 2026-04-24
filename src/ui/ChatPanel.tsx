@@ -223,7 +223,7 @@ export default function ChatPanel(props: Props) {
                 <Plus className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="w-56 p-1.5">
+            <DropdownMenuContent align="start" side="top" className="w-56 rounded-2xl p-1.5">
               <DropdownMenuItem
                 onSelect={() => fileInputRef.current?.click()}
                 disabled={attachments?.length >= MAX_ATTACHMENTS}
