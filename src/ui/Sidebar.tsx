@@ -749,21 +749,20 @@ export default function AppSidebar(props: Props) {
   return (
     <>
       <SidebarHeader className="gap-1 p-2">
-        <div className="mb-3 px-1 py-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            onClick={toggleSidebar}
-            title="Collapse sidebar"
-          >
-            <Menu className="size-4" />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-9"
+          onClick={toggleSidebar}
+          title="Collapse sidebar"
+        >
+          <Menu className="size-4" />
+        </Button>
+        <div className="h-2" />
         <Button
           variant="ghost"
           onClick={newConv}
-          className="w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
+          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
         >
           <SquarePen className="size-4" />
           New chat
@@ -771,7 +770,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={openSearch}
-          className="w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
+          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
         >
           <Search className="size-4" />
           Search chats
