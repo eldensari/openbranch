@@ -88,6 +88,7 @@ export default function AppSidebar(props: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [tagsOpen, setTagsOpen] = useState(false);
+  const [chatsOpen, setChatsOpen] = useState(true);
   const q = searchQuery.trim().toLowerCase();
 
   const openSearch = () => {
@@ -690,28 +691,43 @@ export default function AppSidebar(props: Props) {
 
         {!collapsed && (
           <SidebarGroup>
-            <SidebarGroupLabel>Chats</SidebarGroupLabel>
-            <ContextMenu>
-              <ContextMenuTrigger asChild>
-                <div className="flex flex-col px-1">
-                  {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
-                  {folderGroups.map((group: any) => renderFolder(group, 0))}
-                </div>
-              </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuItem
-                  onSelect={() => {
-                    const f = createFolder(null);
-                    setRenameVal("Untitled");
-                    setRenamingClusterId(f.id);
-                    setRenamingId(null);
-                    setRenamingBranch(null);
-                  }}
-                >
-                  New folder
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
+            <button
+              type="button"
+              onClick={() => setChatsOpen((v) => !v)}
+              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+            >
+              Chats
+              <span className="opacity-0 transition-opacity group-hover/chat-head:opacity-100">
+                {chatsOpen ? (
+                  <ChevronDown className="size-3" />
+                ) : (
+                  <ChevronRight className="size-3" />
+                )}
+              </span>
+            </button>
+            {chatsOpen && (
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <div className="flex flex-col px-1">
+                    {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
+                    {folderGroups.map((group: any) => renderFolder(group, 0))}
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    onSelect={() => {
+                      const f = createFolder(null);
+                      setRenameVal("Untitled");
+                      setRenamingClusterId(f.id);
+                      setRenamingId(null);
+                      setRenamingBranch(null);
+                    }}
+                  >
+                    New folder
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            )}
           </SidebarGroup>
         )}
       </SidebarContent>
