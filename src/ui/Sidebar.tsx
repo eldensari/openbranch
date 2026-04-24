@@ -8,7 +8,6 @@ import { Folder, FolderOpen, KeyRound, MoreHorizontal, PanelLeft, Search, Square
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import herbIcon from "@/assets/herb.svg";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -64,7 +63,7 @@ export default function AppSidebar(props: Props) {
 
   if (collapsed) {
     return (
-      <div className="flex h-full flex-col items-center gap-1 p-2">
+      <div className="flex h-full flex-col items-start gap-1 p-2">
         <Button
           variant="ghost"
           size="icon"
@@ -493,8 +492,7 @@ export default function AppSidebar(props: Props) {
   return (
     <>
       <SidebarHeader className="gap-1 p-2">
-        <div className="flex items-center justify-between px-1.5 py-1">
-          <img src={herbIcon} alt="OpenBranch" className="size-5" />
+        <div className="px-1 py-1">
           <Button
             variant="ghost"
             size="icon"
