@@ -16,7 +16,6 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "./components/ui/resizable";
-import type { ImperativePanelHandle } from "react-resizable-panels";
 import { Button } from "./components/ui/button";
 import { PanelLeft } from "lucide-react";
 import {
@@ -877,6 +876,9 @@ export default function App() {
   };
 
   /* RENDER */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const toggleSidebar = () => setSidebarCollapsed((v) => !v);
+
   const sidebarProps = {
     convs, clusters, clusterGroups, convId, branch,
     activeTags, setActiveTags, renameTag, deleteTag,
@@ -895,6 +897,8 @@ export default function App() {
     newConv, loadMain, loadBranch,
     renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
     setConfirmDialog,
+    collapsed: sidebarCollapsed,
+    toggleSidebar,
   };
 
   const chatProps = {
@@ -921,73 +925,71 @@ export default function App() {
     editNodeLabel, editCommitTags,
   };
 
-  const leftPanelRef = useRef<ImperativePanelHandle>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const toggleSidebar = () => {
-    const p = leftPanelRef.current;
-    if (!p) return;
-    if (p.isCollapsed()) p.expand(); else p.collapse();
-  };
-
   return (
     <SidebarProvider defaultOpen>
       <AlertDialog open={!!confirmDialog} onOpenChange={(o: boolean) => !o && setConfirmDialog(null)}>
         <div className="flex h-svh w-full">
-          <ResizablePanelGroup direction="horizontal" autoSaveId="ob:layout">
-            <ResizablePanel
-              ref={leftPanelRef}
-              defaultSize={20}
-              minSize={14}
-              maxSize={38}
-              collapsible
-              collapsedSize={0}
-              onCollapse={() => setSidebarCollapsed(true)}
-              onExpand={() => setSidebarCollapsed(false)}
-              className="!overflow-visible"
-            >
-              <aside className="flex h-full flex-col border-r bg-sidebar text-sidebar-foreground">
-                <AppSidebar {...sidebarProps} />
-              </aside>
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={80} minSize={40}>
-              <div className="flex h-full w-full flex-col">
-                <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    onClick={toggleSidebar}
-                    title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+          {sidebarCollapsed && (
+            <aside className="flex h-full w-14 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+              <AppSidebar {...sidebarProps} />
+            </aside>
+          )}
+          <div className="flex min-w-0 flex-1">
+            <ResizablePanelGroup direction="horizontal" autoSaveId="ob:layout">
+              {!sidebarCollapsed && (
+                <>
+                  <ResizablePanel
+                    defaultSize={20}
+                    minSize={14}
+                    maxSize={38}
+                    className="!overflow-visible"
                   >
-                    <PanelLeft className="size-4" />
-                  </Button>
-                  <div className="flex-1" />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 text-muted-foreground hover:text-foreground"
-                    onClick={toggleTheme}
-                    title={dark ? "Light mode" : "Dark mode"}
-                  >
-                    {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-                  </Button>
-                  <a
-                    href="https://github.com/eldensari/openbranch"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="GitHub"
-                    className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
-                  >
-                    <GithubIcon className="size-4" />
-                  </a>
+                    <aside className="flex h-full flex-col border-r bg-sidebar text-sidebar-foreground">
+                      <AppSidebar {...sidebarProps} />
+                    </aside>
+                  </ResizablePanel>
+                  <ResizableHandle withHandle />
+                </>
+              )}
+              <ResizablePanel minSize={40}>
+                <div className="flex h-full w-full flex-col">
+                  <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={toggleSidebar}
+                      title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+                    >
+                      <PanelLeft className="size-4" />
+                    </Button>
+                    <div className="flex-1" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-muted-foreground hover:text-foreground"
+                      onClick={toggleTheme}
+                      title={dark ? "Light mode" : "Dark mode"}
+                    >
+                      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                    </Button>
+                    <a
+                      href="https://github.com/eldensari/openbranch"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="GitHub"
+                      className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+                    >
+                      <GithubIcon className="size-4" />
+                    </a>
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    <ChatPanel {...chatProps} />
+                  </div>
                 </div>
-                <div className="min-h-0 flex-1">
-                  <ChatPanel {...chatProps} />
-                </div>
-              </div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
         </div>
 
         <AlertDialogContent>

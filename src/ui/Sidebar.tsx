@@ -1,12 +1,14 @@
+import { useState } from "react";
 import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { Folder, FolderOpen, KeyRound, MoreHorizontal } from "lucide-react";
+import { Folder, FolderOpen, KeyRound, MoreHorizontal, PanelLeft, Search, SquarePen, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import herbIcon from "@/assets/herb.svg";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -52,9 +54,47 @@ export default function AppSidebar(props: Props) {
     newConv, loadMain, loadBranch,
     renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
     setConfirmDialog,
+    collapsed,
+    toggleSidebar,
   } = props;
 
-  const collapsed = false;
+  const [searchQuery, setSearchQuery] = useState("");
+  const q = searchQuery.trim().toLowerCase();
+  const searching = q.length > 0;
+
+  if (collapsed) {
+    return (
+      <div className="flex h-full flex-col items-center gap-1 p-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-9"
+          onClick={toggleSidebar}
+          title="Expand sidebar"
+        >
+          <PanelLeft className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-9"
+          onClick={newConv}
+          title="New chat"
+        >
+          <SquarePen className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-9"
+          onClick={toggleSidebar}
+          title="Search chats"
+        >
+          <Search className="size-4" />
+        </Button>
+      </div>
+    );
+  }
 
   const goToChildRef = (childCv: any) => {
     if (childCv.clusterId) {
@@ -300,7 +340,20 @@ export default function AppSidebar(props: Props) {
   convs.forEach((cv: any) => (cv.commits || []).forEach((c: any) => (c.tags || []).forEach((tg: string) => liveTags.add(tg))));
   const liveActive = new Set<string>([...(activeTags as Set<string>)].filter((tg: string) => liveTags.has(tg)));
   const convHasAnyTag = (cv: any) => (cv.commits || []).some((c: any) => (c.tags || []).some((tg: string) => liveActive.has(tg)));
-  const filteredConvs = liveActive.size ? convs.filter(convHasAnyTag) : convs;
+  const convMatchesSearch = (cv: any) => {
+    if (!searching) return true;
+    if ((cv.title || "").toLowerCase().includes(q)) return true;
+    return (cv.commits || []).some(
+      (c: any) =>
+        (c.prompt || "").toLowerCase().includes(q) ||
+        (c.response || "").toLowerCase().includes(q),
+    );
+  };
+  const filteredConvs = convs.filter((cv: any) => {
+    if (liveActive.size && !convHasAnyTag(cv)) return false;
+    if (searching && !convMatchesSearch(cv)) return false;
+    return true;
+  });
   const { topLevelConvs, rootFolders: folderGroupsAll } = buildFolderGroups(filteredConvs, clusters);
   const pruneEmpty = (group: any): any => {
     const prunedChildren = group.children.map(pruneEmpty).filter(Boolean);
@@ -439,8 +492,46 @@ export default function AppSidebar(props: Props) {
 
   return (
     <>
-      <SidebarHeader className="gap-2 p-3">
-        <Button onClick={newConv} className="w-full">+ New chat</Button>
+      <SidebarHeader className="gap-1 p-2">
+        <div className="flex items-center justify-between px-1.5 py-1">
+          <img src={herbIcon} alt="OpenBranch" className="size-5" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={toggleSidebar}
+            title="Collapse sidebar"
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+        </div>
+        <Button
+          variant="ghost"
+          onClick={newConv}
+          className="w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
+        >
+          <SquarePen className="size-4" />
+          New chat
+        </Button>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search chats"
+            className="h-9 border-0 bg-transparent pl-8 pr-7 shadow-none hover:bg-sidebar-accent/60 focus-visible:bg-sidebar-accent/40 focus-visible:ring-0"
+          />
+          {searching && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <XIcon className="size-3" />
+            </button>
+          )}
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
