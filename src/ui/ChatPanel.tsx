@@ -351,7 +351,7 @@ export default function ChatPanel(props: Props) {
               className="gap-3 py-2.5"
             >
               <GitBranch className="size-4" />
-              Show graph
+              Graph
               {graph && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
             </DropdownMenuItem>
             <DropdownMenuItem
