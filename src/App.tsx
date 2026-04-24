@@ -17,7 +17,7 @@ import {
   ResizableHandle,
 } from "./components/ui/resizable";
 import { Button } from "./components/ui/button";
-import { PanelLeft } from "lucide-react";
+import { Menu } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -961,7 +961,7 @@ export default function App() {
                       onClick={toggleSidebar}
                       title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
                     >
-                      <PanelLeft className="size-4" />
+                      <Menu className="size-4" />
                     </Button>
                     <div className="flex-1" />
                     <Button

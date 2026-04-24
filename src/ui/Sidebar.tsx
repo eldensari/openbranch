@@ -4,7 +4,7 @@ import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { Folder, FolderOpen, KeyRound, MoreHorizontal, PanelLeft, Search, SquarePen, X as XIcon } from "lucide-react";
+import { Folder, FolderOpen, KeyRound, MoreHorizontal, Menu, Search, SquarePen, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,7 +71,7 @@ export default function AppSidebar(props: Props) {
           onClick={toggleSidebar}
           title="Expand sidebar"
         >
-          <PanelLeft className="size-4" />
+          <Menu className="size-4" />
         </Button>
         <Button
           variant="ghost"
@@ -500,7 +500,7 @@ export default function AppSidebar(props: Props) {
             onClick={toggleSidebar}
             title="Collapse sidebar"
           >
-            <PanelLeft className="size-4" />
+            <Menu className="size-4" />
           </Button>
         </div>
         <Button
