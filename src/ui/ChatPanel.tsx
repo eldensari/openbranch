@@ -223,10 +223,11 @@ export default function ChatPanel(props: Props) {
                 <Plus className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="w-56">
+            <DropdownMenuContent align="start" side="top" className="w-56 p-1.5">
               <DropdownMenuItem
                 onSelect={() => fileInputRef.current?.click()}
                 disabled={attachments?.length >= MAX_ATTACHMENTS}
+                className="gap-3 py-2.5"
               >
                 <Paperclip className="size-4" />
                 Upload a file
@@ -234,13 +235,18 @@ export default function ChatPanel(props: Props) {
               <DropdownMenuItem
                 onSelect={toggleWebSearch}
                 className={cn(
-                  webSearchOn &&
-                    "text-[color:var(--branch-1)] focus:text-[color:var(--branch-1)] [&_svg]:text-[color:var(--branch-1)] focus:[&_svg]:text-[color:var(--branch-1)]",
+                  "gap-3 py-2.5",
+                  webSearchOn && "text-[color:var(--branch-1)] focus:text-[color:var(--branch-1)]",
                 )}
               >
-                <Globe className="size-4" />
+                <Globe
+                  className={cn(
+                    "size-4",
+                    webSearchOn ? "text-[color:var(--branch-1)]" : "text-muted-foreground",
+                  )}
+                />
                 Web search
-                {webSearchOn && <Check className="ml-auto size-4" />}
+                {webSearchOn && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

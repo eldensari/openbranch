@@ -928,26 +928,7 @@ export default function AppSidebar(props: Props) {
               <ContextMenu>
                 <ContextMenuTrigger asChild>
                   <div className="flex flex-col px-1">
-                    {(() => {
-                      const groups: Record<TimeBucket, any[]> = {
-                        today: [], yesterday: [], week: [], month: [], older: [],
-                      };
-                      topRootItems.forEach((item: any) => {
-                        groups[timeBucketOf(item.conv.u || item.conv.createdAt)].push(item);
-                      });
-                      return BUCKET_ORDER.map((bucket) => {
-                        const items = groups[bucket];
-                        if (!items.length) return null;
-                        return (
-                          <div key={bucket}>
-                            <div className="px-2 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                              {BUCKET_LABELS[bucket]}
-                            </div>
-                            {items.map((item: any) => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
-                          </div>
-                        );
-                      });
-                    })()}
+                    {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
                     {folderGroups.map((group: any) => renderFolder(group, 0))}
                   </div>
                 </ContextMenuTrigger>
