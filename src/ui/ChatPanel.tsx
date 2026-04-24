@@ -364,9 +364,6 @@ export default function ChatPanel(props: Props) {
             >
               <Link2 className="size-4" />
               Sources
-              {allSources.length > 0 && !sourcesOpen && (
-                <span className="ml-auto text-xs text-muted-foreground">{allSources.length}</span>
-              )}
               {sourcesOpen && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
             </DropdownMenuItem>
             {convId && (
