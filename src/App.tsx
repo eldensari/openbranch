@@ -9,15 +9,12 @@ import { sidebarBranchKey } from "./storage/sidebar";
 import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade } from "./storage/conv";
 import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
-import { useTheme } from "./components/theme-provider";
 import { SidebarProvider } from "./components/ui/sidebar";
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from "./components/ui/resizable";
-import { Button } from "./components/ui/button";
-import { Menu } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,19 +25,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
-import { Moon, Sun } from "lucide-react";
-
-const GithubIcon = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
-    <path d="M12 0C5.37 0 0 5.37 0 12a12 12 0 008.21 11.4c.6.11.82-.26.82-.58v-2.04c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.21.08 1.85 1.24 1.85 1.24 1.07 1.84 2.81 1.31 3.5 1 .1-.78.42-1.31.76-1.61-2.66-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.17 0 0 1-.32 3.3 1.23a11.5 11.5 0 016 0c2.3-1.55 3.3-1.23 3.3-1.23.66 1.65.24 2.87.12 3.17.77.84 1.24 1.91 1.24 3.22 0 4.61-2.82 5.63-5.49 5.92.43.37.82 1.1.82 2.22v3.29c0 .32.22.7.83.58A12 12 0 0024 12c0-6.63-5.37-12-12-12z" />
-  </svg>
-);
 
 /* ═══════ MAIN ═══════ */
 export default function App() {
-  const { theme, toggle: toggleTheme } = useTheme();
-  const dark = theme === "dark";
-
   const [apiKey, setApiKey] = useState(() => storage.get("apiKey")?.value || "");
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
@@ -952,41 +939,7 @@ export default function App() {
                 </>
               )}
               <ResizablePanel minSize={40}>
-                <div className="flex h-full w-full flex-col">
-                  <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8"
-                      onClick={toggleSidebar}
-                      title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-                    >
-                      <Menu className="size-4" />
-                    </Button>
-                    <div className="flex-1" />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground hover:text-foreground"
-                      onClick={toggleTheme}
-                      title={dark ? "Light mode" : "Dark mode"}
-                    >
-                      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-                    </Button>
-                    <a
-                      href="https://github.com/eldensari/openbranch"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="GitHub"
-                      className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
-                    >
-                      <GithubIcon className="size-4" />
-                    </a>
-                  </div>
-                  <div className="min-h-0 flex-1">
-                    <ChatPanel {...chatProps} />
-                  </div>
-                </div>
+                <ChatPanel {...chatProps} />
               </ResizablePanel>
             </ResizablePanelGroup>
           </div>
