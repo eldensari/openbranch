@@ -145,13 +145,16 @@ export default function ChatPanel(props: Props) {
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-6 pt-6">
+      <div
+        className={cn(
+          "flex-1 overflow-y-auto px-4 pb-6 pt-6",
+          thread.length === 0 && !pending && !newFromRef && "flex items-center",
+        )}
+      >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
           {thread.length === 0 && !pending && !newFromRef && (
-            <div className="flex flex-1 flex-col items-center justify-center gap-8 py-16">
-              <div className="text-center">
-                <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
-              </div>
+            <div className="flex flex-col items-center gap-8">
+              <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
               <div className="w-full max-w-2xl">{composer}</div>
             </div>
           )}
