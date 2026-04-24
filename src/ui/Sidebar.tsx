@@ -244,20 +244,11 @@ export default function AppSidebar(props: Props) {
           >
             <SquarePen className="size-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={openSearch}
-            title="Search chats"
-          >
-            <Search className="size-4" />
-          </Button>
           <div className="flex-1" />
           <Button
             variant="ghost"
             size="icon"
-            className="size-9"
+            className="size-9 text-muted-foreground hover:text-foreground"
             onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
             title="Settings"
           >
