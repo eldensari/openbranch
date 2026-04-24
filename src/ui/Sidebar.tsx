@@ -640,7 +640,7 @@ export default function AppSidebar(props: Props) {
                             })
                           }
                           className={cn(
-                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors select-none",
+                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors select-none",
                             on
                               ? "bg-sidebar-accent text-sidebar-accent-foreground"
                               : "hover:bg-sidebar-accent/60",
@@ -648,7 +648,7 @@ export default function AppSidebar(props: Props) {
                         >
                           <span className="shrink-0 text-muted-foreground">#</span>
                           <span className="flex-1 truncate">{tg}</span>
-                          <span className="text-xs text-muted-foreground">{n}</span>
+                          <span className="text-[10px] text-muted-foreground">{n}</span>
                         </span>
                       </ContextMenuTrigger>
                       <ContextMenuContent>
