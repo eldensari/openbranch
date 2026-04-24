@@ -10,11 +10,7 @@ import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade
 import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
 import { SidebarProvider } from "./components/ui/sidebar";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "./components/ui/resizable";
+import { cn } from "./lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -916,31 +912,16 @@ export default function App() {
     <SidebarProvider defaultOpen>
       <AlertDialog open={!!confirmDialog} onOpenChange={(o: boolean) => !o && setConfirmDialog(null)}>
         <div className="flex h-svh w-full">
-          {sidebarCollapsed && (
-            <aside className="flex h-full w-14 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-              <AppSidebar {...sidebarProps} />
-            </aside>
-          )}
-          <div className="flex min-w-0 flex-1">
-            <ResizablePanelGroup direction="horizontal" autoSaveId="ob:layout">
-              {!sidebarCollapsed && (
-                <>
-                  <ResizablePanel
-                    defaultSize={17}
-                    minSize={10}
-                    maxSize={38}
-                  >
-                    <aside className="flex h-full min-w-0 flex-col overflow-hidden border-r bg-sidebar text-sidebar-foreground">
-                      <AppSidebar {...sidebarProps} />
-                    </aside>
-                  </ResizablePanel>
-                  <ResizableHandle title="Drag to resize" />
-                </>
-              )}
-              <ResizablePanel minSize={40}>
-                <ChatPanel {...chatProps} />
-              </ResizablePanel>
-            </ResizablePanelGroup>
+          <aside
+            className={cn(
+              "flex h-full shrink-0 flex-col overflow-hidden border-r bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-out",
+              sidebarCollapsed ? "w-14" : "w-64",
+            )}
+          >
+            <AppSidebar {...sidebarProps} />
+          </aside>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <ChatPanel {...chatProps} />
           </div>
         </div>
 

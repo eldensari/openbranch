@@ -113,7 +113,7 @@ export default function ChatPanel(props: Props) {
 
   const chatArea = (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-2 px-4">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-2 text-base font-semibold">
             <img src={herbIcon} alt="" className="size-5" /> OpenBranch
