@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -24,9 +24,14 @@ export function Favicon({ host, className }: { host: string; className?: string 
 
 type KeyRef = { k: number };
 
-function renderInline(text: string, keyRef: KeyRef) {
+// Private-use Unicode chars for citation tokens — guaranteed not to appear in
+// model output, so we can safely splice them into the markdown source and
+// recognize them during inline parsing to render chips at the exact position.
+const CITE_TOKEN_RE = /(\d+)/;
+
+function renderInline(text: string, keyRef: KeyRef, chips?: CitationLike[]) {
   const parts: React.ReactNode[] = [];
-  const regex = /(\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|~~(.+?)~~|https?:\/\/[^\s)]+)/g;
+  const regex = /(\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|~~(.+?)~~|(\d+)|https?:\/\/[^\s)]+)/g;
   let lastIdx = 0;
   let match: RegExpExecArray | null;
   const linkClass = "text-[color:var(--branch-1)] underline underline-offset-2 hover:opacity-80";
@@ -43,12 +48,21 @@ function renderInline(text: string, keyRef: KeyRef) {
         </code>,
       );
     else if (match[7]) parts.push(<span key={keyRef.k++} className="line-through opacity-70">{match[7]}</span>);
-    else if (match[0].startsWith("http"))
+    else if (match[8] !== undefined) {
+      const c = chips?.[parseInt(match[8], 10)];
+      if (c) parts.push(<CitationChip key={keyRef.k++} c={c} />);
+    } else if (match[0].startsWith("http"))
       parts.push(<a key={keyRef.k++} href={match[0]} target="_blank" rel="noopener noreferrer" className={linkClass}>{match[0]}</a>);
     lastIdx = match.index + match[0].length;
   }
   if (lastIdx < text.length) parts.push(<span key={keyRef.k++}>{text.slice(lastIdx)}</span>);
   return parts;
+}
+
+const CITE_OPEN = String.fromCharCode(0xe000);
+const CITE_CLOSE = String.fromCharCode(0xe001);
+function makeCiteToken(idx: number): string {
+  return CITE_OPEN + idx + CITE_CLOSE;
 }
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
@@ -90,7 +104,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
-export function renderMd(text: string): React.ReactNode[] | null {
+export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[] | null {
   if (!text) return null;
   const kr: KeyRef = { k: 0 };
   const lines = text.split("\n");
@@ -128,7 +142,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
         >
           {quoteLines.map((q, idx) => (
             <div key={idx} className="text-[15px] leading-relaxed">
-              {renderInline(q, kr)}
+              {renderInline(q, kr, chips)}
             </div>
           ))}
         </blockquote>,
@@ -151,7 +165,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
               <tr>
                 {header.map((h, idx) => (
                   <th key={idx} className="border border-border bg-muted px-3 py-1.5 text-left font-semibold">
-                    {renderInline(h, kr)}
+                    {renderInline(h, kr, chips)}
                   </th>
                 ))}
               </tr>
@@ -161,7 +175,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
                 <tr key={ri}>
                   {r.map((c, ci) => (
                     <td key={ci} className="border border-border px-3 py-1.5">
-                      {renderInline(c, kr)}
+                      {renderInline(c, kr, chips)}
                     </td>
                   ))}
                 </tr>
@@ -175,7 +189,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
     if (line.startsWith("### ")) {
       elements.push(
         <h3 key={kr.k++} className="mt-4 mb-1 text-[15px] font-semibold">
-          {renderInline(line.slice(4), kr)}
+          {renderInline(line.slice(4), kr, chips)}
         </h3>,
       );
       i++;
@@ -184,7 +198,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
     if (line.startsWith("## ")) {
       elements.push(
         <h2 key={kr.k++} className="mt-4 mb-1 text-[17px] font-semibold">
-          {renderInline(line.slice(3), kr)}
+          {renderInline(line.slice(3), kr, chips)}
         </h2>,
       );
       i++;
@@ -193,7 +207,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
     if (line.startsWith("# ")) {
       elements.push(
         <h1 key={kr.k++} className="mt-4 mb-1 text-[19px] font-semibold">
-          {renderInline(line.slice(2), kr)}
+          {renderInline(line.slice(2), kr, chips)}
         </h1>,
       );
       i++;
@@ -209,7 +223,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
         <ul key={kr.k++} className="my-1 list-disc pl-6">
           {items.map((it) => (
             <li key={kr.k++} className="text-[15px] leading-relaxed">
-              {renderInline(it, kr)}
+              {renderInline(it, kr, chips)}
             </li>
           ))}
         </ul>,
@@ -226,7 +240,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
         <ol key={kr.k++} className="my-1 list-decimal pl-6">
           {items.map((it) => (
             <li key={kr.k++} className="text-[15px] leading-relaxed">
-              {renderInline(it, kr)}
+              {renderInline(it, kr, chips)}
             </li>
           ))}
         </ol>,
@@ -240,7 +254,7 @@ export function renderMd(text: string): React.ReactNode[] | null {
     }
     elements.push(
       <p key={kr.k++} className="text-[15px] leading-relaxed">
-        {renderInline(line, kr)}
+        {renderInline(line, kr, chips)}
       </p>,
     );
     i++;
@@ -323,42 +337,27 @@ export function renderCitationChips(citations: CitationLike[]): React.ReactNode 
 // any un-cited block is prefix text — it gets folded into the NEXT cited
 // block. Any trailing un-cited text after the last citation is emitted as
 // a final chip-less chunk.
-function mergeBlocks(
-  blocks: { text: string; citations?: CitationLike[] }[],
-): { text: string; citations?: CitationLike[] }[] {
-  const out: { text: string; citations?: CitationLike[] }[] = [];
-  let pending = "";
-  for (const b of blocks) {
-    if (b.citations?.length) {
-      out.push({ text: pending + b.text, citations: [...b.citations] });
-      pending = "";
-    } else {
-      pending += b.text;
-    }
-  }
-  if (pending) out.push({ text: pending });
-  return out;
-}
-
 export function renderResponseBlocks(
   blocks: { text: string; citations?: CitationLike[] }[],
 ): React.ReactNode[] {
-  const merged = mergeBlocks(blocks);
-  const out: React.ReactNode[] = [];
-  merged.forEach((b, bi) => {
-    const md = renderMd(b.text);
-    if (md) {
-      out.push(<Fragment key={`b${bi}`}>{md}</Fragment>);
-    }
+  // Concatenate all block text into one markdown document, appending an
+  // inline citation token at the end of each cited block so renderMd parses
+  // the whole thing as one document and emits chip components exactly at
+  // those positions — no paragraph / list breakage, no "chip on its own line"
+  // artifact between fragmented cited sentences.
+  const chips: CitationLike[] = [];
+  let combined = "";
+  for (const b of blocks) {
+    combined += b.text;
     if (b.citations?.length) {
-      out.push(
-        <div key={`c${bi}`} className="mt-1.5 mb-2 flex flex-wrap gap-1.5">
-          {b.citations.map((c, i) => <CitationChip key={i} c={c} />)}
-        </div>,
-      );
+      for (const c of b.citations) {
+        combined += makeCiteToken(chips.length);
+        chips.push(c);
+      }
     }
-  });
-  return out;
+  }
+  const rendered = renderMd(combined, chips);
+  return rendered || [];
 }
 
 export function SourceCard({ c }: { c: CitationLike }) {
