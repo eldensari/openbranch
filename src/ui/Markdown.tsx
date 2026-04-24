@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -318,15 +318,43 @@ export function renderCitationChips(citations: CitationLike[]): React.ReactNode 
   );
 }
 
+// Anthropic web search often splits a single markdown line across multiple
+// content blocks (e.g. "- " in one block, its content in the next). Rendering
+// each raw block through renderMd then breaks list/heading/code structure.
+// Merge a block into the previous one when the previous block's text doesn't
+// end with a clean paragraph break (\n\n) — this preserves markdown structure
+// while keeping each citation chip at the end of its logical text chunk.
+function mergeBlocks(
+  blocks: { text: string; citations?: CitationLike[] }[],
+): { text: string; citations?: CitationLike[] }[] {
+  const out: { text: string; citations?: CitationLike[] }[] = [];
+  for (const b of blocks) {
+    const prev = out[out.length - 1];
+    if (prev && !/\n\n\s*$/.test(prev.text)) {
+      prev.text += b.text;
+      if (b.citations?.length) {
+        prev.citations = [...(prev.citations || []), ...b.citations];
+      }
+    } else {
+      out.push({
+        text: b.text,
+        citations: b.citations ? [...b.citations] : undefined,
+      });
+    }
+  }
+  return out;
+}
+
 export function renderResponseBlocks(
   blocks: { text: string; citations?: CitationLike[] }[],
 ): React.ReactNode[] {
+  const merged = mergeBlocks(blocks);
   const out: React.ReactNode[] = [];
   let citIdx = 0;
-  blocks.forEach((b, bi) => {
+  merged.forEach((b, bi) => {
     const md = renderMd(b.text);
     if (md) {
-      out.push(<div key={`b${bi}`}>{md}</div>);
+      out.push(<Fragment key={`b${bi}`}>{md}</Fragment>);
     }
     if (b.citations?.length) {
       const baseIdx = citIdx;
