@@ -248,7 +248,7 @@ export default function AppSidebar(props: Props) {
           <Button
             variant="ghost"
             size="icon"
-            className="size-9 text-muted-foreground hover:text-foreground"
+            className="size-9"
             onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
             title="Settings"
           >
@@ -955,7 +955,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
-          className="h-10 w-full justify-start gap-3 px-3 font-normal text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+          className="h-10 w-full justify-start gap-3 px-3 font-normal hover:bg-sidebar-accent/60"
         >
           <Settings className="size-4" />
           Settings
