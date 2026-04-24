@@ -915,7 +915,7 @@ export default function App() {
           <aside
             className={cn(
               "flex h-full shrink-0 flex-col overflow-hidden border-r bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-out",
-              sidebarCollapsed ? "w-14" : "w-72",
+              sidebarCollapsed ? "w-14" : "w-80",
             )}
           >
             <AppSidebar {...sidebarProps} />
