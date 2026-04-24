@@ -1,6 +1,6 @@
 /* LLM API — BYOK + Free mode, with attachments + web search */
 
-import type { Attachment, Citation } from "@/types";
+import type { Attachment, Citation, ResponseBlock } from "@/types";
 
 export type Provider = { id: "anthropic" | "openai" | "gemini"; name: string; color: string };
 export type ChatMessage = {
@@ -33,6 +33,7 @@ function mergeSignals(userSignal: AbortSignal | undefined, timeoutMs: number): A
 export type LLMResponse = {
   text: string;
   citations?: Citation[];
+  blocks?: ResponseBlock[];
 };
 
 class RateLimitError extends Error {
@@ -177,6 +178,31 @@ function extractAnthropicCitations(d: {
   return out;
 }
 
+function extractAnthropicBlocks(d: {
+  content?: Array<{
+    type: string;
+    text?: string;
+    citations?: Array<{ url?: string; title?: string; cited_text?: string }>;
+  }>;
+}): ResponseBlock[] | undefined {
+  if (!d.content) return undefined;
+  const blocks: ResponseBlock[] = [];
+  let anyCitations = false;
+  for (const b of d.content) {
+    if (b.type !== "text" || !b.text) continue;
+    const cits: Citation[] = [];
+    const seen = new Set<string>();
+    for (const c of b.citations || []) {
+      if (!c.url || seen.has(c.url)) continue;
+      seen.add(c.url);
+      cits.push({ url: c.url, title: c.title || c.url, snippet: c.cited_text });
+    }
+    if (cits.length) anyCitations = true;
+    blocks.push(cits.length ? { text: b.text, citations: cits } : { text: b.text });
+  }
+  return anyCitations ? blocks : undefined;
+}
+
 async function callFree(
   messages: ChatMessage[],
   model: string | null,
@@ -208,6 +234,7 @@ async function callFree(
   return {
     text: extractAnthropicText(d),
     citations: extractAnthropicCitations(d),
+    blocks: extractAnthropicBlocks(d),
   };
 }
 
@@ -267,6 +294,7 @@ async function callBYOK(
     return {
       text: extractAnthropicText(d),
       citations: extractAnthropicCitations(d),
+      blocks: extractAnthropicBlocks(d),
     };
   }
 

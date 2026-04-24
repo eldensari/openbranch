@@ -318,6 +318,31 @@ export function renderCitationChips(citations: CitationLike[]): React.ReactNode 
   );
 }
 
+export function renderResponseBlocks(
+  blocks: { text: string; citations?: CitationLike[] }[],
+): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let citIdx = 0;
+  blocks.forEach((b, bi) => {
+    const md = renderMd(b.text);
+    if (md) {
+      out.push(<div key={`b${bi}`}>{md}</div>);
+    }
+    if (b.citations?.length) {
+      const baseIdx = citIdx;
+      out.push(
+        <div key={`c${bi}`} className="-mt-1 mb-2 flex flex-wrap gap-1.5">
+          {b.citations.map((c, i) => (
+            <CitationChip key={i} idx={baseIdx + i} c={c} />
+          ))}
+        </div>,
+      );
+      citIdx += b.citations.length;
+    }
+  });
+  return out;
+}
+
 export function SourceCard({ c }: { c: CitationLike }) {
   const host = getHost(c.url);
   return (

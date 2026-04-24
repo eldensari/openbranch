@@ -5,7 +5,7 @@ import {
   readFileAsBase64,
   resizeImageFile,
 } from "@/lib/attachments";
-import { renderMd, renderCitationChips, SourceCard, ThinkingDots } from "./Markdown";
+import { renderMd, renderCitationChips, renderResponseBlocks, SourceCard, ThinkingDots } from "./Markdown";
 import ModelPicker from "./ModelPicker";
 import Graph from "./Graph";
 import {
@@ -453,8 +453,14 @@ export default function ChatPanel(props: Props) {
                     </div>
                   )}
                   <div className="rounded-2xl bg-ai-bubble px-4 py-3 text-[15px] leading-relaxed text-ai-foreground">
-                    {renderMd(cm.response)}
-                    {cm.citations?.length > 0 && renderCitationChips(cm.citations)}
+                    {cm.responseBlocks?.length
+                      ? renderResponseBlocks(cm.responseBlocks)
+                      : (
+                        <>
+                          {renderMd(cm.response)}
+                          {cm.citations?.length > 0 && renderCitationChips(cm.citations)}
+                        </>
+                      )}
                   </div>
                   <div className="ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
                     <Button

@@ -14,6 +14,11 @@ export type Citation = {
   snippet?: string;
 };
 
+export type ResponseBlock = {
+  text: string;
+  citations?: Citation[];
+};
+
 export type Commit = {
   id: CommitId;
   parentId: CommitId | null;
@@ -31,6 +36,7 @@ export type Commit = {
   loading?: boolean;
   attachments?: Attachment[];
   citations?: Citation[];
+  responseBlocks?: ResponseBlock[];
   webSearch?: boolean;
 };
 

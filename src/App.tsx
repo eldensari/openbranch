@@ -492,7 +492,7 @@ export default function App() {
     try {
       const msgs = buildMsgs(thread, msg, atts);
       const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
-      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
+      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
@@ -519,7 +519,7 @@ export default function App() {
     try {
       const rootMsg = atts?.length ? { role: "user" as const, content: msg, attachments: atts } : { role: "user" as const, content: msg };
       const resp = await callLLM(apiKey, [rootMsg], { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
-      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
+      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
@@ -539,7 +539,7 @@ export default function App() {
       const th = getThread(cRef.current, pid).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
       const msgs = buildMsgs(th, msg, atts);
       const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
-      const cm = mkCommit(pid, msg, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
+      const cm = mkCommit(pid, msg, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, webSearch: useSearch });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, br);
@@ -636,7 +636,7 @@ export default function App() {
     abortRef.current = ac;
     try {
       const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
-      const newCm = mkCommit(parentId, cm.prompt, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
+      const newCm = mkCommit(parentId, cm.prompt, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, webSearch: useSearch });
       const nc = [...cRef.current, newCm];
       setCommits(nc); cRef.current = nc; setHeadId(newCm.id); setScrollTarget(newCm.id);
       save(null, nc, newCm.id, br);

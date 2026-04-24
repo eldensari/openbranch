@@ -1,4 +1,4 @@
-import type { Attachment, Citation, Commit, CommitId } from "@/types";
+import type { Attachment, Citation, Commit, CommitId, ResponseBlock } from "@/types";
 
 /* ═══════ DATA ═══════ */
 let cc = 100; // start high to avoid conflicts with demo IDs
@@ -29,7 +29,12 @@ export function mkCommit(
   branch: string,
   mergeIds: CommitId[] | null = null,
   model: string | null = null,
-  extras?: { attachments?: Attachment[]; citations?: Citation[]; webSearch?: boolean },
+  extras?: {
+    attachments?: Attachment[];
+    citations?: Citation[];
+    responseBlocks?: ResponseBlock[];
+    webSearch?: boolean;
+  },
 ): Commit {
   const c: Commit = {
     id: mkId(),
@@ -43,6 +48,7 @@ export function mkCommit(
   if (model) c.model = model;
   if (extras?.attachments?.length) c.attachments = extras.attachments;
   if (extras?.citations?.length) c.citations = extras.citations;
+  if (extras?.responseBlocks?.length) c.responseBlocks = extras.responseBlocks;
   if (extras?.webSearch) c.webSearch = true;
   return c;
 }
