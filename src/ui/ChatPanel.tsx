@@ -683,6 +683,15 @@ export default function ChatPanel(props: Props) {
               Merge
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-2 size-7"
+            onClick={() => setGraph(false)}
+            title="Cancel"
+          >
+            <X className="size-4" />
+          </Button>
         </div>
       </div>
       <Graph
