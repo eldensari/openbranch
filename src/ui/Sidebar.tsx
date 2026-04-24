@@ -960,11 +960,11 @@ export default function AppSidebar(props: Props) {
         )}
       </SidebarContent>
 
-      <SidebarFooter className="p-2">
+      <SidebarFooter className="p-3">
         <Button
           variant="ghost"
           onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
-          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
+          className="h-10 w-full justify-start gap-3 px-3 font-normal text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
         >
           <Settings className="size-4" />
           Settings
