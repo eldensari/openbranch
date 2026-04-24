@@ -926,7 +926,7 @@ export default function App() {
               {!sidebarCollapsed && (
                 <>
                   <ResizablePanel
-                    defaultSize={20}
+                    defaultSize={16}
                     minSize={14}
                     maxSize={38}
                     className="!overflow-visible"
@@ -935,7 +935,7 @@ export default function App() {
                       <AppSidebar {...sidebarProps} />
                     </aside>
                   </ResizablePanel>
-                  <ResizableHandle withHandle />
+                  <ResizableHandle title="Drag to resize" />
                 </>
               )}
               <ResizablePanel minSize={40}>
