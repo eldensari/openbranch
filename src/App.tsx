@@ -926,7 +926,7 @@ export default function App() {
               {!sidebarCollapsed && (
                 <>
                   <ResizablePanel
-                    defaultSize={18}
+                    defaultSize={17}
                     minSize={10}
                     maxSize={38}
                   >

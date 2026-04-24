@@ -4,7 +4,7 @@ import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { Folder, FolderOpen, KeyRound, MoreHorizontal, Menu, Search, SquarePen } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, KeyRound, MoreHorizontal, Menu, Search, SquarePen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,6 +87,7 @@ export default function AppSidebar(props: Props) {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [tagsOpen, setTagsOpen] = useState(false);
   const q = searchQuery.trim().toLowerCase();
 
   const openSearch = () => {
@@ -615,58 +616,69 @@ export default function AppSidebar(props: Props) {
       <SidebarContent>
         {!collapsed && tagEntries.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>Tags</SidebarGroupLabel>
-            <div className="graph-scroll flex gap-1.5 overflow-x-auto whitespace-nowrap px-2 pt-1 pb-2">
-              {tagEntries.map(([tg, n]) => {
-                const on = activeTags.has(tg);
-                const color = colorForTag(tg);
-                return (
-                  <ContextMenu key={tg}>
-                    <ContextMenuTrigger asChild>
-                      <span
-                        onClick={() =>
-                          setActiveTags((p: Set<string>) => {
-                            const s = new Set(p);
-                            s.has(tg) ? s.delete(tg) : s.add(tg);
-                            return s;
-                          })
-                        }
-                        className={cn(
-                          "inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors select-none",
-                          on ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/60",
-                        )}
-                      >
-                        <span className="size-2 rounded-full" style={{ background: color }} />
-                        {tg}
-                        <span className="text-[10px] text-muted-foreground">{n}</span>
-                      </span>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                      <ContextMenuItem
-                        onSelect={() => {
-                          const nv = window.prompt("Rename tag", tg);
-                          if (nv != null) renameTag(tg, nv);
-                        }}
-                      >
-                        Rename
-                      </ContextMenuItem>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem
-                        variant="destructive"
-                        onSelect={() =>
-                          setConfirmDialog({
-                            msg: `Remove tag "${tg}" from all commits?`,
-                            onConfirm: () => deleteTag(tg),
-                          })
-                        }
-                      >
-                        Delete
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              onClick={() => setTagsOpen((v) => !v)}
+              className="flex w-full items-center gap-1 px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
+            >
+              {tagsOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+              Tags ({tagEntries.length})
+            </button>
+            {tagsOpen && (
+              <div className="flex flex-col gap-0.5 px-1 pb-1">
+                {tagEntries.map(([tg, n]) => {
+                  const on = activeTags.has(tg);
+                  const color = colorForTag(tg);
+                  return (
+                    <ContextMenu key={tg}>
+                      <ContextMenuTrigger asChild>
+                        <span
+                          onClick={() =>
+                            setActiveTags((p: Set<string>) => {
+                              const s = new Set(p);
+                              s.has(tg) ? s.delete(tg) : s.add(tg);
+                              return s;
+                            })
+                          }
+                          className={cn(
+                            "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors select-none",
+                            on
+                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                              : "hover:bg-sidebar-accent/60",
+                          )}
+                        >
+                          <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />
+                          <span className="flex-1 truncate">{tg}</span>
+                          <span className="text-[10px] text-muted-foreground">{n}</span>
+                        </span>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem
+                          onSelect={() => {
+                            const nv = window.prompt("Rename tag", tg);
+                            if (nv != null) renameTag(tg, nv);
+                          }}
+                        >
+                          Rename
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          variant="destructive"
+                          onSelect={() =>
+                            setConfirmDialog({
+                              msg: `Remove tag "${tg}" from all commits?`,
+                              onConfirm: () => deleteTag(tg),
+                            })
+                          }
+                        >
+                          Delete
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  );
+                })}
+              </div>
+            )}
           </SidebarGroup>
         )}
 
