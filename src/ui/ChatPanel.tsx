@@ -447,12 +447,7 @@ export default function ChatPanel(props: Props) {
                   </div>
                 </div>
                 <div className="self-start max-w-[82%] flex flex-col gap-1.5">
-                  {cm.webSearch && (
-                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <Globe className="size-3" /> Used web search
-                    </div>
-                  )}
-                  <div className="rounded-2xl bg-ai-bubble px-4 py-3 text-[15px] leading-relaxed text-ai-foreground">
+                  <div className="text-[15px] leading-relaxed">
                     {cm.responseBlocks?.length
                       ? renderResponseBlocks(cm.responseBlocks)
                       : (
@@ -498,7 +493,7 @@ export default function ChatPanel(props: Props) {
             </div>
           )}
           {thinking && (
-            <div className="self-start rounded-2xl bg-ai-bubble px-4 py-3 text-[15px] text-muted-foreground">
+            <div className="self-start text-[15px] text-muted-foreground">
               <ThinkingDots />
             </div>
           )}

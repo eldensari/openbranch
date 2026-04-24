@@ -248,11 +248,12 @@ export function renderMd(text: string): React.ReactNode[] | null {
   return elements;
 }
 
-function CitationChip({ idx, c }: { idx: number; c: CitationLike }) {
+function CitationChip({ c }: { c: CitationLike }) {
   const [open, setOpen] = useState(false);
   const enterT = useRef<number | null>(null);
   const leaveT = useRef<number | null>(null);
   const host = getHost(c.url);
+  const label = c.title || host || c.url;
 
   const onEnter = () => {
     if (leaveT.current) { window.clearTimeout(leaveT.current); leaveT.current = null; }
@@ -272,11 +273,9 @@ function CitationChip({ idx, c }: { idx: number; c: CitationLike }) {
           rel="noopener noreferrer"
           onMouseEnter={onEnter}
           onMouseLeave={onLeave}
-          className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          className="inline-flex max-w-[180px] items-center whitespace-nowrap rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
         >
-          <Favicon host={host} className="size-3" />
-          <span className="font-medium tabular-nums">{idx + 1}</span>
-          <span className="max-w-[140px] truncate">{host}</span>
+          <span className="truncate">{label}</span>
         </a>
       </PopoverTrigger>
       <PopoverContent
@@ -313,7 +312,7 @@ export function renderCitationChips(citations: CitationLike[]): React.ReactNode 
   if (!citations?.length) return null;
   return (
     <div className="mt-3 flex flex-wrap gap-1.5">
-      {citations.map((c, i) => <CitationChip key={i} idx={i} c={c} />)}
+      {citations.map((c, i) => <CitationChip key={i} c={c} />)}
     </div>
   );
 }
@@ -346,22 +345,17 @@ export function renderResponseBlocks(
 ): React.ReactNode[] {
   const merged = mergeBlocks(blocks);
   const out: React.ReactNode[] = [];
-  let citIdx = 0;
   merged.forEach((b, bi) => {
     const md = renderMd(b.text);
     if (md) {
       out.push(<Fragment key={`b${bi}`}>{md}</Fragment>);
     }
     if (b.citations?.length) {
-      const baseIdx = citIdx;
       out.push(
         <div key={`c${bi}`} className="mt-1.5 mb-2 flex flex-wrap gap-1.5">
-          {b.citations.map((c, i) => (
-            <CitationChip key={i} idx={baseIdx + i} c={c} />
-          ))}
+          {b.citations.map((c, i) => <CitationChip key={i} c={c} />)}
         </div>,
       );
-      citIdx += b.citations.length;
     }
   });
   return out;
