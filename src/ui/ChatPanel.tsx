@@ -1,11 +1,24 @@
-import { bCol } from "@/lib/branch-colors";
 import { submitWaitlist } from "@/lib/llm";
 import storage from "@/lib/storage";
-import herbIcon from "@/assets/herb.svg";
-import { renderMd, ThinkingDots } from "./Markdown";
+import {
+  getAttachmentSrc,
+  readFileAsBase64,
+  resizeImageFile,
+} from "@/lib/attachments";
+import { renderMd, renderCitations, ThinkingDots } from "./Markdown";
 import ModelPicker from "./ModelPicker";
 import Graph from "./Graph";
-import { Copy, RotateCcw, ArrowUp } from "lucide-react";
+import {
+  Copy,
+  RotateCcw,
+  ArrowUp,
+  Paperclip,
+  Globe,
+  X,
+  FileText,
+  Square,
+} from "lucide-react";
+import { useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,11 +31,17 @@ import {
 
 type Props = any;
 
+const MAX_ATTACHMENTS = 5;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
 export default function ChatPanel(props: Props) {
   const {
     commits, headId, branch, names, parentRef, thread,
     convs, convId, activeTags,
     input, setInput, inputRef, endRef,
+    attachments, setAttachments,
+    webSearchOn, toggleWebSearch,
+    toast, setToast, showToast,
     pending, thinking, newFromRef, setNewFromRef,
     editId, setEditId, startEdit,
     branchFromId, setBranchFromId,
@@ -34,7 +53,7 @@ export default function ChatPanel(props: Props) {
     undoAction, setUndoAction, restoreUndo,
     rateLimited, hasKey, waitlistStatus, setWaitlistStatus, waitlistEmail, setWaitlistEmail,
     apiKey, setKeyDraft, setShowKeyInput, setRateLimited,
-    send, merge,
+    send, merge, stop,
     copyToClipboard, retryResponse,
     checkout, startBranchFrom, startNew, deleteCommit,
     goToParent, goToChild, childRefs,
@@ -42,12 +61,81 @@ export default function ChatPanel(props: Props) {
     editNodeLabel, editCommitTags,
   } = props;
 
-  const branchColor = names.length > 0 ? bCol(names, branch) : "var(--muted-foreground)";
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onFilesPicked = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    const existing = attachments || [];
+    if (existing.length >= MAX_ATTACHMENTS) {
+      showToast?.("You can attach up to " + MAX_ATTACHMENTS + " files per message.", "info");
+      return;
+    }
+    const slots = MAX_ATTACHMENTS - existing.length;
+    const picked = Array.from(files).slice(0, slots);
+    const next = [...existing];
+    let tooBig = 0, unsupported = 0;
+    for (const f of picked) {
+      if (f.size > MAX_FILE_BYTES) { tooBig++; continue; }
+      const isImage = f.type.startsWith("image/");
+      const isPdf = f.type === "application/pdf";
+      if (!isImage && !isPdf) { unsupported++; continue; }
+      try {
+        if (isImage) {
+          const { data, mediaType } = await resizeImageFile(f);
+          next.push({ type: "image", mediaType, name: f.name, data });
+        } else {
+          const data = await readFileAsBase64(f);
+          next.push({ type: "pdf", mediaType: "application/pdf", name: f.name, data });
+        }
+      } catch {
+        showToast?.("Failed to read " + f.name, "error");
+      }
+    }
+    if (tooBig) showToast?.(tooBig + " file(s) exceeded 10MB and were skipped.", "info");
+    if (unsupported) showToast?.(unsupported + " file(s) skipped (only images and PDFs supported).", "info");
+    setAttachments(next);
+  };
+
+  const removeAttachment = (idx: number) => {
+    setAttachments((attachments || []).filter((_: unknown, i: number) => i !== idx));
+  };
+
+  const hasContent = (input && input.trim().length > 0) || (attachments && attachments.length > 0);
+
+  const attachmentChipRow = attachments && attachments.length > 0 && (
+    <div className="flex flex-wrap gap-2 border-b border-border/50 px-3 pt-3 pb-3">
+      {attachments.map((a: any, i: number) => (
+        <div
+          key={i}
+          className="group relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted"
+          title={a.name}
+        >
+          {a.type === "image" ? (
+            <img
+              src={getAttachmentSrc(a)}
+              alt={a.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <FileText className="size-5 text-muted-foreground" />
+          )}
+          <button
+            type="button"
+            onClick={() => removeAttachment(i)}
+            className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+            aria-label="Remove attachment"
+          >
+            <X className="size-2.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 
   const composer = (
     <div
       className={cn(
-        "flex flex-col rounded-2xl border bg-card px-4 pt-3 pb-2 shadow-sm transition-colors",
+        "flex flex-col overflow-hidden rounded-3xl border bg-card shadow-md transition-colors focus-within:shadow-lg",
         branchFromId || editId
           ? "ring-2 ring-[color:var(--branch-1)]/40 border-[color:var(--branch-1)]/50"
           : newFromRef
@@ -57,36 +145,91 @@ export default function ChatPanel(props: Props) {
           : "",
       )}
     >
-      <Textarea
-        ref={inputRef}
-        value={input}
-        onChange={(e: any) => setInput(e.target.value)}
-        onKeyDown={(e: any) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            if (mm && sel.length) { merge(); return; }
-            if (e.metaKey || e.ctrlKey) { send(true); return; }
-            send(false);
+      {attachmentChipRow}
+      <div className="flex flex-col px-4 pt-3 pb-2">
+        <Textarea
+          ref={inputRef}
+          value={input}
+          onChange={(e: any) => setInput(e.target.value)}
+          onKeyDown={(e: any) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (mm && sel.length) { merge(); return; }
+              if (e.metaKey || e.ctrlKey) { send(true); return; }
+              send(false);
+            }
+          }}
+          onPaste={async (e: any) => {
+            const items = Array.from(e.clipboardData?.items || []) as DataTransferItem[];
+            const files: File[] = [];
+            for (const it of items) {
+              if (it.kind === "file") {
+                const f = it.getAsFile();
+                if (f) files.push(f);
+              }
+            }
+            if (files.length) {
+              e.preventDefault();
+              const dt = new DataTransfer();
+              files.forEach((f) => dt.items.add(f));
+              await onFilesPicked(dt.files);
+            }
+          }}
+          placeholder={
+            branchFromId ? "Write the first message for this branch..."
+            : editId ? "Edit your question..."
+            : newFromRef ? "Start new conversation..."
+            : mm ? "Merge instruction..."
+            : thread.length === 0 ? "How can I help you today?"
+            : "Reply..."
           }
-        }}
-        placeholder={
-          branchFromId ? "Write the first message for this branch..."
-          : editId ? "Edit your question..."
-          : newFromRef ? "Start new conversation..."
-          : mm ? "Merge instruction..."
-          : thread.length === 0 ? "How can I help you today?"
-          : "Reply..."
-        }
-        rows={1}
-        className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 md:text-base"
-        onInput={(e: any) => {
-          e.target.style.height = "auto";
-          e.target.style.height = Math.min(e.target.scrollHeight, 240) + "px";
-        }}
-      />
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <div />
-        <div className="flex items-center gap-1">
+          rows={1}
+          className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 md:text-base"
+          onInput={(e: any) => {
+            e.target.style.height = "auto";
+            e.target.style.height = Math.min(e.target.scrollHeight, 240) + "px";
+          }}
+        />
+        <div className="mt-2 flex items-center gap-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+            className="hidden"
+            onChange={async (e) => {
+              await onFilesPicked(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+            title="Attach file"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={attachments?.length >= MAX_ATTACHMENTS}
+          >
+            <Paperclip className="size-4" />
+          </Button>
+          <Button
+            variant={webSearchOn ? "default" : "ghost"}
+            size="sm"
+            type="button"
+            className={cn(
+              "h-8 gap-1.5 rounded-full px-3 text-xs font-medium",
+              webSearchOn
+                ? "bg-[color:var(--branch-1)]/15 text-[color:var(--branch-1)] hover:bg-[color:var(--branch-1)]/25"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            title={webSearchOn ? "Web search ON" : "Web search OFF"}
+            onClick={toggleWebSearch}
+          >
+            <Globe className="size-3.5" />
+            Search
+          </Button>
+          <div className="flex-1" />
           <ModelPicker
             models={modelList}
             value={currentModel}
@@ -94,57 +237,58 @@ export default function ChatPanel(props: Props) {
             thinking={thinkingOn}
             onThinkingChange={(v: boolean) => { setThinkingOn(v); storage.set("thinkingOn", v ? "1" : "0"); }}
           />
-          <Button
-            onClick={() => (mm && sel.length ? merge() : send())}
-            disabled={thinking || !input.trim() || (mm && !sel.length)}
-            size="sm"
-            className="gap-1.5"
-          >
-            {branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : newFromRef ? "Send" : (
-              <>
-                Send <ArrowUp className="size-3.5" />
-              </>
-            )}
-          </Button>
+          {thinking ? (
+            <Button
+              onClick={stop}
+              size="sm"
+              variant="destructive"
+              className="h-8 gap-1.5"
+              title="Stop generation"
+            >
+              <Square className="size-3 fill-current" /> Stop
+            </Button>
+          ) : (
+            <Button
+              onClick={() => (mm && sel.length ? merge() : send())}
+              disabled={!hasContent || (mm && !sel.length)}
+              size="sm"
+              className="h-8 gap-1.5"
+            >
+              {branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : newFromRef ? "Send" : (
+                <>
+                  Send <ArrowUp className="size-3.5" />
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
     </div>
   );
 
+  const renderAttachments = (atts: any[]) => (
+    <div className="mt-1 flex flex-wrap gap-1.5 justify-end">
+      {atts.map((a, i) => {
+        const src = getAttachmentSrc(a);
+        return (
+          <div
+            key={i}
+            className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border bg-background/60"
+            title={a.name}
+          >
+            {a.type === "image" && src ? (
+              <img src={src} alt={a.name} className="h-full w-full object-cover" />
+            ) : (
+              <FileText className="size-4 text-muted-foreground" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
   const chatArea = (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 px-4">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-2 text-base font-semibold">
-            <img src={herbIcon} alt="" className="size-5" /> OpenBranch
-          </span>
-          {names.length > 0 && (
-            <span
-              className="rounded-md px-2 py-0.5 font-mono text-xs font-medium"
-              style={{
-                color: branchColor,
-                background: `color-mix(in oklch, ${branchColor} 14%, transparent)`,
-              }}
-            >
-              {branch}
-            </span>
-          )}
-          {parentRef && (
-            <button
-              onClick={goToParent}
-              className="text-xs text-[color:var(--branch-1)] hover:underline"
-            >
-              ↗ from: {parentRef.convTitle?.slice(0, 20)}
-            </button>
-          )}
-        </div>
-        {commits.length > 0 && (
-          <Button variant={graph ? "default" : "outline"} size="sm" onClick={() => setGraph(!graph)}>
-            {graph ? "Hide graph" : "Show graph"}
-          </Button>
-        )}
-      </header>
-
       <div
         className={cn(
           "flex-1 overflow-y-auto px-4 pb-6 pt-6",
@@ -164,11 +308,11 @@ export default function ChatPanel(props: Props) {
               <div
                 key={cm.id}
                 id={"cm-" + cm.id}
-                className="flex flex-col gap-2"
+                className="group/cm flex flex-col gap-2"
                 onMouseEnter={() => setHoveredCid(cm.id)}
                 onMouseLeave={() => setHoveredCid(null)}
               >
-                <div className="self-end max-w-[82%]">
+                <div className="self-end max-w-[82%] flex flex-col items-end">
                   <div
                     className={cn(
                       "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
@@ -182,6 +326,7 @@ export default function ChatPanel(props: Props) {
                     )}
                     {cm.prompt}
                   </div>
+                  {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
                   <div className="mt-0.5 flex justify-end">
                     <button
                       onClick={() => startEdit(cm.id)}
@@ -197,10 +342,16 @@ export default function ChatPanel(props: Props) {
                   </div>
                 </div>
                 <div className="self-start max-w-[82%] flex flex-col gap-1.5">
+                  {cm.webSearch && (
+                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Globe className="size-3" /> Used web search
+                    </div>
+                  )}
                   <div className="rounded-2xl bg-ai-bubble px-4 py-3 text-[15px] leading-relaxed text-ai-foreground">
                     {renderMd(cm.response)}
+                    {cm.citations?.length > 0 && renderCitations(cm.citations)}
                   </div>
-                  <div className="ml-2 flex gap-0.5 opacity-50 transition-opacity hover:opacity-100">
+                  <div className="ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -345,6 +496,29 @@ export default function ChatPanel(props: Props) {
           <div className="mx-auto w-full max-w-3xl">{composer}</div>
         </div>
       )}
+
+      {toast && (
+        <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center">
+          <div
+            className={cn(
+              "pointer-events-auto flex max-w-md items-start gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur",
+              toast.kind === "info"
+                ? "border-[color:var(--branch-1)]/40 bg-[color:var(--branch-1)]/10 text-[color:var(--branch-1)]"
+                : "border-destructive/40 bg-destructive/10 text-destructive",
+            )}
+          >
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button
+              type="button"
+              className="shrink-0 opacity-70 hover:opacity-100"
+              onClick={() => setToast(null)}
+              aria-label="Dismiss"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -352,10 +526,27 @@ export default function ChatPanel(props: Props) {
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
       <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-sm font-medium text-muted-foreground">Graph</span>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-muted-foreground/80">
-            HEAD {headId?.slice(0, 7)}
-          </span>
+        <div className="flex items-center gap-1.5">
+          {mm && (
+            <span className="rounded-full bg-[color:var(--branch-5)] px-2 py-0.5 text-[10px] font-medium text-white">
+              Select commits
+            </span>
+          )}
+          {selectMode && (
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                selectError ? "bg-destructive/10 text-destructive" : "bg-[color:var(--branch-1)]/15 text-[color:var(--branch-1)]",
+              )}
+            >
+              {selectError ||
+                (selectRange.endId
+                  ? selectedRangeIds.length + " selected"
+                  : selectRange.startId
+                  ? "Pick end"
+                  : "Pick start")}
+            </span>
+          )}
           {!mm && (
             <Button
               size="sm"
@@ -366,7 +557,7 @@ export default function ChatPanel(props: Props) {
                 setSel([]);
                 clearSelectRange();
               }}
-              className="h-7 px-2 text-xs"
+              className="h-7 rounded-full px-2.5 text-xs"
             >
               Select
             </Button>
@@ -381,31 +572,11 @@ export default function ChatPanel(props: Props) {
                 setMm(true);
                 setSel([]);
               }}
-              className="h-7 px-2 text-xs"
+              className="h-7 rounded-full px-2.5 text-xs"
               style={{ color: "var(--branch-5)", borderColor: "var(--branch-5)" }}
             >
               Merge
             </Button>
-          )}
-          {mm && (
-            <span className="rounded-md bg-[color:var(--branch-5)] px-2 py-0.5 text-[10px] font-medium text-white">
-              Select commits
-            </span>
-          )}
-          {selectMode && (
-            <span
-              className={cn(
-                "rounded-md px-2 py-0.5 text-[10px] font-medium",
-                selectError ? "bg-destructive/10 text-destructive" : "bg-[color:var(--branch-1)]/15 text-[color:var(--branch-1)]",
-              )}
-            >
-              {selectError ||
-                (selectRange.endId
-                  ? selectedRangeIds.length + " selected"
-                  : selectRange.startId
-                  ? "Pick end"
-                  : "Pick start")}
-            </span>
           )}
         </div>
       </div>

@@ -1,8 +1,39 @@
-/* ═══════ LLM API — BYOK + Free mode ═══════ */
+/* LLM API — BYOK + Free mode, with attachments + web search */
+
+import type { Attachment, Citation } from "@/types";
 
 export type Provider = { id: "anthropic" | "openai" | "gemini"; name: string; color: string };
-export type ChatMessage = { role: "user" | "assistant"; content: string };
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  attachments?: Attachment[];
+};
 export type ModelMeta = { id: string; label: string; desc: string; thinking?: boolean };
+
+export type LLMOptions = {
+  model?: string | null;
+  thinking?: boolean;
+  webSearch?: boolean;
+  signal?: AbortSignal;
+};
+
+function mergeSignals(userSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!userSignal) return timeout;
+  const anyFn = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === "function") return anyFn([timeout, userSignal]);
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  timeout.addEventListener("abort", onAbort, { once: true });
+  userSignal.addEventListener("abort", onAbort, { once: true });
+  if (timeout.aborted || userSignal.aborted) controller.abort();
+  return controller.signal;
+}
+
+export type LLMResponse = {
+  text: string;
+  citations?: Citation[];
+};
 
 class RateLimitError extends Error {
   code = "RATE_LIMIT" as const;
@@ -38,12 +69,129 @@ export const MODEL_CHOICES: Record<string, ModelMeta[]> = {
   free: [{ id: "claude-sonnet-4-20250514", label: "Sonnet 4", desc: "Free tier", thinking: true }],
 };
 
-async function callFree(messages: ChatMessage[], model: string | null): Promise<string> {
+type AnthropicTextBlock = { type: "text"; text: string };
+type AnthropicImageBlock = {
+  type: "image";
+  source: { type: "base64"; media_type: string; data: string };
+};
+type AnthropicDocumentBlock = {
+  type: "document";
+  source: { type: "base64"; media_type: "application/pdf"; data: string };
+};
+type AnthropicUserContent = AnthropicTextBlock | AnthropicImageBlock | AnthropicDocumentBlock;
+
+function anthropicMessages(messages: ChatMessage[]) {
+  return messages.map((m) => {
+    if (m.role === "assistant" || !m.attachments?.length) {
+      return { role: m.role, content: m.content };
+    }
+    const content: AnthropicUserContent[] = [];
+    for (const a of m.attachments) {
+      if (a.type === "image") {
+        content.push({
+          type: "image",
+          source: { type: "base64", media_type: a.mediaType, data: a.data },
+        });
+      } else if (a.type === "pdf") {
+        content.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: a.data },
+        });
+      }
+    }
+    if (m.content) content.push({ type: "text", text: m.content });
+    return { role: m.role, content };
+  });
+}
+
+function openaiMessages(messages: ChatMessage[]) {
+  return messages.map((m) => {
+    if (m.role === "assistant" || !m.attachments?.length) {
+      return { role: m.role, content: m.content };
+    }
+    const parts: Array<
+      { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
+    > = [];
+    for (const a of m.attachments) {
+      if (a.type === "image") {
+        parts.push({
+          type: "image_url",
+          image_url: { url: `data:${a.mediaType};base64,${a.data}` },
+        });
+      }
+    }
+    if (m.content) parts.push({ type: "text", text: m.content });
+    return { role: m.role, content: parts };
+  });
+}
+
+function geminiMessages(messages: ChatMessage[]) {
+  return messages.map((m) => {
+    if (m.role === "assistant" || !m.attachments?.length) {
+      return { role: m.role, content: m.content };
+    }
+    const parts: Array<
+      { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
+    > = [];
+    for (const a of m.attachments) {
+      if (a.type === "image") {
+        parts.push({
+          type: "image_url",
+          image_url: { url: `data:${a.mediaType};base64,${a.data}` },
+        });
+      }
+    }
+    if (m.content) parts.push({ type: "text", text: m.content });
+    return { role: m.role, content: parts };
+  });
+}
+
+function extractAnthropicText(d: {
+  content?: Array<{ type: string; text?: string }>;
+}): string {
+  if (!d.content) return "";
+  const parts: string[] = [];
+  for (const b of d.content) {
+    if (b.type === "text" && b.text) parts.push(b.text);
+  }
+  return parts.join("\n\n");
+}
+
+function extractAnthropicCitations(d: {
+  content?: Array<{
+    type: string;
+    citations?: Array<{ url?: string; title?: string; cited_text?: string }>;
+  }>;
+}): Citation[] {
+  if (!d.content) return [];
+  const out: Citation[] = [];
+  const seen = new Set<string>();
+  for (const b of d.content) {
+    const cits = b.citations || [];
+    for (const c of cits) {
+      if (!c.url || seen.has(c.url)) continue;
+      seen.add(c.url);
+      out.push({ url: c.url, title: c.title || c.url, snippet: c.cited_text });
+    }
+  }
+  return out;
+}
+
+async function callFree(
+  messages: ChatMessage[],
+  model: string | null,
+  webSearch: boolean,
+  userSignal?: AbortSignal,
+): Promise<LLMResponse> {
   const res = await fetch("/.netlify/functions/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, model: model || "claude-sonnet-4-20250514" }),
-    signal: AbortSignal.timeout(120000),
+    body: JSON.stringify({
+      messages: anthropicMessages(messages),
+      model: model || "claude-sonnet-4-20250514",
+      webSearch: !!webSearch,
+    }),
+    signal: mergeSignals(userSignal, 120000),
   });
 
   if (res.status === 429) {
@@ -57,22 +205,32 @@ async function callFree(messages: ChatMessage[], model: string | null): Promise<
   }
 
   const d = await res.json();
-  return d.content?.[0]?.text || "";
+  return {
+    text: extractAnthropicText(d),
+    citations: extractAnthropicCitations(d),
+  };
 }
+
+type AnthropicTool = {
+  type: "web_search_20250305";
+  name: "web_search";
+  max_uses?: number;
+};
 
 type AnthropicBody = {
   model: string;
   max_tokens: number;
-  messages: ChatMessage[];
+  messages: ReturnType<typeof anthropicMessages>;
   thinking?: { type: string; budget_tokens: number };
+  tools?: AnthropicTool[];
 };
 
 async function callBYOK(
   apiKey: string,
   messages: ChatMessage[],
-  model: string | null = null,
-  thinking: boolean = false,
-): Promise<string> {
+  opts: LLMOptions = {},
+): Promise<LLMResponse> {
+  const { model = null, thinking = false, webSearch = false, signal } = opts;
   const key = apiKey.trim().replace(/[^\x20-\x7E]/g, "");
   const provider = detectProvider(key);
   if (!provider) throw new Error("Unknown API key format.");
@@ -87,10 +245,12 @@ async function callBYOK(
     const body: AnthropicBody = {
       model: pickModel("claude-sonnet-4-20250514"),
       max_tokens: 16000,
-      messages,
+      messages: anthropicMessages(messages),
     };
     if (thinking && modelSupportsThinking)
       body.thinking = { type: "enabled", budget_tokens: 10000 };
+    if (webSearch) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
+
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -100,39 +260,71 @@ async function callBYOK(
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120000),
+      signal: mergeSignals(signal, 180000),
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
-    const textBlock = (d.content || []).find((b: { type: string }) => b.type === "text");
-    return textBlock?.text || "";
+    return {
+      text: extractAnthropicText(d),
+      citations: extractAnthropicCitations(d),
+    };
   }
 
   if (provider.id === "openai") {
+    const body: Record<string, unknown> = {
+      model: pickModel("gpt-4o"),
+      max_tokens: 4096,
+      messages: openaiMessages(messages),
+    };
+    if (webSearch) {
+      body.tools = [{ type: "web_search" }];
+    }
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
-      body: JSON.stringify({ model: pickModel("gpt-4o"), max_tokens: 4096, messages }),
-      signal: AbortSignal.timeout(120000),
+      body: JSON.stringify(body),
+      signal: mergeSignals(signal, 180000),
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
-    return d.choices?.[0]?.message?.content || "";
+    const text: string = d.choices?.[0]?.message?.content || "";
+    const annotations = d.choices?.[0]?.message?.annotations || [];
+    const citations: Citation[] = [];
+    const seen = new Set<string>();
+    for (const a of annotations) {
+      const url = a?.url_citation?.url;
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      citations.push({
+        url,
+        title: a.url_citation.title || url,
+        snippet: a.url_citation.content,
+      });
+    }
+    return { text, citations };
   }
 
   if (provider.id === "gemini") {
+    const body: Record<string, unknown> = {
+      model: pickModel("gemini-2.0-flash"),
+      max_tokens: 4096,
+      messages: geminiMessages(messages),
+    };
+    if (webSearch) {
+      body.tools = [{ google_search: {} }];
+    }
     const res = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
-        body: JSON.stringify({ model: pickModel("gemini-2.0-flash"), max_tokens: 4096, messages }),
-        signal: AbortSignal.timeout(120000),
+        body: JSON.stringify(body),
+        signal: mergeSignals(signal, 180000),
       },
     );
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
-    return d.choices?.[0]?.message?.content || "";
+    return { text: d.choices?.[0]?.message?.content || "" };
   }
 
   throw new Error("Unsupported provider.");
@@ -141,13 +333,12 @@ async function callBYOK(
 export async function callLLM(
   apiKey: string,
   messages: ChatMessage[],
-  model: string | null = null,
-  thinking: boolean = false,
-): Promise<string> {
+  opts: LLMOptions = {},
+): Promise<LLMResponse> {
   if (apiKey && apiKey.trim()) {
-    return callBYOK(apiKey, messages, model, thinking);
+    return callBYOK(apiKey, messages, opts);
   }
-  return callFree(messages, model);
+  return callFree(messages, opts.model || null, !!opts.webSearch, opts.signal);
 }
 
 type ThreadCommit = { prompt: string; response?: string };
@@ -178,7 +369,7 @@ export async function summarizeThread(apiKey: string, thread: ThreadCommit[]): P
       throw new Error(data.error || "Server error " + res.status);
     }
     const d = await res.json();
-    return d.content?.[0]?.text || "";
+    return extractAnthropicText(d);
   }
 
   const key = apiKey.trim().replace(/[^\x20-\x7E]/g, "");
@@ -197,10 +388,11 @@ export async function summarizeThread(apiKey: string, thread: ThreadCommit[]): P
     });
     if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
     const d = await res.json();
-    return d.content?.[0]?.text || "";
+    return extractAnthropicText(d);
   }
 
-  return callLLM(apiKey, messages);
+  const r = await callLLM(apiKey, messages);
+  return r.text;
 }
 
 export async function validateKey(key: string): Promise<{ ok: boolean; error?: string }> {

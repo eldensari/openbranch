@@ -7,6 +7,8 @@ import { rangeCommitsFor, cutRangeFromCommits, chooseHeadAfterCut, cloneRangeCom
 import { formatClusterTitle, mkClusterId, mkFolderId, buildClusterGroups, folderAncestry } from "./storage/clusters";
 import { sidebarBranchKey } from "./storage/sidebar";
 import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade } from "./storage/conv";
+import { hydrateAttachments } from "./lib/attachments";
+import { QuotaExceededError } from "./lib/storage";
 import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
 import { SidebarProvider } from "./components/ui/sidebar";
@@ -37,11 +39,20 @@ export default function App() {
   const [rateLimited, setRateLimited] = useState(false);
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistStatus, setWaitlistStatus] = useState(null); // null | "sending" | "done" | "error"
+  const [toast, setToast] = useState(null); // { message, kind } | null
+  const toastTimer = useRef(null);
+  const showToast = (message, kind = "error") => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, kind });
+    toastTimer.current = setTimeout(() => setToast(null), 6000);
+  };
 
   const [commits, setCommits] = useState([]);
   const [headId, setHeadId] = useState(null);
   const [branch, setBranch] = useState("main");
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [webSearchOn, setWebSearchOn] = useState(() => storage.get("webSearchOn")?.value === "1");
   const [thinking, setThinking] = useState(false);
   const [pending, setPending] = useState(null);
   const [graph, setGraph] = useState(true);
@@ -77,6 +88,13 @@ export default function App() {
   const inputRef = useRef(null);
   const cRef = useRef(commits); cRef.current = commits;
   const sendRef = useRef(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const stop = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  };
+  const isAbortError = (e: any) =>
+    e?.name === "AbortError" || e?.code === "ABORT_ERR" || e?.code === 20;
 
   // Seed data on first visit, then load convs
   useEffect(() => {
@@ -176,7 +194,15 @@ export default function App() {
     const id = forceNewId || convId || "conv:" + Date.now();
     const existing = resolveExistingConv(id);
     const cv = buildConvRecord(id, existing, title, cm, hid, br, pRef);
-    persistConv(cv);
+    try {
+      persistConv(cv);
+    } catch (e) {
+      if (e instanceof QuotaExceededError) {
+        showToast("Browser storage is full. Delete old conversations or remove attachments to free space.");
+      } else {
+        showToast("Failed to save: " + (e?.message || "unknown error"));
+      }
+    }
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
   };
@@ -186,7 +212,7 @@ export default function App() {
     setCommits(commits); setHeadId(cv.headId); setBranch(cv.branch || "main");
     setConvId(cv.id); setParentRef(cv.parentRef || null);
     bumpIdCounter(commits.length + 10);
-    setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null);
+    setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); setAttachments([]);
   };
   const loadMain = cv => {
     load(cv);
@@ -196,8 +222,9 @@ export default function App() {
   // Cascade delete: remove conv + all descendant convs (parentRef chain).
   const del = id => {
     rememberUndo("Deleted conversation");
-    const { deletedIds } = deleteConvCascade(convs, id);
+    const { deletedIds, attachmentRefs } = deleteConvCascade(convs, id);
     for (const x of deletedIds) storage.del(x);
+    for (const ref of attachmentRefs) storage.del(ref);
     setConvs(p => p.filter(c => !deletedIds.has(c.id)));
     if (deletedIds.has(convId)) {
       setCommits([]); setHeadId(null); setConvId(null); setParentRef(null); setBranch("main");
@@ -295,7 +322,7 @@ export default function App() {
     });
   };
   const sidebarItemOpen = (id, defaultOpen = false) => defaultOpen ? !closedSidebarItems.has(id) : openSidebarItems.has(id);
-  const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); };
+  const newConv = () => { setCommits([]); setHeadId(null); setBranch("main"); setConvId(null); setParentRef(null); setMm(false); setSel([]); setSelectMode(false); clearSelectRange(); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setRenamingClusterId(null); setAttachments([]); };
 
   const renameFolder = renameCluster;
   const createFolder = (parentId = null) => {
@@ -346,13 +373,16 @@ export default function App() {
     if (mode === "cascade") {
       const affectedFolders = collectFolderDescendants(folderId);
       const deletedConvIds = new Set();
+      const affectedAttachmentRefs = [];
       for (const cv of convs) {
         if (affectedFolders.has(cv.clusterId)) {
-          const { deletedIds } = deleteConvCascade(convs, cv.id);
+          const { deletedIds, attachmentRefs } = deleteConvCascade(convs, cv.id);
           deletedIds.forEach(id => deletedConvIds.add(id));
+          affectedAttachmentRefs.push(...attachmentRefs);
         }
       }
       for (const id of deletedConvIds as Set<string>) storage.del(id);
+      for (const ref of affectedAttachmentRefs) storage.del(ref);
       setConvs(p => p.filter(c => !deletedConvIds.has(c.id)));
       for (const id of affectedFolders as Set<string>) storage.del(id);
       setClusters(p => p.filter(c => !affectedFolders.has(c.id)));
@@ -436,7 +466,7 @@ export default function App() {
   const applyCommitResult = (nc, cmId) => {
     setCommits(nc); cRef.current = nc; setHeadId(cmId); setPending(null);
   };
-  const sendNewFromRef = async (msg) => {
+  const sendNewFromRef = async (msg, atts, useSearch) => {
     const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary, anchorBranch: newFromRef.anchorBranch };
     const newId = "conv:" + Date.now();
     if (newFromRef.anchorBranch && newFromRef.anchorBranch !== "main") {
@@ -446,7 +476,7 @@ export default function App() {
         return n;
       });
     }
-    const thread = newFromRef.thread || [];
+    const thread = (newFromRef.thread || []).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
 
     setCommits([]); cRef.current = [];
     setHeadId(null); setBranch("main"); setConvId(newId);
@@ -454,22 +484,25 @@ export default function App() {
     save(msg.slice(0, 40), [], null, "main", pRef, newId);
 
     setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const msgs = buildMsgs(thread, msg);
-      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-      const cm = mkCommit(null, msg, resp, "main", null, currentModel);
+      const msgs = buildMsgs(thread, msg, atts);
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
+      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
     } catch (e) {
+      if (isAbortError(e)) { setPending(null); return; }
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(null, msg, "Error: " + e.message, "main");
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
-    } finally { setThinking(false); }
+    } finally { abortRef.current = null; setThinking(false); }
   };
-  const sendEditRoot = async (msg) => {
+  const sendEditRoot = async (msg, atts, useSearch) => {
     setEditId(null);
     const newId = "conv:" + Date.now();
     setCommits([]); cRef.current = [];
@@ -478,59 +511,70 @@ export default function App() {
     save(msg.slice(0, 40), [], null, "main", null, newId);
 
     setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const resp = await callLLM(apiKey, [{ role: "user", content: msg }], currentModel, thinkingOn);
-      const cm = mkCommit(null, msg, resp, "main", null, currentModel);
+      const rootMsg = atts?.length ? { role: "user" as const, content: msg, attachments: atts } : { role: "user" as const, content: msg };
+      const resp = await callLLM(apiKey, [rootMsg], { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
+      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
     } catch (e) {
+      if (isAbortError(e)) { setPending(null); return; }
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(null, msg, "Error: " + e.message, "main");
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
-    } finally { setThinking(false); }
+    } finally { abortRef.current = null; setThinking(false); }
   };
-  const sendNormal = async (pid, br, msg) => {
+  const sendNormal = async (pid, br, msg, atts, useSearch) => {
     setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const th = getThread(cRef.current, pid);
-      const msgs = buildMsgs(th, msg);
-      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-      const cm = mkCommit(pid, msg, resp, br, null, currentModel);
+      const th = getThread(cRef.current, pid).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
+      const msgs = buildMsgs(th, msg, atts);
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
+      const cm = mkCommit(pid, msg, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, br);
     } catch (e) {
+      if (isAbortError(e)) { setPending(null); return; }
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(pid, msg, "Error: " + e.message, br);
+      const cm = mkCommit(pid, msg, "Error: " + e.message, br, null, null, { attachments: atts });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
-    } finally { setThinking(false); }
+    } finally { abortRef.current = null; setThinking(false); }
   };
   const send = async (forkBranch = false) => {
-    if (!input.trim() || thinking) return;
+    if ((!input.trim() && !attachments.length) || thinking) return;
     const msg = input.trim();
+    const atts = attachments.length ? attachments : undefined;
+    const useSearch = webSearchOn;
 
     // Slash commands
     if (msg === "/new" && headId) {
       setInput("");
+      setAttachments([]);
       startNew(headId);
       return;
     }
 
     setInput("");
+    setAttachments([]);
     let pid = headId, br = branch;
 
     // Auto-show graph on first message
     if (!graph && commits.length === 0) setGraph(true);
 
-    if (newFromRef) { await sendNewFromRef(msg); return; }
+    if (newFromRef) { await sendNewFromRef(msg, atts, useSearch); return; }
 
     if (editId) {
       const ec = cRef.current.find(c => c.id === editId);
       if (ec) {
-        if (!ec.parentId) { await sendEditRoot(msg); return; }
+        if (!ec.parentId) { await sendEditRoot(msg, atts, useSearch); return; }
         pid = ec.parentId; br = "branch-" + names.length; setBranch(br);
       }
       setEditId(null); setGraph(true);
@@ -552,11 +596,21 @@ export default function App() {
       setBranch(br);
     }
 
-    await sendNormal(pid, br, msg);
+    await sendNormal(pid, br, msg, atts, useSearch);
   };
 
   // ─── HANDLERS ───
-  const startEdit = cid => { const cm = commits.find(c => c.id === cid); if (!cm) return; setEditId(cid); setBranchFromId(null); setNewFromRef(null); setInput(cm.prompt); inputRef.current?.focus(); };
+  const startEdit = cid => {
+    const cm = commits.find(c => c.id === cid);
+    if (!cm) return;
+    setEditId(cid);
+    setBranchFromId(null);
+    setNewFromRef(null);
+    setInput(cm.prompt);
+    const hydrated = hydrateAttachments(cm.attachments);
+    setAttachments(hydrated && hydrated.length ? [...hydrated] : []);
+    inputRef.current?.focus();
+  };
   const startBranchFrom = cid => {
     const cm = commits.find(c => c.id === cid);
     if (!cm) return;
@@ -569,24 +623,31 @@ export default function App() {
     if (!cm || thinking) return;
     const parentId = cm.parentId || null;
     const br = nextBranchName(cRef.current);
-    const parentThread = getThread(cRef.current, parentId);
-    const msgs = buildMsgs(parentThread, cm.prompt);
+    const parentThread = getThread(cRef.current, parentId).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
+    const atts = hydrateAttachments(cm.attachments);
+    const useSearch = !!cm.webSearch;
+    const msgs = buildMsgs(parentThread, cm.prompt, atts);
     setHeadId(parentId); setBranch(br);
     setPending(cm.prompt); setThinking(true); setMm(false); setSel([]); setEditId(null); setBranchFromId(null); setNewFromRef(null);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const resp = await callLLM(apiKey, msgs, currentModel, thinkingOn);
-      const newCm = mkCommit(parentId, cm.prompt, resp, br, null, currentModel);
+      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
+      const newCm = mkCommit(parentId, cm.prompt, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, webSearch: useSearch });
       const nc = [...cRef.current, newCm];
       setCommits(nc); cRef.current = nc; setHeadId(newCm.id); setScrollTarget(newCm.id);
       save(null, nc, newCm.id, br);
     } catch (e) {
-      const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel);
-      const nc = [...cRef.current, newCm];
-      setCommits(nc); cRef.current = nc; setHeadId(newCm.id);
-      save(null, nc, newCm.id, br);
-      if (e.code === "RATE_LIMIT") setRateLimited(true);
+      if (isAbortError(e)) { /* cancelled */ }
+      else {
+        const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel, { attachments: atts });
+        const nc = [...cRef.current, newCm];
+        setCommits(nc); cRef.current = nc; setHeadId(newCm.id);
+        save(null, nc, newCm.id, br);
+        if (e.code === "RATE_LIMIT") setRateLimited(true);
+      }
     } finally {
-      setPending(null); setThinking(false);
+      abortRef.current = null; setPending(null); setThinking(false);
     }
   };
   const copyToClipboard = (text) => { try { navigator.clipboard.writeText(text || ""); } catch {} };
@@ -844,18 +905,21 @@ export default function App() {
   const merge = async () => {
     if (!input.trim() || !sel.length) return;
     const msg = input.trim(); setInput(""); setMm(false); setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
       const curTh = getThread(cRef.current, headId).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n");
       const selCtx = sel.map(sid => { const sc = cRef.current.find(c => c.id === sid); if (!sc) return ""; return "[" + sc.branch + "]:\n" + getThread(cRef.current, sid).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n"); }).join("\n---\n");
-      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], currentModel, thinkingOn);
-      const cm = mkCommit(headId, msg, resp, branch, sel, currentModel);
+      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], { model: currentModel, thinking: thinkingOn, signal: ac.signal });
+      const cm = mkCommit(headId, msg, resp.text, branch, sel, currentModel);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
       save(null, nc, cm.id, branch);
     } catch (e) {
+      if (isAbortError(e)) { setPending(null); setSel([]); return; }
       if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setSel([]); setThinking(false); return; }
       const cm = mkCommit(headId, msg, "Merge error: " + e.message, branch);
       const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
-    } finally { setThinking(false); }
+    } finally { abortRef.current = null; setThinking(false); }
   };
 
   /* RENDER */
@@ -884,10 +948,20 @@ export default function App() {
     toggleSidebar,
   };
 
+  const toggleWebSearch = () => {
+    setWebSearchOn(p => {
+      const next = !p;
+      storage.set("webSearchOn", next ? "1" : "0");
+      return next;
+    });
+  };
+
   const chatProps = {
     commits, headId, branch, names, parentRef, thread,
     convs, convId, activeTags,
     input, setInput, inputRef, endRef,
+    attachments, setAttachments,
+    webSearchOn, toggleWebSearch,
     pending, thinking, newFromRef, setNewFromRef,
     editId, setEditId, startEdit,
     branchFromId, setBranchFromId,
@@ -900,7 +974,8 @@ export default function App() {
     rateLimited, hasKey,
     waitlistStatus, setWaitlistStatus, waitlistEmail, setWaitlistEmail,
     apiKey, setKeyDraft, setShowKeyInput, setRateLimited,
-    send, merge,
+    toast, setToast, showToast,
+    send, merge, stop,
     copyToClipboard, retryResponse,
     checkout, startBranchFrom, startNew, deleteCommit,
     goToParent, goToChild, childRefs,
