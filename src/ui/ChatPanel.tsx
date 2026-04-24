@@ -150,10 +150,7 @@ export default function ChatPanel(props: Props) {
           {thread.length === 0 && !pending && !newFromRef && (
             <div className="flex flex-1 flex-col items-center justify-center gap-8 py-16">
               <div className="text-center">
-                <div className="flex items-center justify-center gap-2 text-4xl font-bold tracking-tight">
-                  <img src={herbIcon} alt="OpenBranch" className="size-10" /> OpenBranch
-                </div>
-                <div className="mt-2 text-base text-muted-foreground">Expand your chat. Merge your ideas.</div>
+                <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
               </div>
               <div className="w-full max-w-2xl">{composer}</div>
             </div>
