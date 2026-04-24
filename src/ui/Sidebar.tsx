@@ -28,13 +28,6 @@ import {
 } from "@/components/ui/sidebar";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 
-const TAG_VAR_IDX = [3, 5, 0, 1, 4, 6, 2, 7];
-function colorForTag(tag: string) {
-  let hash = 0;
-  for (let i = 0; i < tag.length; i++) hash = ((hash << 5) - hash) + tag.charCodeAt(i);
-  return `var(--branch-${TAG_VAR_IDX[Math.abs(hash) % TAG_VAR_IDX.length]})`;
-}
-
 type TimeBucket = "today" | "yesterday" | "week" | "month" | "older";
 const BUCKET_LABELS: Record<TimeBucket, string> = {
   today: "Today",
@@ -635,7 +628,6 @@ export default function AppSidebar(props: Props) {
               <div className="flex flex-col gap-0.5 px-1 pb-1">
                 {tagEntries.map(([tg, n]) => {
                   const on = activeTags.has(tg);
-                  const color = colorForTag(tg);
                   return (
                     <ContextMenu key={tg}>
                       <ContextMenuTrigger asChild>
@@ -648,13 +640,13 @@ export default function AppSidebar(props: Props) {
                             })
                           }
                           className={cn(
-                            "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors select-none",
+                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors select-none",
                             on
                               ? "bg-sidebar-accent text-sidebar-accent-foreground"
                               : "hover:bg-sidebar-accent/60",
                           )}
                         >
-                          <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />
+                          <span className="shrink-0 text-muted-foreground">#</span>
                           <span className="flex-1 truncate">{tg}</span>
                           <span className="text-[10px] text-muted-foreground">{n}</span>
                         </span>
