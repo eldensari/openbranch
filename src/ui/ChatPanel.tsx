@@ -233,7 +233,10 @@ export default function ChatPanel(props: Props) {
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={toggleWebSearch}
-                className={cn(webSearchOn && "text-[color:var(--branch-1)] focus:text-[color:var(--branch-1)]")}
+                className={cn(
+                  webSearchOn &&
+                    "text-[color:var(--branch-1)] focus:text-[color:var(--branch-1)] [&_svg]:text-[color:var(--branch-1)] focus:[&_svg]:text-[color:var(--branch-1)]",
+                )}
               >
                 <Globe className="size-4" />
                 Web search

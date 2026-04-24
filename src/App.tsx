@@ -52,7 +52,10 @@ export default function App() {
   const [branch, setBranch] = useState("main");
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState([]);
-  const [webSearchOn, setWebSearchOn] = useState(() => storage.get("webSearchOn")?.value === "1");
+  const [webSearchOn, setWebSearchOn] = useState(() => {
+    const v = storage.get("webSearchOn")?.value;
+    return v == null ? true : v === "1";
+  });
   const [thinking, setThinking] = useState(false);
   const [pending, setPending] = useState(null);
   const [graph, setGraph] = useState(true);
