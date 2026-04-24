@@ -5,7 +5,7 @@ import {
   readFileAsBase64,
   resizeImageFile,
 } from "@/lib/attachments";
-import { renderMd, renderCitations, ThinkingDots } from "./Markdown";
+import { renderMd, renderCitationChips, SourceCard, ThinkingDots } from "./Markdown";
 import ModelPicker from "./ModelPicker";
 import Graph from "./Graph";
 import {
@@ -454,7 +454,7 @@ export default function ChatPanel(props: Props) {
                   )}
                   <div className="rounded-2xl bg-ai-bubble px-4 py-3 text-[15px] leading-relaxed text-ai-foreground">
                     {renderMd(cm.response)}
-                    {cm.citations?.length > 0 && renderCitations(cm.citations)}
+                    {cm.citations?.length > 0 && renderCitationChips(cm.citations)}
                   </div>
                   <div className="ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
                     <Button
@@ -745,21 +745,9 @@ export default function ChatPanel(props: Props) {
           <X className="size-4" />
         </Button>
       </div>
-      <div className="flex-1 space-y-2 overflow-y-auto p-3">
+      <div className="flex-1 space-y-1 overflow-y-auto p-2">
         {allSources.map((c: any, i: number) => (
-          <a
-            key={i}
-            href={c.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block rounded-lg border p-3 transition hover:bg-accent"
-          >
-            <div className="truncate text-sm font-medium">{c.title || c.url}</div>
-            <div className="truncate text-xs text-muted-foreground">{c.url}</div>
-            {c.snippet && (
-              <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{c.snippet}</div>
-            )}
-          </a>
+          <SourceCard key={i} c={c} />
         ))}
       </div>
     </div>

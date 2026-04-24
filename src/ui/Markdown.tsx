@@ -1,5 +1,26 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
+type CitationLike = { url: string; title: string; snippet?: string };
+
+export function getHost(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+}
+
+export function Favicon({ host, className }: { host: string; className?: string }) {
+  const [hide, setHide] = useState(false);
+  if (!host || hide) return null;
+  return (
+    <img
+      src={`https://www.google.com/s2/favicons?domain=${host}&sz=64`}
+      alt=""
+      loading="lazy"
+      onError={() => setHide(true)}
+      className={cn("size-3.5 shrink-0 rounded-sm", className)}
+    />
+  );
+}
 
 type KeyRef = { k: number };
 
@@ -227,43 +248,98 @@ export function renderMd(text: string): React.ReactNode[] | null {
   return elements;
 }
 
-export function renderCitations(
-  citations: { url: string; title: string; snippet?: string }[],
-): React.ReactNode {
+function CitationChip({ idx, c }: { idx: number; c: CitationLike }) {
+  const [open, setOpen] = useState(false);
+  const enterT = useRef<number | null>(null);
+  const leaveT = useRef<number | null>(null);
+  const host = getHost(c.url);
+
+  const onEnter = () => {
+    if (leaveT.current) { window.clearTimeout(leaveT.current); leaveT.current = null; }
+    enterT.current = window.setTimeout(() => setOpen(true), 180);
+  };
+  const onLeave = () => {
+    if (enterT.current) { window.clearTimeout(enterT.current); enterT.current = null; }
+    leaveT.current = window.setTimeout(() => setOpen(false), 120);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <a
+          href={c.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onMouseEnter={onEnter}
+          onMouseLeave={onLeave}
+          className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        >
+          <Favicon host={host} className="size-3" />
+          <span className="font-medium tabular-nums">{idx + 1}</span>
+          <span className="max-w-[140px] truncate">{host}</span>
+        </a>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="w-80 p-3"
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+      >
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Favicon host={host} />
+          <span className="truncate">{host}</span>
+        </div>
+        <a
+          href={c.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1.5 block text-sm font-medium leading-snug hover:underline"
+        >
+          {c.title || c.url}
+        </a>
+        {c.snippet && (
+          <p className="mt-1.5 text-xs leading-snug text-muted-foreground line-clamp-3">
+            {c.snippet}
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function renderCitationChips(citations: CitationLike[]): React.ReactNode {
   if (!citations?.length) return null;
   return (
-    <div className="mt-3 flex flex-col gap-1.5 border-t border-border/60 pt-2">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        Sources
-      </div>
-      <div className="flex flex-col gap-1">
-        {citations.map((c, i) => {
-          let host = "";
-          try { host = new URL(c.url).hostname.replace(/^www\./, ""); } catch { host = ""; }
-          return (
-            <a
-              key={i}
-              href={c.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-baseline gap-2 rounded-md px-2 py-1 text-[13px] leading-snug hover:bg-muted/60"
-            >
-              <span className="text-muted-foreground/60 font-mono text-[10px]">
-                {i + 1}
-              </span>
-              <span className="truncate font-medium text-[color:var(--branch-1)] hover:underline">
-                {c.title || host || c.url}
-              </span>
-              {host && (
-                <span className="shrink-0 truncate text-[11px] text-muted-foreground">
-                  {host}
-                </span>
-              )}
-            </a>
-          );
-        })}
-      </div>
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {citations.map((c, i) => <CitationChip key={i} idx={i} c={c} />)}
     </div>
+  );
+}
+
+export function SourceCard({ c }: { c: CitationLike }) {
+  const host = getHost(c.url);
+  return (
+    <a
+      href={c.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block rounded-lg border border-transparent p-3 transition hover:border-border hover:bg-accent"
+    >
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Favicon host={host} />
+        <span className="truncate">{host}</span>
+      </div>
+      <div className="mt-1 text-sm font-medium leading-snug">
+        {c.title || c.url}
+      </div>
+      {c.snippet && (
+        <div className="mt-1 text-xs leading-snug text-muted-foreground line-clamp-2">
+          {c.snippet}
+        </div>
+      )}
+    </a>
   );
 }
 
