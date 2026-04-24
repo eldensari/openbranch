@@ -19,8 +19,9 @@ import {
   Square,
   Plus,
   Check,
+  MoreHorizontal,
 } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,6 +71,20 @@ export default function ChatPanel(props: Props) {
   } = props;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
+  const allSources = (() => {
+    const seen = new Set<string>();
+    const out: any[] = [];
+    for (const cm of thread) {
+      for (const c of cm.citations || []) {
+        if (!c?.url || seen.has(c.url)) continue;
+        seen.add(c.url);
+        out.push(c);
+      }
+    }
+    return out;
+  })();
 
   const onFilesPicked = async (files: FileList | null) => {
     if (!files || !files.length) return;
@@ -310,6 +325,46 @@ export default function ChatPanel(props: Props) {
 
   const chatArea = (
     <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-10 shrink-0 items-center justify-end px-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-foreground"
+              title="More"
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 rounded-2xl p-1.5">
+            <DropdownMenuItem
+              onSelect={() => {
+                setGraph(!graph);
+                setSourcesOpen(false);
+              }}
+              className="gap-3 py-2.5"
+            >
+              Show graph
+              {graph && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                setSourcesOpen(!sourcesOpen);
+                if (!sourcesOpen) setGraph(false);
+              }}
+              disabled={allSources.length === 0}
+              className="gap-3 py-2.5"
+            >
+              Sources
+              {allSources.length > 0 && !sourcesOpen && (
+                <span className="ml-auto text-xs text-muted-foreground">{allSources.length}</span>
+              )}
+              {sourcesOpen && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <div
         className={cn(
           "flex-1 overflow-y-auto px-4 pb-6 pt-6",
@@ -638,14 +693,51 @@ export default function ChatPanel(props: Props) {
     </div>
   );
 
-  if (!graphArea) return chatArea;
+  const sourcesArea = sourcesOpen && allSources.length > 0 && (
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+      <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3">
+        <span className="text-sm font-medium text-muted-foreground">
+          Sources <span className="text-xs">({allSources.length})</span>
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={() => setSourcesOpen(false)}
+          title="Close"
+        >
+          <X className="size-4" />
+        </Button>
+      </div>
+      <div className="flex-1 space-y-2 overflow-y-auto p-3">
+        {allSources.map((c: any, i: number) => (
+          <a
+            key={i}
+            href={c.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-lg border p-3 transition hover:bg-accent"
+          >
+            <div className="truncate text-sm font-medium">{c.title || c.url}</div>
+            <div className="truncate text-xs text-muted-foreground">{c.url}</div>
+            {c.snippet && (
+              <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{c.snippet}</div>
+            )}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+
+  const rightArea = sourcesArea || graphArea;
+  if (!rightArea) return chatArea;
 
   return (
     <ResizablePanelGroup direction="horizontal">
       <ResizablePanel defaultSize={65} minSize={30}>{chatArea}</ResizablePanel>
       <ResizableHandle withHandle />
       <ResizablePanel defaultSize={35} minSize={20} maxSize={55}>
-        {graphArea}
+        {rightArea}
       </ResizablePanel>
     </ResizablePanelGroup>
   );
