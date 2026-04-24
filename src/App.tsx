@@ -927,11 +927,10 @@ export default function App() {
                 <>
                   <ResizablePanel
                     defaultSize={16}
-                    minSize={14}
+                    minSize={10}
                     maxSize={38}
-                    className="!overflow-visible"
                   >
-                    <aside className="flex h-full flex-col border-r bg-sidebar text-sidebar-foreground">
+                    <aside className="flex h-full min-w-0 flex-col overflow-hidden border-r bg-sidebar text-sidebar-foreground">
                       <AppSidebar {...sidebarProps} />
                     </aside>
                   </ResizablePanel>
