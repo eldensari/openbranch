@@ -319,29 +319,25 @@ export function renderCitationChips(citations: CitationLike[]): React.ReactNode 
 }
 
 // Anthropic web search often splits a single markdown line across multiple
-// content blocks (e.g. "- " in one block, its content in the next). Rendering
-// each raw block through renderMd then breaks list/heading/code structure.
-// Merge a block into the previous one when the previous block's text doesn't
-// end with a clean paragraph break (\n\n) — this preserves markdown structure
-// while keeping each citation chip at the end of its logical text chunk.
+// content blocks (e.g. "- " in one block, its content in the next). Each
+// cited block should become its own chunk (so chips stay positional), but
+// any un-cited block is prefix text — it gets folded into the NEXT cited
+// block. Any trailing un-cited text after the last citation is emitted as
+// a final chip-less chunk.
 function mergeBlocks(
   blocks: { text: string; citations?: CitationLike[] }[],
 ): { text: string; citations?: CitationLike[] }[] {
   const out: { text: string; citations?: CitationLike[] }[] = [];
+  let pending = "";
   for (const b of blocks) {
-    const prev = out[out.length - 1];
-    if (prev && !/\n\n\s*$/.test(prev.text)) {
-      prev.text += b.text;
-      if (b.citations?.length) {
-        prev.citations = [...(prev.citations || []), ...b.citations];
-      }
+    if (b.citations?.length) {
+      out.push({ text: pending + b.text, citations: [...b.citations] });
+      pending = "";
     } else {
-      out.push({
-        text: b.text,
-        citations: b.citations ? [...b.citations] : undefined,
-      });
+      pending += b.text;
     }
   }
+  if (pending) out.push({ text: pending });
   return out;
 }
 
@@ -359,7 +355,7 @@ export function renderResponseBlocks(
     if (b.citations?.length) {
       const baseIdx = citIdx;
       out.push(
-        <div key={`c${bi}`} className="-mt-1 mb-2 flex flex-wrap gap-1.5">
+        <div key={`c${bi}`} className="mt-1.5 mb-2 flex flex-wrap gap-1.5">
           {b.citations.map((c, i) => (
             <CitationChip key={i} idx={baseIdx + i} c={c} />
           ))}
