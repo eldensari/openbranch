@@ -629,8 +629,8 @@ export default function ChatPanel(props: Props) {
 
   const graphArea = graph && commits.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
-      <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3">
-        <span className="text-sm font-medium text-muted-foreground">Graph</span>
+      <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-background px-3">
+        <span className="text-sm font-medium">Graph</span>
         <div className="flex items-center gap-1.5">
           {mm && (
             <span className="rounded-full bg-[color:var(--branch-5)] px-2 py-0.5 text-[10px] font-medium text-white">
