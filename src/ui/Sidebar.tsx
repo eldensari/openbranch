@@ -4,7 +4,7 @@ import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, KeyRound, MoreHorizontal, Menu, Search, SquarePen } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal, Menu, Search, Settings, SquarePen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,7 +36,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type TimeBucket = "today" | "yesterday" | "week" | "month" | "older";
 const BUCKET_LABELS: Record<TimeBucket, string> = {
@@ -166,6 +166,61 @@ export default function AppSidebar(props: Props) {
     </Dialog>
   );
 
+  const saveApiKey = () => {
+    setApiKey(keyDraft.trim());
+    storage.set("apiKey", keyDraft.trim());
+    setShowKeyInput(false);
+    setRateLimited(false);
+  };
+
+  const settingsDialog = (
+    <Dialog open={showKeyInput} onOpenChange={setShowKeyInput}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Settings</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3 pt-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium">API Key</label>
+            <Input
+              autoFocus
+              type="password"
+              value={keyDraft}
+              onChange={(e) => setKeyDraft(e.target.value)}
+              placeholder="sk-ant-... or sk-... or AI..."
+              className="font-mono text-xs"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveApiKey();
+                if (e.key === "Escape") setShowKeyInput(false);
+              }}
+            />
+            {keyDraft.trim() && detectProvider(keyDraft) && (
+              <div className="text-xs font-medium" style={{ color: detectProvider(keyDraft).color }}>
+                ✓ {detectProvider(keyDraft).name}
+              </div>
+            )}
+            {keyDraft.trim() && !detectProvider(keyDraft) && (
+              <div className="text-xs text-destructive">✗ Unknown format</div>
+            )}
+            {!keyDraft.trim() && (
+              <div className="text-xs text-muted-foreground">
+                Using free tier (10 requests/day). Add your key for higher limits.
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowKeyInput(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={saveApiKey}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (collapsed) {
     return (
       <>
@@ -198,8 +253,19 @@ export default function AppSidebar(props: Props) {
           >
             <Search className="size-4" />
           </Button>
+          <div className="flex-1" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9"
+            onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
+            title="Settings"
+          >
+            <Settings className="size-4" />
+          </Button>
         </div>
         {searchDialog}
+        {settingsDialog}
       </>
     );
   }
@@ -894,77 +960,18 @@ export default function AppSidebar(props: Props) {
         )}
       </SidebarContent>
 
-      <SidebarFooter className="border-t p-2">
-        {!collapsed && (
-          <>
-            {!showKeyInput ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "w-full justify-start gap-2 text-sm",
-                  hasKey ? "text-[color:var(--branch-0)]" : "text-muted-foreground",
-                )}
-                onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
-              >
-                <KeyRound className="size-3.5" />
-                {hasKey ? "Connected" : "API Key"}
-                {hasKey && detectProvider(apiKey) && (
-                  <span className="ml-auto text-[10px] font-medium" style={{ color: detectProvider(apiKey).color }}>
-                    {detectProvider(apiKey).name}
-                  </span>
-                )}
-              </Button>
-            ) : (
-              <div className="flex flex-col gap-1.5 px-1 py-1">
-                <Input
-                  autoFocus
-                  type="password"
-                  value={keyDraft}
-                  onChange={(e) => setKeyDraft(e.target.value)}
-                  placeholder="sk-ant-... or sk-..."
-                  className="h-8 font-mono text-xs"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      setApiKey(keyDraft.trim());
-                      storage.set("apiKey", keyDraft.trim());
-                      setShowKeyInput(false);
-                      setRateLimited(false);
-                    }
-                    if (e.key === "Escape") setShowKeyInput(false);
-                  }}
-                />
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    className="h-7 flex-1 text-xs"
-                    onClick={() => {
-                      setApiKey(keyDraft.trim());
-                      storage.set("apiKey", keyDraft.trim());
-                      setShowKeyInput(false);
-                      setRateLimited(false);
-                    }}
-                  >
-                    Save
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-7 flex-1 text-xs" onClick={() => setShowKeyInput(false)}>
-                    Cancel
-                  </Button>
-                </div>
-                {keyDraft.trim() && detectProvider(keyDraft) && (
-                  <div className="text-[10px] font-medium" style={{ color: detectProvider(keyDraft).color }}>
-                    ✓ {detectProvider(keyDraft).name}
-                  </div>
-                )}
-                {keyDraft.trim() && !detectProvider(keyDraft) && (
-                  <div className="text-[10px] text-destructive">✗ Unknown format</div>
-                )}
-              </div>
-            )}
-          </>
-        )}
+      <SidebarFooter className="p-2">
+        <Button
+          variant="ghost"
+          onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
+          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
+        >
+          <Settings className="size-4" />
+          Settings
+        </Button>
       </SidebarFooter>
       {searchDialog}
+      {settingsDialog}
     </>
   );
 }
