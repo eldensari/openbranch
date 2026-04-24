@@ -127,17 +127,6 @@ export default function AppSidebar(props: Props) {
           />
         </div>
         <div className="max-h-[60vh] overflow-y-auto py-2">
-          <button
-            type="button"
-            onClick={() => {
-              newConv();
-              setSearchOpen(false);
-            }}
-            className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-accent"
-          >
-            <SquarePen className="size-4" />
-            New chat
-          </button>
           {BUCKET_ORDER.map((bucket) => {
             const items = dialogGroups[bucket];
             if (!items.length) return null;
