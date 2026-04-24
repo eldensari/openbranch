@@ -4,7 +4,7 @@ import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderInput, FolderPlus, KeyRound, MessageSquarePlus, MoreHorizontal, Menu, Pencil, Search, SquarePen, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, KeyRound, MoreHorizontal, Menu, Search, SquarePen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -312,7 +312,7 @@ export default function AppSidebar(props: Props) {
                           setRenamingClusterId(null);
                         }}
                       >
-                        <Pencil className="size-3.5" /> Rename
+                        Rename
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
@@ -325,7 +325,7 @@ export default function AppSidebar(props: Props) {
                           setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cv.id, bName) });
                         }}
                       >
-                        <Trash2 className="size-3.5" /> Delete
+                        Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -425,12 +425,10 @@ export default function AppSidebar(props: Props) {
                         setRenamingClusterId(null);
                       }}
                     >
-                      <Pencil className="size-3.5" /> Rename
+                      Rename
                     </DropdownMenuItem>
                     <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        <FolderInput className="size-3.5" /> Move to folder
-                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubTrigger>Move to folder</DropdownMenuSubTrigger>
                       <DropdownMenuSubContent>
                         <DropdownMenuItem onSelect={() => moveConvToFolder(cv.id, null)}>
                           <span className="italic text-muted-foreground">(top level)</span>
@@ -441,7 +439,7 @@ export default function AppSidebar(props: Props) {
                             onSelect={() => { moveConvToFolder(cv.id, folder.id); expandFolder(folder.id); }}
                             style={{ paddingLeft: 8 + fd * 10 }}
                           >
-                            <Folder className="size-3.5" /> {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+                            {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuSubContent>
@@ -455,7 +453,7 @@ export default function AppSidebar(props: Props) {
                         setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
                       }}
                     >
-                      <Trash2 className="size-3.5" /> Delete
+                      Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -661,18 +659,18 @@ export default function AppSidebar(props: Props) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenuItem onSelect={folderActions.newChat}>
-                      <MessageSquarePlus className="size-3.5" /> New chat
+                      New chat
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={folderActions.newFolder}>
-                      <FolderPlus className="size-3.5" /> New folder
+                      New folder
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={folderActions.rename}>
-                      <Pencil className="size-3.5" /> Rename
+                      Rename
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem variant="destructive" onSelect={folderActions.delete}>
-                      <Trash2 className="size-3.5" /> Delete folder
+                      Delete folder
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
