@@ -324,7 +324,7 @@ export default function AppSidebar(props: Props) {
                   "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic transition-colors",
                   branchActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground opacity-100"
-                    : "text-sidebar-foreground/70 opacity-80 hover:bg-sidebar-accent/60 hover:opacity-100",
+                    : "text-sidebar-foreground/70 opacity-80 hover:bg-sidebar-accent hover:opacity-100",
                 )}
                 style={{ paddingLeft: 8 + (depth + bDepth) * 14 + (depth > 0 ? 18 : 0) }}
               >
@@ -437,7 +437,7 @@ export default function AppSidebar(props: Props) {
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : hasToggle && activeToggle.open
                   ? "bg-sidebar-accent/50"
-                  : "hover:bg-sidebar-accent/60",
+                  : "hover:bg-sidebar-accent",
               )}
               style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
             >
@@ -678,7 +678,7 @@ export default function AppSidebar(props: Props) {
                   if (hasContent) toggleCluster(folderId);
                 }
               }}
-              className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent/60"
+              className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent"
               style={{ paddingLeft: 8 + depth * 14 }}
             >
               {isCollapsed ? <Folder className="size-4 shrink-0" /> : <FolderOpen className="size-4 shrink-0" />}
@@ -819,7 +819,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={newConv}
-          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
+          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent"
         >
           <SquarePen className="size-4" />
           New chat
@@ -827,7 +827,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={openSearch}
-          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent/60"
+          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent"
         >
           <Search className="size-4" />
           Search chats
@@ -870,7 +870,7 @@ export default function AppSidebar(props: Props) {
                             "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors select-none",
                             on
                               ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                              : "hover:bg-sidebar-accent/60",
+                              : "hover:bg-sidebar-accent",
                           )}
                         >
                           <span className="shrink-0 text-muted-foreground">#</span>
@@ -955,7 +955,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
-          className="h-10 w-full justify-start gap-3 px-3 font-normal hover:bg-sidebar-accent/60"
+          className="h-10 w-full justify-start gap-3 px-3 font-normal hover:bg-sidebar-accent"
         >
           <Settings className="size-4" />
           Settings
