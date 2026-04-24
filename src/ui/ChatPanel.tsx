@@ -17,12 +17,20 @@ import {
   X,
   FileText,
   Square,
+  Plus,
+  Check,
 } from "lucide-react";
 import { useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -202,33 +210,37 @@ export default function ChatPanel(props: Props) {
               e.target.value = "";
             }}
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            type="button"
-            className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-            title="Attach file"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={attachments?.length >= MAX_ATTACHMENTS}
-          >
-            <Paperclip className="size-4" />
-          </Button>
-          <Button
-            variant={webSearchOn ? "default" : "ghost"}
-            size="sm"
-            type="button"
-            className={cn(
-              "h-8 gap-1.5 rounded-full px-3 text-xs font-medium",
-              webSearchOn
-                ? "bg-[color:var(--branch-1)]/15 text-[color:var(--branch-1)] hover:bg-[color:var(--branch-1)]/25"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            title={webSearchOn ? "Web search ON" : "Web search OFF"}
-            onClick={toggleWebSearch}
-          >
-            <Globe className="size-3.5" />
-            Search
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                type="button"
+                className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                title="Add content"
+                disabled={attachments?.length >= MAX_ATTACHMENTS}
+              >
+                <Plus className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="w-56">
+              <DropdownMenuItem
+                onSelect={() => fileInputRef.current?.click()}
+                disabled={attachments?.length >= MAX_ATTACHMENTS}
+              >
+                <Paperclip className="size-4" />
+                Upload a file
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={toggleWebSearch}
+                className={cn(webSearchOn && "text-[color:var(--branch-1)] focus:text-[color:var(--branch-1)]")}
+              >
+                <Globe className="size-4" />
+                Web search
+                {webSearchOn && <Check className="ml-auto size-4" />}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="flex-1" />
           <ModelPicker
             models={modelList}
