@@ -984,6 +984,7 @@ export default function App() {
     goToParent, goToChild, childRefs,
     handleSelectNode, rangeToBranch, rangeToNew, deleteRange,
     editNodeLabel, editCommitTags,
+    del, countChildConvs, setConfirmDialog,
   };
 
   return (

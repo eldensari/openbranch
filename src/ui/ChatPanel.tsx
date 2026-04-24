@@ -20,6 +20,9 @@ import {
   Plus,
   Check,
   MoreHorizontal,
+  GitBranch,
+  Link2,
+  Trash2,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -30,6 +33,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -68,6 +72,7 @@ export default function ChatPanel(props: Props) {
     goToParent, goToChild, childRefs,
     handleSelectNode, rangeToBranch, rangeToNew, deleteRange,
     editNodeLabel, editCommitTags,
+    del, countChildConvs, setConfirmDialog,
   } = props;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -345,6 +350,7 @@ export default function ChatPanel(props: Props) {
               }}
               className="gap-3 py-2.5"
             >
+              <GitBranch className="size-4" />
               Show graph
               {graph && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
             </DropdownMenuItem>
@@ -356,12 +362,38 @@ export default function ChatPanel(props: Props) {
               disabled={allSources.length === 0}
               className="gap-3 py-2.5"
             >
+              <Link2 className="size-4" />
               Sources
               {allSources.length > 0 && !sourcesOpen && (
                 <span className="ml-auto text-xs text-muted-foreground">{allSources.length}</span>
               )}
               {sourcesOpen && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
             </DropdownMenuItem>
+            {convId && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={!del}
+                  onSelect={() => {
+                    if (!del || !convId) return;
+                    const n = countChildConvs ? countChildConvs(convId) : 0;
+                    const msg = n > 0
+                      ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?`
+                      : "Delete this conversation?";
+                    if (setConfirmDialog) {
+                      setConfirmDialog({ msg, onConfirm: () => del(convId) });
+                    } else if (window.confirm(msg)) {
+                      del(convId);
+                    }
+                  }}
+                  className="gap-3 py-2.5"
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
