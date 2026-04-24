@@ -616,7 +616,7 @@ export default function AppSidebar(props: Props) {
         {!collapsed && tagEntries.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Tags</SidebarGroupLabel>
-            <div className="flex flex-wrap gap-1.5 px-2 pt-1 pb-2">
+            <div className="graph-scroll flex gap-1.5 overflow-x-auto whitespace-nowrap px-2 pt-1 pb-2">
               {tagEntries.map(([tg, n]) => {
                 const on = activeTags.has(tg);
                 const color = colorForTag(tg);
