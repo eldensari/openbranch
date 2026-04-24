@@ -340,22 +340,41 @@ export function renderCitationChips(citations: CitationLike[]): React.ReactNode 
 export function renderResponseBlocks(
   blocks: { text: string; citations?: CitationLike[] }[],
 ): React.ReactNode[] {
-  // Concatenate all block text into one markdown document, appending an
-  // inline citation token at the end of each cited block so renderMd parses
-  // the whole thing as one document and emits chip components exactly at
-  // those positions — no paragraph / list breakage, no "chip on its own line"
-  // artifact between fragmented cited sentences.
+  // Concatenate all block text into one markdown document. Citations don't
+  // get their token where the cited block ends — Anthropic frequently splits
+  // a single Korean sentence across citation boundaries ("유명" + cite, then
+  // "하고, ... 평가" + cite, then "됩니다."), which would put the chip mid-
+  // clause. Instead, hold citations as pending and flush them at the next
+  // newline (end of the line/bullet they belong to), matching the design
+  // mock where chips trail the sentence / bullet as a whole.
   const chips: CitationLike[] = [];
   let combined = "";
+  let pending: CitationLike[] = [];
+
+  const flush = () => {
+    for (const c of pending) {
+      combined += makeCiteToken(chips.length);
+      chips.push(c);
+    }
+    pending = [];
+  };
+
   for (const b of blocks) {
-    combined += b.text;
-    if (b.citations?.length) {
-      for (const c of b.citations) {
-        combined += makeCiteToken(chips.length);
-        chips.push(c);
+    const text = b.text;
+    let lastIdx = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "\n") {
+        combined += text.slice(lastIdx, i);
+        flush();
+        combined += "\n";
+        lastIdx = i + 1;
       }
     }
+    combined += text.slice(lastIdx);
+    if (b.citations?.length) pending.push(...b.citations);
   }
+  flush();
+
   const rendered = renderMd(combined, chips);
   return rendered || [];
 }
