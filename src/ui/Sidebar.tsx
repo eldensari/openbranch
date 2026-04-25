@@ -4,7 +4,7 @@ import { detectProvider } from "@/lib/llm";
 import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
 import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal, Menu, Search, Settings, SquarePen } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal, PanelLeft, Search, Settings, SquarePen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -224,16 +224,27 @@ export default function AppSidebar(props: Props) {
   if (collapsed) {
     return (
       <>
-        <div className="flex h-full flex-col items-start gap-1 p-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={toggleSidebar}
-            title="Expand sidebar"
-          >
-            <Menu className="size-4" />
-          </Button>
+        <div className="group/rail flex h-full flex-col items-start gap-1 p-2">
+          <div className="relative size-9">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute inset-0 size-9 transition-opacity group-hover/rail:pointer-events-none group-hover/rail:opacity-0"
+              onClick={toggleSidebar}
+              title="Expand sidebar"
+            >
+              <img src="/favicon.svg" alt="OpenBranch" className="size-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="pointer-events-none absolute inset-0 size-9 opacity-0 transition-opacity group-hover/rail:pointer-events-auto group-hover/rail:opacity-100"
+              onClick={toggleSidebar}
+              title="Expand sidebar"
+            >
+              <PanelLeft className="size-4" />
+            </Button>
+          </div>
           <div className="h-2" />
           <Button
             variant="ghost"
@@ -243,6 +254,15 @@ export default function AppSidebar(props: Props) {
             title="New chat"
           >
             <SquarePen className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9"
+            onClick={openSearch}
+            title="Search chats"
+          >
+            <Search className="size-4" />
           </Button>
           <div className="flex-1" />
           <Button
@@ -806,15 +826,21 @@ export default function AppSidebar(props: Props) {
   return (
     <>
       <SidebarHeader className="gap-1 p-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9"
-          onClick={toggleSidebar}
-          title="Collapse sidebar"
-        >
-          <Menu className="size-4" />
-        </Button>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 px-2">
+            <img src="/favicon.svg" alt="" className="size-5" />
+            <span className="text-sm font-medium">OpenBranch</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9"
+            onClick={toggleSidebar}
+            title="Collapse sidebar"
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+        </div>
         <div className="h-2" />
         <Button
           variant="ghost"
