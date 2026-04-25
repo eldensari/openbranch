@@ -281,15 +281,7 @@ export default function AppSidebar(props: Props) {
     );
   }
 
-  const goToChildRef = (childCv: any) => {
-    if (childCv.clusterId) {
-      setActiveFolderId(childCv.clusterId);
-      expandFolder(childCv.clusterId);
-    }
-    loadMain(childCv);
-  };
-
-  const renderConvItem = (cv: any, keyPrefix: string, depth = 0, toggle: any = null, childRefs = new Map()) => {
+  const renderConvItem = (cv: any, keyPrefix: string, depth = 0, toggle: any = null) => {
     const chain = cv.commits || [];
     const branchTree = buildBranchTree(chain);
     const convActive = convId === cv.id;
@@ -301,11 +293,7 @@ export default function AppSidebar(props: Props) {
       (branchesByParent[parent] || (branchesByParent[parent] = [])).push(b);
     });
     const rootBranches = branchesByParent["main"] || [];
-    const myChildren = childRefs.get(cv.id) || [];
-    const isNewChild = (c: any) => !c.parentRef?.anchorBranch || c.parentRef.anchorBranch === "main";
-    const branchGhosts = myChildren.filter((c: any) => !isNewChild(c));
-    const newGhosts = myChildren.filter(isNewChild);
-    const hasChildren = rootBranches.length > 0 || myChildren.length > 0;
+    const hasChildren = rootBranches.length > 0;
     const ownToggleKey = cv.id + ":conv";
     const localToggle = !toggle && hasChildren
       ? { open: sidebarItemOpen(ownToggleKey), onToggle: () => toggleSidebarItem(ownToggleKey) }
@@ -580,28 +568,6 @@ export default function AppSidebar(props: Props) {
         </ContextMenu>
 
         {showBranches && rootBranches.map(renderBranchNode)}
-        {showBranches && branchGhosts.map((child: any) => (
-          <div
-            key={keyPrefix + ":" + cv.id + ":bref:" + child.id}
-            onClick={(e) => { e.stopPropagation(); goToChildRef(child); }}
-            title={child.title || "Untitled"}
-            className="flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic text-sidebar-foreground/60 opacity-70 hover:bg-sidebar-accent/50 hover:opacity-100"
-            style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
-          >
-            <div className="min-w-0 flex-1 truncate">{child.title || "Untitled"}</div>
-          </div>
-        ))}
-        {showBranches && newGhosts.map((child: any) => (
-          <div
-            key={keyPrefix + ":" + cv.id + ":nref:" + child.id}
-            onClick={(e) => { e.stopPropagation(); goToChildRef(child); }}
-            title={child.title || "Untitled"}
-            className="flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic text-sidebar-foreground/60 opacity-70 hover:bg-sidebar-accent/50 hover:opacity-100"
-            style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
-          >
-            <div className="min-w-0 flex-1 truncate">{child.title || "Untitled"}</div>
-          </div>
-        ))}
       </div>
     );
   };
@@ -626,7 +592,7 @@ export default function AppSidebar(props: Props) {
     return { ...group, children: prunedChildren };
   };
   const folderGroups = liveActive.size ? folderGroupsAll.map(pruneEmpty).filter(Boolean) : folderGroupsAll;
-  const { rootItems: topRootItems, childRefs: topChildRefs } = buildSidebarLayout(topLevelConvs);
+  const { rootItems: topRootItems } = buildSidebarLayout(topLevelConvs);
   const userClusters = clusters.filter((c: any) => c.auto !== true);
 
   function flattenFolders() {
@@ -648,7 +614,7 @@ export default function AppSidebar(props: Props) {
     const isCollapsed = !expandedClusters.has(folderId);
     const isRenaming = renamingClusterId === folderId;
     const hasContent = group.items.length > 0 || group.children.length > 0;
-    const { rootItems, childRefs } = buildSidebarLayout(group.items);
+    const { rootItems } = buildSidebarLayout(group.items);
     const folderActions = {
       newChat: () => {
         setActiveFolderId(folderId);
@@ -815,7 +781,7 @@ export default function AppSidebar(props: Props) {
         </ContextMenu>
         {!isCollapsed && (
           <>
-            {rootItems.map((item: any) => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null, childRefs))}
+            {rootItems.map((item: any) => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null))}
             {group.children.map((child: any) => renderFolder(child, depth + 1))}
           </>
         )}
@@ -954,7 +920,7 @@ export default function AppSidebar(props: Props) {
               <ContextMenu>
                 <ContextMenuTrigger asChild>
                   <div className="flex flex-col px-1">
-                    {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
+                    {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null))}
                     {folderGroups.map((group: any) => renderFolder(group, 0))}
                   </div>
                 </ContextMenuTrigger>
