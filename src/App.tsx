@@ -928,6 +928,33 @@ export default function App() {
   /* RENDER */
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const saved = Number(storage.get("sidebarWidth")?.value);
+    return Number.isFinite(saved) && saved >= 200 && saved <= 560 ? saved : 320;
+  });
+  const sidebarDrag = useRef<{ startX: number; startW: number } | null>(null);
+  const onSidebarResizeDown = (e: React.MouseEvent) => {
+    if (sidebarCollapsed) return;
+    e.preventDefault();
+    sidebarDrag.current = { startX: e.clientX, startW: sidebarWidth };
+    const onMove = (me: MouseEvent) => {
+      if (!sidebarDrag.current) return;
+      const dx = me.clientX - sidebarDrag.current.startX;
+      const next = Math.min(560, Math.max(200, sidebarDrag.current.startW + dx));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      if (sidebarDrag.current) storage.put("sidebarWidth", String(sidebarWidth));
+      sidebarDrag.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  useEffect(() => {
+    if (!sidebarCollapsed) storage.put("sidebarWidth", String(sidebarWidth));
+  }, [sidebarWidth, sidebarCollapsed]);
 
   const sidebarProps = {
     convs, clusters, clusterGroups, convId, branch,
@@ -993,11 +1020,24 @@ export default function App() {
         <div className="flex h-svh w-full">
           <aside
             className={cn(
-              "flex h-full shrink-0 flex-col overflow-hidden border-r bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-out",
-              sidebarCollapsed ? "w-14" : "w-80",
+              "relative flex h-full shrink-0 flex-col overflow-hidden border-r bg-sidebar text-sidebar-foreground ease-out",
+              sidebarCollapsed ? "w-14 transition-[width] duration-300" : "",
+              sidebarDrag.current ? "" : "transition-[width] duration-300",
             )}
+            style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
           >
             <AppSidebar {...sidebarProps} />
+            {!sidebarCollapsed && (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                title=""
+                onMouseDown={onSidebarResizeDown}
+                className="group/sbh absolute inset-y-0 right-0 z-20 flex w-1.5 translate-x-1/2 cursor-col-resize items-center justify-center"
+              >
+                <div className="h-8 w-1 rounded-full bg-border/80 transition-colors group-hover/sbh:bg-muted-foreground/40" />
+              </div>
+            )}
           </aside>
           <div className="flex min-w-0 flex-1 flex-col">
             <ChatPanel {...chatProps} />
