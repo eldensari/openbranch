@@ -13,6 +13,7 @@ import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { cn } from "./lib/utils";
+import { useSidebarUI } from "./hooks/use-sidebar-ui";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -926,35 +927,7 @@ export default function App() {
   };
 
   /* RENDER */
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const toggleSidebar = () => setSidebarCollapsed((v) => !v);
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    const saved = Number(storage.get("sidebarWidth")?.value);
-    return Number.isFinite(saved) && saved >= 200 && saved <= 560 ? saved : 320;
-  });
-  const sidebarDrag = useRef<{ startX: number; startW: number } | null>(null);
-  const onSidebarResizeDown = (e: React.MouseEvent) => {
-    if (sidebarCollapsed) return;
-    e.preventDefault();
-    sidebarDrag.current = { startX: e.clientX, startW: sidebarWidth };
-    const onMove = (me: MouseEvent) => {
-      if (!sidebarDrag.current) return;
-      const dx = me.clientX - sidebarDrag.current.startX;
-      const next = Math.min(560, Math.max(200, sidebarDrag.current.startW + dx));
-      setSidebarWidth(next);
-    };
-    const onUp = () => {
-      if (sidebarDrag.current) storage.set("sidebarWidth", String(sidebarWidth));
-      sidebarDrag.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  };
-  useEffect(() => {
-    if (!sidebarCollapsed) storage.set("sidebarWidth", String(sidebarWidth));
-  }, [sidebarWidth, sidebarCollapsed]);
+  const { sidebarCollapsed, toggleSidebar, sidebarWidth, sidebarDrag, onSidebarResizeDown } = useSidebarUI();
 
   const sidebarProps = {
     convs, clusters, clusterGroups, convId, branch,
