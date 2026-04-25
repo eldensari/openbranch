@@ -15,6 +15,7 @@ import { SidebarProvider } from "./components/ui/sidebar";
 import { cn } from "./lib/utils";
 import { useSidebarUI } from "./hooks/use-sidebar-ui";
 import { useUndoRedo } from "./hooks/use-undo-redo";
+import { useConversationTags } from "./hooks/use-conversation-tags";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,7 +77,6 @@ export default function App() {
   const [graphW, setGraphW] = useState(280);
   const [scrollTarget, setScrollTarget] = useState(null);
   const [hoveredCid, setHoveredCid] = useState(null);
-  const [activeTags, setActiveTags] = useState(() => new Set());
   const [chatMenu, setChatMenu] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null); // { msg, onConfirm } | null
   const [renamingId, setRenamingId] = useState(null);
@@ -116,33 +116,6 @@ export default function App() {
   }, []);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commits, headId, pending]);
-
-  // Auto-expand folder/conv/branch chain when a tag filter is activated
-  useEffect(() => {
-    if (activeTags.size === 0) return;
-    const clusterMap = new Map(clusters.map(c => [c.id, c]));
-    const folderSet = new Set(expandedClusters);
-    const itemSet = new Set(openSidebarItems);
-    convs.forEach(cv => {
-      const matchingCommits = (cv.commits || []).filter(c => (c.tags || []).some(tg => activeTags.has(tg)));
-      if (!matchingCommits.length) return;
-      let fid = cv.clusterId;
-      const seen = new Set();
-      while (fid && !seen.has(fid)) {
-        seen.add(fid);
-        folderSet.add(fid);
-        fid = clusterMap.get(fid)?.parentId || null;
-      }
-      itemSet.add(cv.id + ":conv");
-      const matchingBranches = new Set(matchingCommits.map(c => c.branch));
-      matchingBranches.forEach((bName: string) => {
-        const path = branchPathToRoot(cv.commits || [], bName);
-        path.forEach((b: string) => itemSet.add(sidebarBranchKey(cv.id, b)));
-      });
-    });
-    setExpandedClusters(folderSet);
-    setOpenSidebarItems(itemSet);
-  }, [activeTags]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-send from starter cards (use setTimeout to ensure state is settled)
   useEffect(() => {
@@ -210,6 +183,12 @@ export default function App() {
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
   };
+
+  const { activeTags, setActiveTags, renameTag, deleteTag, editCommitTags } = useConversationTags({
+    convs, setConvs, clusters, expandedClusters, setExpandedClusters,
+    openSidebarItems, setOpenSidebarItems, convId, commits, setCommits, cRef,
+    headId, branch, save,
+  });
 
   const load = cv => {
     const commits = cv.commits || [];
@@ -785,70 +764,6 @@ export default function App() {
 
   // Per-commit custom display label for the graph node. Empty clears it.
   // commit.prompt (conversation content) is never mutated.
-  const renameTag = (oldName, newName) => {
-    const trimmed = (newName || "").trim().replace(/^#+/, "");
-    if (!trimmed || trimmed === oldName) return;
-    const touched = [];
-    const nextConvs = convs.map(cv => {
-      let changed = false;
-      const newCommits = (cv.commits || []).map(c => {
-        if (!(c.tags || []).includes(oldName)) return c;
-        changed = true;
-        const merged = c.tags.map(tg => tg === oldName ? trimmed : tg);
-        const deduped = [...new Set(merged)];
-        return { ...c, tags: deduped };
-      });
-      if (!changed) return cv;
-      const updated = { ...cv, commits: newCommits, u: new Date().toISOString() };
-      touched.push(updated);
-      return updated;
-    });
-    touched.forEach(persistConv);
-    setConvs(nextConvs);
-    const currentCv = nextConvs.find(c => c.id === convId);
-    if (currentCv) { setCommits(currentCv.commits); cRef.current = currentCv.commits; }
-    setActiveTags(p => {
-      if (!p.has(oldName)) return p;
-      const n = new Set(p); n.delete(oldName); n.add(trimmed); return n;
-    });
-  };
-  const deleteTag = (name) => {
-    const touched = [];
-    const nextConvs = convs.map(cv => {
-      let changed = false;
-      const newCommits = (cv.commits || []).map(c => {
-        if (!(c.tags || []).includes(name)) return c;
-        changed = true;
-        const filtered = c.tags.filter(tg => tg !== name);
-        if (filtered.length === 0) { const { tags: _drop, ...rest } = c; return rest; }
-        return { ...c, tags: filtered };
-      });
-      if (!changed) return cv;
-      const updated = { ...cv, commits: newCommits, u: new Date().toISOString() };
-      touched.push(updated);
-      return updated;
-    });
-    touched.forEach(persistConv);
-    setConvs(nextConvs);
-    const currentCv = nextConvs.find(c => c.id === convId);
-    if (currentCv) { setCommits(currentCv.commits); cRef.current = currentCv.commits; }
-    setActiveTags(p => { if (!p.has(name)) return p; const n = new Set(p); n.delete(name); return n; });
-  };
-
-  const editCommitTags = (cid, tagsInput) => {
-    const tags = (tagsInput || "")
-      .split(",")
-      .map(s => s.trim().replace(/^#+/, ""))
-      .filter(Boolean);
-    const newCommits = cRef.current.map(c => {
-      if (c.id !== cid) return c;
-      const { tags: _omit, ...rest } = c;
-      return tags.length ? { ...rest, tags } : rest;
-    });
-    setCommits(newCommits); cRef.current = newCommits;
-    save(null, newCommits, headId, branch);
-  };
-
   const editNodeLabel = (cid, newLabel) => {
     const trimmed = (newLabel || "").trim();
     const existing = cRef.current.find(c => c.id === cid);
