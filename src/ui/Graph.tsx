@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { bCol } from "@/lib/branch-colors";
 import { bHead, shortModelName } from "@/graph/model";
-import { getBranchLabel, branchPathToRoot } from "@/graph/branches";
+import { getBranchLabel } from "@/graph/branches";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -123,48 +123,10 @@ export default function Graph(props: Props) {
   const fg = "var(--foreground)";
   const bg = "var(--background)";
 
-  const breadcrumb = (() => {
-    const path = branchPathToRoot(commits, activeBranch);
-    if (path.length < 2) return null;
-    return (
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 px-3 pt-2 text-xs">
-        {path.map((b, i) => {
-          const last = i === path.length - 1;
-          const label = getBranchLabel(commits, b, branchTitles);
-          const c = bCol(names, b);
-          return (
-            <span key={b} className="flex items-center gap-1">
-              {i > 0 && <span className="text-muted-foreground/60">›</span>}
-              <button
-                type="button"
-                onClick={() => {
-                  if (last) return;
-                  const h = bHead(commits, b);
-                  if (h) onCheckout(h.id, b);
-                }}
-                className={cn(
-                  "max-w-[160px] truncate rounded px-1 transition-opacity",
-                  last ? "font-semibold" : "opacity-80 hover:opacity-100 hover:underline",
-                )}
-                style={{ color: c }}
-                title={label}
-                disabled={last}
-              >
-                {label}
-              </button>
-            </span>
-          );
-        })}
-      </div>
-    );
-  })();
-
   return (
     <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
-      <div className="sticky top-0 z-10 border-b bg-graph-bg">
-        {breadcrumb}
-        <div className="flex flex-wrap gap-1 px-3 py-2">
-          {names.map((b) => {
+      <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
+        {names.map((b) => {
           const c = bCol(names, b);
           const act = b === activeBranch;
           const raw = getBranchLabel(commits, b, branchTitles);
@@ -215,7 +177,6 @@ export default function Graph(props: Props) {
             </button>
           );
         })}
-        </div>
       </div>
 
       <svg width={W} height={H} style={{ display: "block" }}>
