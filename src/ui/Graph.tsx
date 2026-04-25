@@ -190,37 +190,6 @@ export default function Graph(props: Props) {
           return <line key={b} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={bCol(names, b)} strokeWidth={2} opacity={spineOn ? 0.3 : 0.12} style={{ transition: "opacity 0.2s" }} />;
         })}
 
-        {names.map((b) => {
-          const firstCm = sorted.find((c: any) => c.branch === b);
-          if (!firstCm || !firstCm.parentId) return null;
-          const parent = commits.find((c: any) => c.id === firstCm.parentId);
-          if (!parent || parent.branch === b) return null;
-          const p = pos[firstCm.id];
-          if (!p) return null;
-          const raw = getBranchLabel(commits, b, branchTitles);
-          const label = raw.length > 14 ? raw.slice(0, 14) + ".." : raw;
-          const color = bCol(names, b);
-          const onActivePath = cidOnPath(firstCm.id);
-          return (
-            <foreignObject
-              key={`fork-${b}`}
-              x={p.x + nR + 4}
-              y={p.y - 18}
-              width={150}
-              height={14}
-              style={{ pointerEvents: "none", overflow: "visible" }}
-            >
-              <div
-                className="whitespace-nowrap text-[9px] font-semibold leading-none"
-                style={{ color, opacity: onActivePath ? 0.95 : 0.45, fontFamily: "system-ui" }}
-                title={raw}
-              >
-                ↘ {label}
-              </div>
-            </foreignObject>
-          );
-        })}
-
         {vnodes.map((n) => {
           const to = pos[n.vid];
           if (!to) return null;
