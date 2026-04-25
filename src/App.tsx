@@ -944,7 +944,7 @@ export default function App() {
       setSidebarWidth(next);
     };
     const onUp = () => {
-      if (sidebarDrag.current) storage.put("sidebarWidth", String(sidebarWidth));
+      if (sidebarDrag.current) storage.set("sidebarWidth", String(sidebarWidth));
       sidebarDrag.current = null;
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
@@ -953,7 +953,7 @@ export default function App() {
     window.addEventListener("mouseup", onUp);
   };
   useEffect(() => {
-    if (!sidebarCollapsed) storage.put("sidebarWidth", String(sidebarWidth));
+    if (!sidebarCollapsed) storage.set("sidebarWidth", String(sidebarWidth));
   }, [sidebarWidth, sidebarCollapsed]);
 
   const sidebarProps = {
