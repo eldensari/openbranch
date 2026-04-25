@@ -14,6 +14,7 @@ import ChatPanel from "./ui/ChatPanel";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { cn } from "./lib/utils";
 import { useSidebarUI } from "./hooks/use-sidebar-ui";
+import { useUndoRedo } from "./hooks/use-undo-redo";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,7 +66,6 @@ export default function App() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectRange, setSelectRange] = useState({ startId: null, endId: null });
   const [selectError, setSelectError] = useState("");
-  const [undoAction, setUndoAction] = useState(null);
   const [editId, setEditId] = useState(null);
   const [branchFromId, setBranchFromId] = useState(null);
   const [newFromRef, setNewFromRef] = useState(null);
@@ -432,15 +432,7 @@ export default function App() {
   const selectedRangeCommits = rangeCommitsFor(commits, selectRange);
   const selectedRangeIds = selectedRangeCommits.map(c => c.id);
   const clearSelectRange = () => { setSelectRange({ startId: null, endId: null }); setSelectError(""); };
-  const snap = value => JSON.parse(JSON.stringify(value));
-  const rememberUndo = label => {
-    setUndoAction({
-      label,
-      convs: snap(convs),
-      clusters: snap(clusters),
-      current: { convId, commits: snap(commits), headId, branch, parentRef: snap(parentRef) },
-    });
-  };
+  const { undoAction, setUndoAction, rememberUndo } = useUndoRedo({ convs, clusters, convId, commits, headId, branch, parentRef });
   const restoreUndo = () => {
     if (!undoAction) return;
     const beforeConvIds = new Set(undoAction.convs.map(c => c.id));
