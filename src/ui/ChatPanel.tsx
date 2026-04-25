@@ -396,11 +396,11 @@ export default function ChatPanel(props: Props) {
       </div>
       <div
         className={cn(
-          "flex-1 overflow-y-auto px-4 pb-40 pt-6",
+          "flex-1 overflow-y-auto pt-6",
           thread.length === 0 && !pending && !newFromRef && "flex items-center",
         )}
       >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4">
           {thread.length === 0 && !pending && !newFromRef && (
             <div className="flex flex-col items-center gap-8">
               <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
@@ -499,6 +499,11 @@ export default function ChatPanel(props: Props) {
           )}
           <div ref={endRef} />
         </div>
+        {(thread.length > 0 || pending || newFromRef) && (
+          <div className="sticky bottom-0 z-10 bg-background px-4 pb-5 pt-8">
+            <div className="mx-auto w-full max-w-3xl">{composer}</div>
+          </div>
+        )}
       </div>
 
       {(branchFromId || editId || newFromRef || (mm && sel.length > 0) || undoAction) && (
@@ -597,11 +602,6 @@ export default function ChatPanel(props: Props) {
         </div>
       )}
 
-      {(thread.length > 0 || pending || newFromRef) && (
-        <div className="absolute inset-x-0 bottom-0 z-10 bg-background px-4 pb-5 pt-8">
-          <div className="mx-auto w-full max-w-3xl">{composer}</div>
-        </div>
-      )}
 
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center">
