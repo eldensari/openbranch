@@ -4,6 +4,35 @@ import { bHead, shortModelName } from "@/graph/model";
 import { getBranchLabel } from "@/graph/branches";
 import { cn } from "@/lib/utils";
 
+function orderBranchesByTree(commits: any[], names: string[]): string[] {
+  const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
+  const nameSet = new Set(names);
+  const parentOf = new Map<string, string | null>();
+  for (const b of names) {
+    const first = sorted.find((c: any) => c.branch === b);
+    if (!first || !first.parentId) { parentOf.set(b, null); continue; }
+    const parent = commits.find((c: any) => c.id === first.parentId);
+    parentOf.set(b, parent && parent.branch !== b && nameSet.has(parent.branch) ? parent.branch : null);
+  }
+  const childrenOf = new Map<string | null, string[]>();
+  for (const b of names) {
+    const p = parentOf.get(b) ?? null;
+    if (!childrenOf.has(p)) childrenOf.set(p, []);
+    childrenOf.get(p)!.push(b);
+  }
+  const result: string[] = [];
+  const visited = new Set<string>();
+  const visit = (b: string) => {
+    if (visited.has(b)) return;
+    visited.add(b);
+    result.push(b);
+    for (const c of childrenOf.get(b) || []) visit(c);
+  };
+  for (const root of childrenOf.get(null) || []) visit(root);
+  for (const b of names) if (!visited.has(b)) visit(b);
+  return result;
+}
+
 type Props = {
   commits: any[];
   headId: string | null;
@@ -126,7 +155,7 @@ export default function Graph(props: Props) {
   return (
     <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
       <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
-        {names.map((b) => {
+        {orderBranchesByTree(commits, names).map((b) => {
           const c = bCol(names, b);
           const act = b === activeBranch;
           const raw = getBranchLabel(commits, b, branchTitles);
