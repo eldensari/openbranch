@@ -864,11 +864,12 @@ export default function App() {
     });
   };
 
-  const requestDeleteBranch = (bName) => {
+  const requestDeleteBranch = (bName: string) => {
     if (!convId) return;
     const descs = getBranchDescendantNames(commits, bName);
+    const plural = descs.length > 1 ? "es" : "";
     const msg = descs.length > 0
-      ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
+      ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${plural}.`
       : `Delete branch "${bName}"?`;
     setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(convId, bName) });
   };
