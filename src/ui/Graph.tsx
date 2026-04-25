@@ -4,7 +4,7 @@ import { bHead, shortModelName } from "@/graph/model";
 import { getBranchLabel } from "@/graph/branches";
 import { cn } from "@/lib/utils";
 
-function orderBranchesByTree(commits: any[], names: string[]): string[] {
+function orderBranchesByTree(commits: any[], names: string[]): Array<{ branch: string; depth: number }> {
   const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
   const nameSet = new Set(names);
   const parentOf = new Map<string, string | null>();
@@ -20,16 +20,16 @@ function orderBranchesByTree(commits: any[], names: string[]): string[] {
     if (!childrenOf.has(p)) childrenOf.set(p, []);
     childrenOf.get(p)!.push(b);
   }
-  const result: string[] = [];
+  const result: Array<{ branch: string; depth: number }> = [];
   const visited = new Set<string>();
-  const visit = (b: string) => {
+  const visit = (b: string, depth: number) => {
     if (visited.has(b)) return;
     visited.add(b);
-    result.push(b);
-    for (const c of childrenOf.get(b) || []) visit(c);
+    result.push({ branch: b, depth });
+    for (const c of childrenOf.get(b) || []) visit(c, depth + 1);
   };
-  for (const root of childrenOf.get(null) || []) visit(root);
-  for (const b of names) if (!visited.has(b)) visit(b);
+  for (const root of childrenOf.get(null) || []) visit(root, 0);
+  for (const b of names) if (!visited.has(b)) visit(b, 0);
   return result;
 }
 
@@ -155,11 +155,12 @@ export default function Graph(props: Props) {
   return (
     <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
       <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
-        {orderBranchesByTree(commits, names).map((b) => {
+        {orderBranchesByTree(commits, names).map(({ branch: b, depth }) => {
           const c = bCol(names, b);
           const act = b === activeBranch;
           const raw = getBranchLabel(commits, b, branchTitles);
           const label = raw.length > 16 ? raw.slice(0, 16) + ".." : raw;
+          const indent = Math.max(0, depth - 1) * 10;
           if (renamingChip === b) {
             return (
               <input
@@ -174,7 +175,7 @@ export default function Graph(props: Props) {
                 onBlur={() => { onRenameBranch?.(b, chipDraft); setRenamingChip(null); }}
                 onClick={(e) => e.stopPropagation()}
                 className="rounded-md border px-2 py-0.5 font-mono text-[11px] outline-none focus:ring-1"
-                style={{ color: c, borderColor: c, minWidth: 80 }}
+                style={{ color: c, borderColor: c, minWidth: 80, marginLeft: indent }}
               />
             );
           }
@@ -199,6 +200,7 @@ export default function Graph(props: Props) {
                 color: c,
                 borderColor: act ? c : "var(--border)",
                 background: act ? `color-mix(in oklch, ${c} 12%, transparent)` : "transparent",
+                marginLeft: indent,
               }}
             >
               {label}
