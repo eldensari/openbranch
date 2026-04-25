@@ -531,7 +531,7 @@ export default function ChatPanel(props: Props) {
                 <div className="self-end max-w-[82%] flex flex-col items-end">
                   <div
                     className={cn(
-                      "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
+                      "rounded-2xl px-4 py-3 text-[17px] leading-relaxed whitespace-pre-wrap",
                       isMrg
                         ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
                         : "bg-user-bubble text-user-foreground",
@@ -558,7 +558,7 @@ export default function ChatPanel(props: Props) {
                   </div>
                 </div>
                 <div className="self-start max-w-[82%] flex flex-col gap-1.5">
-                  <div className="text-[15px] leading-relaxed">
+                  <div className="text-[17px] leading-relaxed">
                     {cm.responseBlocks?.length
                       ? renderResponseBlocks(cm.responseBlocks)
                       : (
@@ -596,7 +596,7 @@ export default function ChatPanel(props: Props) {
           {pending && (
             <div
               className={cn(
-                "self-end max-w-[82%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed",
+                "self-end max-w-[82%] rounded-2xl px-4 py-3 text-[17px] leading-relaxed",
                 newFromRef ? "bg-[color:var(--branch-1)]/12 text-[color:var(--branch-1)]" : "bg-user-bubble text-user-foreground",
               )}
             >
@@ -604,7 +604,7 @@ export default function ChatPanel(props: Props) {
             </div>
           )}
           {thinking && (
-            <div className="self-start text-[15px] text-muted-foreground">
+            <div className="self-start text-[17px] text-muted-foreground">
               <ThinkingDots />
             </div>
           )}
