@@ -901,6 +901,7 @@ export default function App() {
     editNodeLabel, editCommitTags,
     del, countChildConvs, setConfirmDialog,
     renameBranch, requestDeleteBranch,
+    renameConv, moveConvToFolder, clusters, expandFolder,
   };
 
   return (

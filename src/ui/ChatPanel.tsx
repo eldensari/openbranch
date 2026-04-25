@@ -23,7 +23,11 @@ import {
   GitBranch,
   Link2,
   Trash2,
+  ChevronDown,
+  Pencil,
+  Folder,
 } from "lucide-react";
+import { buildFolderTree, formatClusterTitle } from "@/storage/clusters";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -35,6 +39,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import {
   ResizablePanelGroup,
@@ -74,10 +81,33 @@ export default function ChatPanel(props: Props) {
     editNodeLabel, editCommitTags,
     del, countChildConvs, setConfirmDialog,
     renameBranch, requestDeleteBranch,
+    renameConv, moveConvToFolder, clusters, expandFolder,
   } = props;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [renamingChat, setRenamingChat] = useState(false);
+  const [chatRenameDraft, setChatRenameDraft] = useState("");
+
+  const currentConv = convs.find((c: any) => c.id === convId);
+  const currentTitle = currentConv?.title || "Untitled";
+  const userClusters = (clusters || []).filter((c: any) => c.auto !== true);
+  const flattenFolders = () => {
+    const { rootFolders, childrenByParentId } = buildFolderTree(userClusters);
+    const out: { folder: any; depth: number }[] = [];
+    const walk = (arr: any[], depth: number) => {
+      for (const f of arr) {
+        out.push({ folder: f, depth });
+        walk(childrenByParentId.get(f.id) || [], depth + 1);
+      }
+    };
+    walk(rootFolders, 0);
+    return out;
+  };
+  const commitChatRename = () => {
+    if (convId && chatRenameDraft.trim()) renameConv?.(convId, chatRenameDraft.trim());
+    setRenamingChat(false);
+  };
 
   const allSources = (() => {
     const seen = new Set<string>();
@@ -331,7 +361,87 @@ export default function ChatPanel(props: Props) {
 
   const chatArea = (
     <div className="relative flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center justify-end px-3">
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
+        <div className="min-w-0 flex-1">
+          {convId && (
+            renamingChat ? (
+              <Input
+                autoFocus
+                value={chatRenameDraft}
+                onChange={(e) => setChatRenameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitChatRename();
+                  if (e.key === "Escape") setRenamingChat(false);
+                }}
+                onBlur={commitChatRename}
+                className="h-7 max-w-xs px-2 text-sm font-medium"
+              />
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="group flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-accent"
+                    title={currentTitle}
+                  >
+                    <span className="truncate">{currentTitle}</span>
+                    <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56 rounded-2xl p-1.5">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setChatRenameDraft(currentTitle);
+                      setRenamingChat(true);
+                    }}
+                    className="gap-3 py-2.5"
+                  >
+                    <Pencil className="size-4" />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="gap-3 py-2.5">
+                      <Folder className="size-4" />
+                      Move to folder
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onSelect={() => moveConvToFolder?.(convId, null)}>
+                        <span className="italic text-muted-foreground">(top level)</span>
+                      </DropdownMenuItem>
+                      {flattenFolders().map(({ folder, depth: fd }) => (
+                        <DropdownMenuItem
+                          key={folder.id}
+                          onSelect={() => { moveConvToFolder?.(convId, folder.id); expandFolder?.(folder.id); }}
+                          style={{ paddingLeft: 8 + fd * 10 }}
+                        >
+                          <Folder className="size-3.5" />
+                          {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={!del}
+                    onSelect={() => {
+                      if (!del || !convId) return;
+                      const n = countChildConvs ? countChildConvs(convId) : 0;
+                      const msg = n > 0
+                        ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?`
+                        : "Delete this conversation?";
+                      setConfirmDialog?.({ msg, onConfirm: () => del(convId) });
+                    }}
+                    className="gap-3 py-2.5"
+                  >
+                    <Trash2 className="size-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
+          )}
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
