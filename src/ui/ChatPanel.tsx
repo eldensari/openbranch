@@ -329,7 +329,7 @@ export default function ChatPanel(props: Props) {
   );
 
   const chatArea = (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-10 shrink-0 items-center justify-end px-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -396,7 +396,7 @@ export default function ChatPanel(props: Props) {
       </div>
       <div
         className={cn(
-          "flex-1 overflow-y-auto px-4 pb-6 pt-6",
+          "flex-1 overflow-y-auto px-4 pb-40 pt-6",
           thread.length === 0 && !pending && !newFromRef && "flex items-center",
         )}
       >
@@ -598,8 +598,11 @@ export default function ChatPanel(props: Props) {
       )}
 
       {(thread.length > 0 || pending || newFromRef) && (
-        <div className="shrink-0 px-4 pb-5 pt-3">
-          <div className="mx-auto w-full max-w-3xl">{composer}</div>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
+          <div className="h-6 bg-gradient-to-t from-background to-transparent" />
+          <div className="pointer-events-auto bg-background px-4 pb-5 pt-1">
+            <div className="mx-auto w-full max-w-3xl">{composer}</div>
+          </div>
         </div>
       )}
 
