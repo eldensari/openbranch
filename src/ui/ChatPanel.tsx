@@ -598,7 +598,7 @@ export default function ChatPanel(props: Props) {
       )}
 
       {(thread.length > 0 || pending || newFromRef) && (
-        <div className="shrink-0 border-t px-4 pb-5 pt-3">
+        <div className="shrink-0 px-4 pb-5 pt-3">
           <div className="mx-auto w-full max-w-3xl">{composer}</div>
         </div>
       )}
@@ -629,7 +629,7 @@ export default function ChatPanel(props: Props) {
   );
 
   const graphArea = graph && commits.length > 0 && (
-    <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-background px-3">
         <span className="text-sm font-medium">Graph</span>
         <div className="flex items-center gap-1.5">
