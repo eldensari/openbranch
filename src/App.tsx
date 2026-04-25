@@ -1033,7 +1033,7 @@ export default function App() {
                 aria-orientation="vertical"
                 title=""
                 onMouseDown={onSidebarResizeDown}
-                className="absolute inset-y-0 right-0 z-20 w-1.5 translate-x-1/2 cursor-col-resize"
+                className="absolute inset-y-0 right-0 z-20 w-1.5 translate-x-1/2 cursor-ew-resize"
               />
             )}
           </aside>
