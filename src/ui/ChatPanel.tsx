@@ -760,7 +760,7 @@ export default function ChatPanel(props: Props) {
   return (
     <ResizablePanelGroup direction="horizontal">
       <ResizablePanel defaultSize={65} minSize={30}>{chatArea}</ResizablePanel>
-      <ResizableHandle withHandle />
+      <ResizableHandle />
       <ResizablePanel defaultSize={35} minSize={20} maxSize={55}>
         {rightArea}
       </ResizablePanel>

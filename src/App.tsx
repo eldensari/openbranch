@@ -1033,10 +1033,8 @@ export default function App() {
                 aria-orientation="vertical"
                 title=""
                 onMouseDown={onSidebarResizeDown}
-                className="group/sbh absolute inset-y-0 right-0 z-20 flex w-1.5 translate-x-1/2 cursor-col-resize items-center justify-center"
-              >
-                <div className="h-8 w-1 rounded-full bg-border/80 transition-colors group-hover/sbh:bg-muted-foreground/40" />
-              </div>
+                className="absolute inset-y-0 right-0 z-20 w-1.5 translate-x-1/2 cursor-col-resize"
+              />
             )}
           </aside>
           <div className="flex min-w-0 flex-1 flex-col">
