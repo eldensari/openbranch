@@ -73,6 +73,7 @@ export default function ChatPanel(props: Props) {
     handleSelectNode, rangeToBranch, rangeToNew, deleteRange,
     editNodeLabel, editCommitTags,
     del, countChildConvs, setConfirmDialog,
+    renameBranch, requestDeleteBranch,
   } = props;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -728,6 +729,8 @@ export default function ChatPanel(props: Props) {
           new Set(convs.flatMap((cv: any) => (cv.commits || []).flatMap((c: any) => c.tags || []))),
         )}
         activeTags={activeTags}
+        onRenameBranch={(b: string, newTitle: string) => renameBranch(convId, b, newTitle)}
+        onDeleteBranch={(b: string) => requestDeleteBranch(b)}
       />
     </div>
   );

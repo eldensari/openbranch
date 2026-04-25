@@ -837,22 +837,20 @@ export default function App() {
   const { sidebarCollapsed, toggleSidebar, sidebarWidth, sidebarDrag, onSidebarResizeDown } = useSidebarUI();
 
   const sidebarProps = {
-    convs, clusters, clusterGroups, convId, branch,
+    convs, clusters, clusterGroups, convId,
     activeTags, setActiveTags, renameTag, deleteTag,
     chatMenu, setChatMenu,
     renamingId, setRenamingId,
-    renamingBranch, setRenamingBranch,
     renamingClusterId, setRenamingClusterId,
     renameVal, setRenameVal,
     expandedClusters, toggleCluster, expandFolder,
-    sidebarItemOpen, toggleSidebarItem,
     activeFolderId, setActiveFolderId,
     createFolder, renameFolder, deleteFolder,
     moveConvToFolder, moveFolder,
     apiKey, setApiKey, showKeyInput, setShowKeyInput,
     keyDraft, setKeyDraft, hasKey, setRateLimited,
-    newConv, loadMain, loadBranch,
-    renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
+    newConv, loadMain,
+    renameConv, del, countChildConvs,
     setConfirmDialog,
     collapsed: sidebarCollapsed,
     toggleSidebar,
@@ -864,6 +862,15 @@ export default function App() {
       storage.set("webSearchOn", next ? "1" : "0");
       return next;
     });
+  };
+
+  const requestDeleteBranch = (bName) => {
+    if (!convId) return;
+    const descs = getBranchDescendantNames(commits, bName);
+    const msg = descs.length > 0
+      ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
+      : `Delete branch "${bName}"?`;
+    setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(convId, bName) });
   };
 
   const chatProps = {
@@ -892,6 +899,7 @@ export default function App() {
     handleSelectNode, rangeToBranch, rangeToNew, deleteRange,
     editNodeLabel, editCommitTags,
     del, countChildConvs, setConfirmDialog,
+    renameBranch, requestDeleteBranch,
   };
 
   return (

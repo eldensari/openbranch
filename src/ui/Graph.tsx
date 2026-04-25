@@ -33,6 +33,8 @@ type Props = {
   onEditTags?: (cid: string, tags: string) => void;
   allTags?: string[];
   activeTags?: Set<string>;
+  onRenameBranch?: (bName: string, newTitle: string) => void;
+  onDeleteBranch?: (bName: string) => void;
 };
 
 export default function Graph(props: Props) {
@@ -42,6 +44,7 @@ export default function Graph(props: Props) {
     onRangeBranch, onRangeNew, onRangeDelete, parentRef, onGoToParent, childRefs,
     onGoToChild, hoveredCid, panelW, branchTitles, onEditLabel, onEditTags,
     allTags = [], activeTags,
+    onRenameBranch, onDeleteBranch,
   } = props;
   const [ctx, setCtx] = useState<any>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -49,6 +52,9 @@ export default function Graph(props: Props) {
   const [tagPicker, setTagPicker] = useState<any>(null);
   const [tagInput, setTagInput] = useState("");
   const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const [chipCtx, setChipCtx] = useState<{ x: number; y: number; branch: string } | null>(null);
+  const [renamingChip, setRenamingChip] = useState<string | null>(null);
+  const [chipDraft, setChipDraft] = useState("");
   const hasParent = !!parentRef;
   const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
 
@@ -118,19 +124,42 @@ export default function Graph(props: Props) {
   const bg = "var(--background)";
 
   return (
-    <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => setCtx(null)}>
+    <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
       <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
         {names.map((b) => {
           const c = bCol(names, b);
           const act = b === activeBranch;
           const raw = getBranchLabel(commits, b, branchTitles);
           const label = raw.length > 16 ? raw.slice(0, 16) + ".." : raw;
+          if (renamingChip === b) {
+            return (
+              <input
+                key={b}
+                autoFocus
+                value={chipDraft}
+                onChange={(e) => setChipDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { onRenameBranch?.(b, chipDraft); setRenamingChip(null); }
+                  if (e.key === "Escape") setRenamingChip(null);
+                }}
+                onBlur={() => { onRenameBranch?.(b, chipDraft); setRenamingChip(null); }}
+                onClick={(e) => e.stopPropagation()}
+                className="rounded-md border px-2 py-0.5 font-mono text-[11px] outline-none focus:ring-1"
+                style={{ color: c, borderColor: c, minWidth: 80 }}
+              />
+            );
+          }
           return (
             <button
               key={b}
               onClick={() => {
                 const h = bHead(commits, b);
                 if (h) onCheckout(h.id, b);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setChipCtx({ x: e.clientX, y: e.clientY, branch: b });
               }}
               title={raw}
               className={cn(
@@ -299,6 +328,34 @@ export default function Graph(props: Props) {
           );
         })}
       </svg>
+
+      {chipCtx && (
+        <div
+          className="fixed z-[100] min-w-[140px] overflow-hidden rounded-md border bg-popover py-1 text-popover-foreground shadow-md"
+          style={{ left: chipCtx.x, top: chipCtx.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              const b = chipCtx.branch;
+              const raw = getBranchLabel(commits, b, branchTitles);
+              setChipDraft(raw);
+              setRenamingChip(b);
+              setChipCtx(null);
+            }}
+            className="block w-full px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+          >
+            Rename
+          </button>
+          <div className="my-1 h-px bg-border" />
+          <button
+            onClick={() => { const b = chipCtx.branch; setChipCtx(null); onDeleteBranch?.(b); }}
+            className="block w-full px-3 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+          >
+            Delete
+          </button>
+        </div>
+      )}
 
       {ctx && !ctx.confirm && (
         <div

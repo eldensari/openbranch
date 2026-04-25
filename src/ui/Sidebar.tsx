@@ -1,8 +1,7 @@
 import { useState } from "react";
 import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
-import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
-import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
+import { buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
 import { ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal, PanelLeft, Search, Settings, SquarePen } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -70,19 +69,17 @@ type Props = any;
 export default function AppSidebar(props: Props) {
   const {
     convs, clusters,
-    convId, branch,
+    convId,
     activeTags, setActiveTags, renameTag, deleteTag,
     renamingId, setRenamingId,
-    renamingBranch, setRenamingBranch,
     renamingClusterId, setRenamingClusterId,
     renameVal, setRenameVal,
     expandedClusters, toggleCluster, expandFolder,
-    sidebarItemOpen, toggleSidebarItem,
     activeFolderId, setActiveFolderId,
     createFolder, renameFolder, deleteFolder, moveConvToFolder,
     apiKey, setApiKey, showKeyInput, setShowKeyInput, keyDraft, setKeyDraft, hasKey, setRateLimited,
-    newConv, loadMain, loadBranch,
-    renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
+    newConv, loadMain,
+    renameConv, del, countChildConvs,
     setConfirmDialog,
     collapsed,
     toggleSidebar,
@@ -281,152 +278,9 @@ export default function AppSidebar(props: Props) {
     );
   }
 
-  const renderConvItem = (cv: any, keyPrefix: string, depth = 0, toggle: any = null) => {
-    const chain = cv.commits || [];
-    const branchTree = buildBranchTree(chain);
+  const renderConvItem = (cv: any, keyPrefix: string, depth = 0) => {
     const convActive = convId === cv.id;
-    const convActiveOnMain = convActive && branch === "main";
     const renamingThisConv = renamingId === cv.id;
-    const branchesByParent: Record<string, any[]> = {};
-    branchTree.forEach((b: any) => {
-      const parent = b.parentBranch || "main";
-      (branchesByParent[parent] || (branchesByParent[parent] = [])).push(b);
-    });
-    const rootBranches = branchesByParent["main"] || [];
-    const hasChildren = rootBranches.length > 0;
-    const ownToggleKey = cv.id + ":conv";
-    const localToggle = !toggle && hasChildren
-      ? { open: sidebarItemOpen(ownToggleKey), onToggle: () => toggleSidebarItem(ownToggleKey) }
-      : null;
-    const activeToggle = toggle || localToggle;
-    const hasToggle = !!activeToggle;
-    const showBranches = !hasToggle || activeToggle.open;
-    const branchKey = (bName: string) => sidebarBranchKey(cv.id, bName);
-    const branchOpen = (bName: string) => sidebarItemOpen(branchKey(bName));
-    const branchSubtreeContainsActive = (bName: string): boolean => {
-      if (!convActive) return false;
-      if (bName === branch) return true;
-      const kids = branchesByParent[bName] || [];
-      return kids.some((k: any) => branchSubtreeContainsActive(k.branch));
-    };
-
-    const renderBranchNode = ({ branch: bName, depth: bDepth }: any) => {
-      const branchActive = convActive && branch === bName;
-      const renamingThisBranch = renamingBranch && renamingBranch.convId === cv.id && renamingBranch.branch === bName;
-      const displayLabel = getBranchLabel(chain, bName, cv.branchTitles);
-      const childBranches = branchesByParent[bName] || [];
-      const hasBranchChildren = childBranches.length > 0;
-      const isBranchOpen = branchOpen(bName) || branchSubtreeContainsActive(bName);
-      return (
-        <div key={keyPrefix + ":" + cv.id + ":" + bName}>
-          <ContextMenu>
-            <ContextMenuTrigger asChild>
-              <div
-                onClick={() => {
-                  if (!renamingThisBranch) {
-                    if (hasBranchChildren && !isBranchOpen) toggleSidebarItem(branchKey(bName));
-                    loadBranch(cv, bName);
-                  }
-                }}
-                className={cn(
-                  "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic transition-colors",
-                  branchActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground opacity-100"
-                    : "text-sidebar-foreground/70 opacity-80 hover:bg-sidebar-accent hover:opacity-100",
-                )}
-                style={{ paddingLeft: 8 + (depth + bDepth) * 14 + (depth > 0 ? 18 : 0) }}
-              >
-                <div className="min-w-0 flex-1">
-                  {renamingThisBranch ? (
-                    <Input
-                      autoFocus
-                      value={renameVal}
-                      onChange={(e) => setRenameVal(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }
-                        if (e.key === "Escape") setRenamingBranch(null);
-                      }}
-                      onBlur={() => { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="h-6 px-1.5 text-sm"
-                    />
-                  ) : (
-                    <div className={cn("truncate", hasBranchChildren && isBranchOpen && "font-semibold")} title={displayLabel}>
-                      {displayLabel}
-                    </div>
-                  )}
-                </div>
-                {!renamingThisBranch && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label="More actions"
-                        className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-                      >
-                        <MoreHorizontal className="size-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          setRenameVal(displayLabel);
-                          setRenamingBranch({ convId: cv.id, branch: bName });
-                          setRenamingId(null);
-                          setRenamingClusterId(null);
-                        }}
-                      >
-                        Rename
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => {
-                          const descs = getBranchDescendantNames(cv.commits || [], bName);
-                          const msg = descs.length > 0
-                            ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
-                            : `Delete branch "${bName}"?`;
-                          setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cv.id, bName) });
-                        }}
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem
-                onSelect={() => {
-                  setRenameVal(displayLabel);
-                  setRenamingBranch({ convId: cv.id, branch: bName });
-                  setRenamingId(null);
-                  setRenamingClusterId(null);
-                }}
-              >
-                Rename
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                variant="destructive"
-                onSelect={() => {
-                  const descs = getBranchDescendantNames(cv.commits || [], bName);
-                  const msg = descs.length > 0
-                    ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
-                    : `Delete branch "${bName}"?`;
-                  setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cv.id, bName) });
-                }}
-              >
-                Delete
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-          {hasBranchChildren && isBranchOpen && childBranches.map(renderBranchNode)}
-        </div>
-      );
-    };
 
     return (
       <div key={keyPrefix + ":" + cv.id}>
@@ -434,17 +288,12 @@ export default function AppSidebar(props: Props) {
           <ContextMenuTrigger asChild>
             <div
               onClick={() => {
-                if (!renamingThisConv) {
-                  if (hasToggle) activeToggle.onToggle();
-                  loadMain(cv);
-                }
+                if (!renamingThisConv) loadMain(cv);
               }}
               className={cn(
                 "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm transition-colors",
-                convActiveOnMain
+                convActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : hasToggle && activeToggle.open
-                  ? "bg-sidebar-accent/50"
                   : "hover:bg-sidebar-accent",
               )}
               style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
@@ -464,7 +313,7 @@ export default function AppSidebar(props: Props) {
                     className="h-6 px-1.5 text-sm"
                   />
                 ) : (
-                  <div className={cn("truncate", hasToggle && activeToggle.open && "font-semibold")} title={cv.title || "Untitled"}>
+                  <div className="truncate" title={cv.title || "Untitled"}>
                     {cv.title || "Untitled"}
                   </div>
                 )}
@@ -486,7 +335,6 @@ export default function AppSidebar(props: Props) {
                       onSelect={() => {
                         setRenameVal(cv.title || "");
                         setRenamingId(cv.id);
-                        setRenamingBranch(null);
                         setRenamingClusterId(null);
                       }}
                     >
@@ -530,7 +378,6 @@ export default function AppSidebar(props: Props) {
               onSelect={() => {
                 setRenameVal(cv.title || "");
                 setRenamingId(cv.id);
-                setRenamingBranch(null);
                 setRenamingClusterId(null);
               }}
             >
@@ -566,8 +413,6 @@ export default function AppSidebar(props: Props) {
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
-
-        {showBranches && rootBranches.map(renderBranchNode)}
       </div>
     );
   };
@@ -627,13 +472,11 @@ export default function AppSidebar(props: Props) {
         setRenameVal("Untitled");
         setRenamingClusterId(f.id);
         setRenamingId(null);
-        setRenamingBranch(null);
       },
       rename: () => {
         setRenameVal(folder.title || "");
         setRenamingClusterId(folderId);
         setRenamingId(null);
-        setRenamingBranch(null);
       },
       delete: () => {
         const folderTitle = folder.title || "this folder";
@@ -737,7 +580,6 @@ export default function AppSidebar(props: Props) {
                 setRenameVal("Untitled");
                 setRenamingClusterId(f.id);
                 setRenamingId(null);
-                setRenamingBranch(null);
               }}
             >
               New folder
@@ -748,7 +590,6 @@ export default function AppSidebar(props: Props) {
                 setRenameVal(folder.title || "");
                 setRenamingClusterId(folderId);
                 setRenamingId(null);
-                setRenamingBranch(null);
               }}
             >
               Rename
@@ -781,7 +622,7 @@ export default function AppSidebar(props: Props) {
         </ContextMenu>
         {!isCollapsed && (
           <>
-            {rootItems.map((item: any) => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null))}
+            {rootItems.map((item: any) => renderConvItem(item.conv, "fd:" + folderId, depth + 1))}
             {group.children.map((child: any) => renderFolder(child, depth + 1))}
           </>
         )}
@@ -920,7 +761,7 @@ export default function AppSidebar(props: Props) {
               <ContextMenu>
                 <ContextMenuTrigger asChild>
                   <div className="flex flex-col px-1">
-                    {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null))}
+                    {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0))}
                     {folderGroups.map((group: any) => renderFolder(group, 0))}
                   </div>
                 </ContextMenuTrigger>
@@ -931,7 +772,6 @@ export default function AppSidebar(props: Props) {
                       setRenameVal("Untitled");
                       setRenamingClusterId(f.id);
                       setRenamingId(null);
-                      setRenamingBranch(null);
                     }}
                   >
                     New folder
