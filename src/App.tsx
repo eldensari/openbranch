@@ -942,7 +942,7 @@ export default function App() {
             const dlg = confirmDialog ?? confirmDialogRef.current;
             return (
               <>
-                <AlertDialogHeader className="gap-3">
+                <AlertDialogHeader className="gap-4">
                   <AlertDialogTitle>{dlg?.title ?? "Confirm"}</AlertDialogTitle>
                   <AlertDialogDescription asChild>
                     <div className="space-y-2">
