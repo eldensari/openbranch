@@ -760,6 +760,7 @@ export default function AppSidebar(props: Props) {
       </SidebarFooter>
       {searchDialog}
       {settingsDialog}
+      {convDialogs}
     </>
   );
 }

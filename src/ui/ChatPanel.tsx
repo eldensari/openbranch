@@ -24,8 +24,6 @@ import {
   Link2,
   Trash2,
   ChevronDown,
-  Pencil,
-  Folder,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -356,19 +354,11 @@ export default function ChatPanel(props: Props) {
                   <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56 rounded-2xl p-1.5">
-                <DropdownMenuItem
-                  onSelect={() => setRenamingChat(true)}
-                  className="gap-3 py-2.5"
-                >
-                  <Pencil className="size-4" />
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onSelect={() => setRenamingChat(true)}>
                   Rename
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => setMovingChat(true)}
-                  className="gap-3 py-2.5"
-                >
-                  <Folder className="size-4" />
+                <DropdownMenuItem onSelect={() => setMovingChat(true)}>
                   Move to folder
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -383,9 +373,7 @@ export default function ChatPanel(props: Props) {
                       : "Delete this conversation?";
                     setConfirmDialog?.({ msg, onConfirm: () => del(convId) });
                   }}
-                  className="gap-3 py-2.5"
                 >
-                  <Trash2 className="size-4" />
                   Delete
                 </DropdownMenuItem>
               </DropdownMenuContent>
