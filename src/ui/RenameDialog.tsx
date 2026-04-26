@@ -27,9 +27,9 @@ export default function RenameDialog({ open, onOpenChange, title, initialValue, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="gap-4 rounded-2xl p-5 sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
         </DialogHeader>
         <Input
           autoFocus
@@ -41,18 +41,16 @@ export default function RenameDialog({ open, onOpenChange, title, initialValue, 
           }}
           onFocus={(e) => {
             const target = e.currentTarget;
-            setTimeout(() => {
-              const len = target.value.length;
-              target.setSelectionRange(len, len);
-            }, 0);
+            setTimeout(() => target.select(), 0);
           }}
           placeholder={placeholder}
+          className="h-10 rounded-lg"
         />
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-full px-4">
             Cancel
           </Button>
-          <Button size="sm" onClick={commit} disabled={!value.trim()}>
+          <Button onClick={commit} disabled={!value.trim()} className="rounded-full px-4">
             Save
           </Button>
         </div>
