@@ -465,18 +465,25 @@ export default function ChatPanel(props: Props) {
                     {cm.prompt}
                   </div>
                   {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
-                  <div className="mt-0.5 flex justify-end">
-                    <button
-                      onClick={() => startEdit(cm.id)}
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-[11px] transition-colors",
-                        editId === cm.id
-                          ? "text-[color:var(--user-foreground)]"
-                          : "text-muted-foreground/70 hover:text-[color:var(--user-foreground)]",
-                      )}
+                  <div className="-mr-2 flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground"
+                      title="Copy"
+                      onClick={() => copyToClipboard(cm.prompt)}
                     >
-                      edit
-                    </button>
+                      <Copy className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground"
+                      title="Edit"
+                      onClick={() => startEdit(cm.id)}
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
                   </div>
                 </div>
                 <div className="self-start w-full flex flex-col gap-1.5">
@@ -514,7 +521,7 @@ export default function ChatPanel(props: Props) {
                       variant="ghost"
                       size="icon"
                       className="size-7 text-muted-foreground"
-                      title="Branch from here"
+                      title="Branch"
                       onClick={() => startBranchFrom(cm.id)}
                     >
                       <GitBranch className="size-3.5" />
@@ -523,7 +530,7 @@ export default function ChatPanel(props: Props) {
                       variant="ghost"
                       size="icon"
                       className="size-7 text-muted-foreground"
-                      title="New conversation from here"
+                      title="New"
                       onClick={() => startNew(cm.id)}
                     >
                       <Plus className="size-3.5" />
