@@ -40,8 +40,11 @@ export default function RenameDialog({ open, onOpenChange, title, initialValue, 
             if (e.key === "Escape") { e.preventDefault(); onOpenChange(false); }
           }}
           onFocus={(e) => {
-            const len = e.currentTarget.value.length;
-            e.currentTarget.setSelectionRange(len, len);
+            const target = e.currentTarget;
+            setTimeout(() => {
+              const len = target.value.length;
+              target.setSelectionRange(len, len);
+            }, 0);
           }}
           placeholder={placeholder}
         />
