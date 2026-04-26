@@ -39,7 +39,10 @@ export default function RenameDialog({ open, onOpenChange, title, initialValue, 
             if (e.key === "Enter") { e.preventDefault(); commit(); }
             if (e.key === "Escape") { e.preventDefault(); onOpenChange(false); }
           }}
-          onFocus={(e) => e.currentTarget.select()}
+          onFocus={(e) => {
+            const len = e.currentTarget.value.length;
+            e.currentTarget.setSelectionRange(len, len);
+          }}
           placeholder={placeholder}
         />
         <div className="flex justify-end gap-2">
