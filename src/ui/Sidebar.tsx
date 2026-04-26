@@ -3,7 +3,7 @@ import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
 import { buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal, PanelLeft, Search, Settings, SquarePen } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, PanelLeft, Pencil, Search, Settings, SquarePen, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -344,17 +344,20 @@ export default function AppSidebar(props: Props) {
                     <MoreHorizontal className="size-3.5" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuContent align="end" side="bottom" className="min-w-[12rem] rounded-2xl p-1.5" onClick={(e) => e.stopPropagation()}>
                   <DropdownMenuItem
                     onSelect={() => {
                       setRenameVal(cv.title || "");
                       setRenamingId(cv.id);
                       setRenamingClusterId(null);
                     }}
+                    className="gap-3 py-2.5"
                   >
+                    <Pencil className="size-4" />
                     Rename
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => setMovingConvId(cv.id)}>
+                  <DropdownMenuItem onSelect={() => setMovingConvId(cv.id)} className="gap-3 py-2.5">
+                    <Folder className="size-4" />
                     Move to folder
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -365,24 +368,29 @@ export default function AppSidebar(props: Props) {
                       const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
                       setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
                     }}
+                    className="gap-3 py-2.5"
                   >
+                    <Trash2 className="size-4" />
                     Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent>
+          <ContextMenuContent className="min-w-[12rem] rounded-2xl p-1.5">
             <ContextMenuItem
               onSelect={() => {
                 setRenameVal(cv.title || "");
                 setRenamingId(cv.id);
                 setRenamingClusterId(null);
               }}
+              className="gap-3 py-2.5"
             >
+              <Pencil className="size-4" />
               Rename
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => setMovingConvId(cv.id)}>
+            <ContextMenuItem onSelect={() => setMovingConvId(cv.id)} className="gap-3 py-2.5">
+              <Folder className="size-4" />
               Move to folder
             </ContextMenuItem>
             <ContextMenuSeparator />
@@ -393,7 +401,9 @@ export default function AppSidebar(props: Props) {
                 const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
                 setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
               }}
+              className="gap-3 py-2.5"
             >
+              <Trash2 className="size-4" />
               Delete
             </ContextMenuItem>
           </ContextMenuContent>
@@ -509,33 +519,39 @@ export default function AppSidebar(props: Props) {
                       <MoreHorizontal className="size-3.5" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem onSelect={folderActions.newChat}>
+                  <DropdownMenuContent align="end" side="bottom" className="min-w-[12rem] rounded-2xl p-1.5" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem onSelect={folderActions.newChat} className="gap-3 py-2.5">
+                      <SquarePen className="size-4" />
                       New chat
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={folderActions.newFolder}>
+                    <DropdownMenuItem onSelect={folderActions.newFolder} className="gap-3 py-2.5">
+                      <FolderPlus className="size-4" />
                       New folder
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={folderActions.rename}>
+                    <DropdownMenuItem onSelect={folderActions.rename} className="gap-3 py-2.5">
+                      <Pencil className="size-4" />
                       Rename
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" onSelect={folderActions.delete}>
+                    <DropdownMenuItem variant="destructive" onSelect={folderActions.delete} className="gap-3 py-2.5">
+                      <Trash2 className="size-4" />
                       Delete folder
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent>
+          <ContextMenuContent className="min-w-[12rem] rounded-2xl p-1.5">
             <ContextMenuItem
               onSelect={() => {
                 setActiveFolderId(folderId);
                 expandFolder(folderId);
                 newConv();
               }}
+              className="gap-3 py-2.5"
             >
+              <SquarePen className="size-4" />
               New chat
             </ContextMenuItem>
             <ContextMenuItem
@@ -546,7 +562,9 @@ export default function AppSidebar(props: Props) {
                 setRenamingClusterId(f.id);
                 setRenamingId(null);
               }}
+              className="gap-3 py-2.5"
             >
+              <FolderPlus className="size-4" />
               New folder
             </ContextMenuItem>
             <ContextMenuSeparator />
@@ -556,7 +574,9 @@ export default function AppSidebar(props: Props) {
                 setRenamingClusterId(folderId);
                 setRenamingId(null);
               }}
+              className="gap-3 py-2.5"
             >
+              <Pencil className="size-4" />
               Rename
             </ContextMenuItem>
             <ContextMenuSeparator />
@@ -580,7 +600,9 @@ export default function AppSidebar(props: Props) {
                   : `Delete folder "${folderTitle}"?`;
                 setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
               }}
+              className="gap-3 py-2.5"
             >
+              <Trash2 className="size-4" />
               Delete folder
             </ContextMenuItem>
           </ContextMenuContent>
@@ -676,13 +698,15 @@ export default function AppSidebar(props: Props) {
                           <span className="text-xs text-muted-foreground">{n}</span>
                         </span>
                       </ContextMenuTrigger>
-                      <ContextMenuContent>
+                      <ContextMenuContent className="min-w-[10rem] rounded-2xl p-1.5">
                         <ContextMenuItem
                           onSelect={() => {
                             const nv = window.prompt("Rename tag", tg);
                             if (nv != null) renameTag(tg, nv);
                           }}
+                          className="gap-3 py-2.5"
                         >
+                          <Pencil className="size-4" />
                           Rename
                         </ContextMenuItem>
                         <ContextMenuSeparator />
@@ -694,7 +718,9 @@ export default function AppSidebar(props: Props) {
                               onConfirm: () => deleteTag(tg),
                             })
                           }
+                          className="gap-3 py-2.5"
                         >
+                          <Trash2 className="size-4" />
                           Delete
                         </ContextMenuItem>
                       </ContextMenuContent>
@@ -730,7 +756,7 @@ export default function AppSidebar(props: Props) {
                     {folderGroups.map((group: any) => renderFolder(group, 0))}
                   </div>
                 </ContextMenuTrigger>
-                <ContextMenuContent>
+                <ContextMenuContent className="min-w-[10rem] rounded-2xl p-1.5">
                   <ContextMenuItem
                     onSelect={() => {
                       const f = createFolder(null);
@@ -738,7 +764,9 @@ export default function AppSidebar(props: Props) {
                       setRenamingClusterId(f.id);
                       setRenamingId(null);
                     }}
+                    className="gap-3 py-2.5"
                   >
+                    <FolderPlus className="size-4" />
                     New folder
                   </ContextMenuItem>
                 </ContextMenuContent>

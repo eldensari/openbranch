@@ -23,6 +23,9 @@ import {
   Link2,
   ChevronDown,
   PanelRight,
+  Pencil,
+  Folder,
+  Trash2,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -252,10 +255,11 @@ export default function ChatPanel(props: Props) {
                 <Plus className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top">
+            <DropdownMenuContent align="start" side="top" className="min-w-[12rem] rounded-2xl p-1.5">
               <DropdownMenuItem
                 onSelect={() => fileInputRef.current?.click()}
                 disabled={attachments?.length >= MAX_ATTACHMENTS}
+                className="gap-3 py-2.5"
               >
                 <Paperclip className="size-4" />
                 Upload a file
@@ -263,6 +267,7 @@ export default function ChatPanel(props: Props) {
               <DropdownMenuItem
                 onSelect={toggleWebSearch}
                 className={cn(
+                  "gap-3 py-2.5",
                   webSearchOn && "text-[color:var(--branch-1)] focus:text-[color:var(--branch-1)]",
                 )}
               >
@@ -351,11 +356,13 @@ export default function ChatPanel(props: Props) {
                   <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem onSelect={() => setRenamingChat(true)}>
+              <DropdownMenuContent align="start" className="min-w-[12rem] rounded-2xl p-1.5">
+                <DropdownMenuItem onSelect={() => setRenamingChat(true)} className="gap-3 py-2.5">
+                  <Pencil className="size-4" />
                   Rename
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setMovingChat(true)}>
+                <DropdownMenuItem onSelect={() => setMovingChat(true)} className="gap-3 py-2.5">
+                  <Folder className="size-4" />
                   Move to folder
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -370,7 +377,9 @@ export default function ChatPanel(props: Props) {
                       : "Delete this conversation?";
                     setConfirmDialog?.({ msg, onConfirm: () => del(convId) });
                   }}
+                  className="gap-3 py-2.5"
                 >
+                  <Trash2 className="size-4" />
                   Delete
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -388,12 +397,13 @@ export default function ChatPanel(props: Props) {
               <PanelRight className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="min-w-[10rem] rounded-2xl p-1.5">
             <DropdownMenuItem
               onSelect={() => {
                 setGraph(!graph);
                 setSourcesOpen(false);
               }}
+              className="gap-3 py-2.5"
             >
               <GitBranch className="size-4" />
               Graph
@@ -405,6 +415,7 @@ export default function ChatPanel(props: Props) {
                 if (!sourcesOpen) setGraph(false);
               }}
               disabled={allSources.length === 0}
+              className="gap-3 py-2.5"
             >
               <Link2 className="size-4" />
               Sources
