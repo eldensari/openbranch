@@ -598,10 +598,10 @@ export default function AppSidebar(props: Props) {
   return (
     <>
       <SidebarHeader className="gap-1 px-2 pt-0 pb-2">
-        <div className="flex h-10 items-center justify-between">
+        <div className="flex h-12 items-center justify-between">
           <div className="flex items-center gap-2 px-2">
-            <img src="/favicon.svg" alt="" className="size-5" />
-            <span className="text-sm font-medium">OpenBranch</span>
+            <img src="/favicon.svg" alt="" className="size-6" />
+            <span className="text-base font-semibold">OpenBranch</span>
           </div>
           <Button
             variant="ghost"
