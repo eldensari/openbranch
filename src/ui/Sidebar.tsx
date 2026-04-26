@@ -3,7 +3,7 @@ import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
 import { buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal, PanelLeft, Pencil, Search, Settings, Sparkles, SquarePen, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, PanelLeft, Pencil, Search, Settings, SquarePen, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -750,7 +750,7 @@ export default function AppSidebar(props: Props) {
                   }}
                   className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 >
-                  <Sparkles className="size-4 shrink-0" />
+                  <FolderPlus className="size-4 shrink-0" />
                   New project
                 </button>
                 {folderGroups.map((group: any) => renderFolder(group, 0))}
