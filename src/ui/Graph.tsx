@@ -357,7 +357,7 @@ export default function Graph(props: Props) {
 
       {chipCtx && (
         <div
-          className="fixed z-[100] min-w-[10rem] rounded-2xl border bg-popover p-1.5 text-popover-foreground shadow-md"
+          className="fixed z-[100] min-w-[12rem] rounded-2xl border bg-popover p-1.5 text-popover-foreground shadow-md"
           style={{ left: chipCtx.x, top: chipCtx.y }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -384,7 +384,7 @@ export default function Graph(props: Props) {
 
       {ctx && !ctx.confirm && (
         <div
-          className="fixed z-[100] min-w-[10rem] rounded-2xl border bg-popover p-1.5 text-popover-foreground shadow-md"
+          className="fixed z-[100] min-w-[12rem] rounded-2xl border bg-popover p-1.5 text-popover-foreground shadow-md"
           style={{ left: ctx.x, top: ctx.y }}
           onClick={(e) => e.stopPropagation()}
         >

@@ -397,7 +397,7 @@ export default function ChatPanel(props: Props) {
               <PanelRight className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[10rem] rounded-2xl p-1.5">
+          <DropdownMenuContent align="end" className="min-w-[12rem] rounded-2xl p-1.5">
             <DropdownMenuItem
               onSelect={() => {
                 setGraph(!graph);

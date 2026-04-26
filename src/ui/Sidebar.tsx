@@ -698,7 +698,7 @@ export default function AppSidebar(props: Props) {
                           <span className="text-xs text-muted-foreground">{n}</span>
                         </span>
                       </ContextMenuTrigger>
-                      <ContextMenuContent className="min-w-[10rem] rounded-2xl p-1.5">
+                      <ContextMenuContent className="min-w-[12rem] rounded-2xl p-1.5">
                         <ContextMenuItem
                           onSelect={() => {
                             const nv = window.prompt("Rename tag", tg);
@@ -756,7 +756,7 @@ export default function AppSidebar(props: Props) {
                     {folderGroups.map((group: any) => renderFolder(group, 0))}
                   </div>
                 </ContextMenuTrigger>
-                <ContextMenuContent className="min-w-[10rem] rounded-2xl p-1.5">
+                <ContextMenuContent className="min-w-[12rem] rounded-2xl p-1.5">
                   <ContextMenuItem
                     onSelect={() => {
                       const f = createFolder(null);
