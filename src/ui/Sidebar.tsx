@@ -94,6 +94,7 @@ export default function AppSidebar(props: Props) {
   const [chatsOpen, setChatsOpen] = useState(true);
   const [movingConvId, setMovingConvId] = useState<string | null>(null);
   const [movingFolderId, setMovingFolderId] = useState<string | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
   const q = searchQuery.trim().toLowerCase();
 
   const openSearch = () => {
@@ -240,6 +241,17 @@ export default function AppSidebar(props: Props) {
         title="Rename project"
         initialValue={renameVal}
         onSave={(v) => { if (renamingFolder) renameFolder(renamingFolder.id, v); setRenamingClusterId(null); }}
+      />
+      <RenameDialog
+        open={creatingProject}
+        onOpenChange={setCreatingProject}
+        title="New project"
+        initialValue=""
+        placeholder="Project name"
+        onSave={(v) => {
+          const f = createFolder(null);
+          renameFolder(f.id, v);
+        }}
       />
       <MoveToFolderDialog
         open={!!movingConvId}
@@ -742,12 +754,7 @@ export default function AppSidebar(props: Props) {
               <div className="flex flex-col px-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    const f = createFolder(null);
-                    setRenameVal("Untitled");
-                    setRenamingClusterId(f.id);
-                    setRenamingId(null);
-                  }}
+                  onClick={() => setCreatingProject(true)}
                   className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent"
                 >
                   <FolderPlus className="size-4 shrink-0" />
