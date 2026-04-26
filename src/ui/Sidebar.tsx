@@ -746,9 +746,9 @@ export default function AppSidebar(props: Props) {
                   setRenamingClusterId(f.id);
                   setRenamingId(null);
                 }}
-                className="mx-1 flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-normal text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-normal text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               >
-                <FolderPlus className="size-4" />
+                <FolderPlus className="size-4 shrink-0" />
                 New folder
               </button>
             )}
