@@ -638,7 +638,7 @@ export default function AppSidebar(props: Props) {
             <button
               type="button"
               onClick={() => setTagsOpen((v) => !v)}
-              className="group/tag-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              className="group/tag-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
               Tags
               <span className="opacity-0 transition-opacity group-hover/tag-head:opacity-100">
@@ -665,7 +665,7 @@ export default function AppSidebar(props: Props) {
                             })
                           }
                           className={cn(
-                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors select-none",
+                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors select-none",
                             on
                               ? "bg-sidebar-accent text-sidebar-accent-foreground"
                               : "hover:bg-sidebar-accent",
@@ -673,7 +673,7 @@ export default function AppSidebar(props: Props) {
                         >
                           <span className="shrink-0 text-muted-foreground">#</span>
                           <span className="flex-1 truncate">{tg}</span>
-                          <span className="text-[10px] text-muted-foreground">{n}</span>
+                          <span className="text-xs text-muted-foreground">{n}</span>
                         </span>
                       </ContextMenuTrigger>
                       <ContextMenuContent>
@@ -711,7 +711,7 @@ export default function AppSidebar(props: Props) {
             <button
               type="button"
               onClick={() => setChatsOpen((v) => !v)}
-              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
               Chats
               <span className="opacity-0 transition-opacity group-hover/chat-head:opacity-100">
