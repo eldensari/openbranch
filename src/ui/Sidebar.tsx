@@ -402,8 +402,13 @@ export default function AppSidebar(props: Props) {
                     variant="destructive"
                     onSelect={() => {
                       const n = countChildConvs(cv.id);
-                      const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
-                      setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
+                      setConfirmDialog({
+                        title: "Delete chat?",
+                        body: <>This will delete <span className="font-semibold">{cv.title || "Untitled"}</span>.</>,
+                        note: n > 0 ? `Also deletes ${n} descendant conversation${n > 1 ? "s" : ""}.` : null,
+                        confirmLabel: "Delete",
+                        onConfirm: () => del(cv.id),
+                      });
                     }}
                     className="gap-3 py-2"
                   >
@@ -435,8 +440,13 @@ export default function AppSidebar(props: Props) {
               variant="destructive"
               onSelect={() => {
                 const n = countChildConvs(cv.id);
-                const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
-                setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
+                setConfirmDialog({
+                  title: "Delete chat?",
+                  body: <>This will delete <span className="font-semibold">{cv.title || "Untitled"}</span>.</>,
+                  note: n > 0 ? `Also deletes ${n} descendant conversation${n > 1 ? "s" : ""}.` : null,
+                  confirmLabel: "Delete",
+                  onConfirm: () => del(cv.id),
+                });
               }}
               className="gap-3 py-2"
             >
@@ -513,7 +523,7 @@ export default function AppSidebar(props: Props) {
         setRenamingId(null);
       },
       delete: () => {
-        const folderTitle = folder.title || "this project";
+        const folderTitle = folder.title || formatClusterTitle(folder.createdAt) || "Untitled";
         const set = new Set<string>([folderId]);
         let grew = true;
         while (grew) {
@@ -524,10 +534,15 @@ export default function AppSidebar(props: Props) {
         }
         const affected = convs.filter((cv: any) => set.has(cv.clusterId));
         const n = affected.length;
-        const msg = n > 0
-          ? `Delete project "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent project. Sub-projects stay; only the project itself is removed.`
-          : `Delete project "${folderTitle}"?`;
-        setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
+        setConfirmDialog({
+          title: "Delete project?",
+          body: <>This will delete <span className="font-semibold">{folderTitle}</span>.</>,
+          note: n > 0
+            ? `${n} conversation${n > 1 ? "s" : ""} will move up to the parent project. Sub-projects stay; only the project itself is removed.`
+            : null,
+          confirmLabel: "Delete",
+          onConfirm: () => deleteFolder(folderId),
+        });
       },
     };
     return (
@@ -600,7 +615,7 @@ export default function AppSidebar(props: Props) {
             <ContextMenuItem
               variant="destructive"
               onSelect={() => {
-                const folderTitle = folder.title || "this project";
+                const folderTitle = folder.title || formatClusterTitle(folder.createdAt) || "Untitled";
                 const affected: any[] = [];
                 const set = new Set([folderId]);
                 let grew = true;
@@ -612,10 +627,15 @@ export default function AppSidebar(props: Props) {
                 }
                 for (const cv of convs) if (set.has(cv.clusterId)) affected.push(cv);
                 const n = affected.length;
-                const msg = n > 0
-                  ? `Delete project "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent project. Sub-projects stay; only the project itself is removed.`
-                  : `Delete project "${folderTitle}"?`;
-                setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
+                setConfirmDialog({
+                  title: "Delete project?",
+                  body: <>This will delete <span className="font-semibold">{folderTitle}</span>.</>,
+                  note: n > 0
+                    ? `${n} conversation${n > 1 ? "s" : ""} will move up to the parent project. Sub-projects stay; only the project itself is removed.`
+                    : null,
+                  confirmLabel: "Delete",
+                  onConfirm: () => deleteFolder(folderId),
+                });
               }}
               className="gap-3 py-2"
             >
@@ -739,7 +759,9 @@ export default function AppSidebar(props: Props) {
                           variant="destructive"
                           onSelect={() =>
                             setConfirmDialog({
-                              msg: `Remove tag "${tg}" from all commits?`,
+                              title: "Delete tag?",
+                              body: <>This will remove <span className="font-semibold">#{tg}</span> from all commits.</>,
+                              confirmLabel: "Delete",
                               onConfirm: () => deleteTag(tg),
                             })
                           }

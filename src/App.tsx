@@ -868,10 +868,13 @@ export default function App() {
     if (!convId) return;
     const descs = getBranchDescendantNames(commits, bName);
     const plural = descs.length > 1 ? "es" : "";
-    const msg = descs.length > 0
-      ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${plural}.`
-      : `Delete branch "${bName}"?`;
-    setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(convId, bName) });
+    setConfirmDialog({
+      title: "Delete branch?",
+      body: <>This will delete <span className="font-semibold">{bName}</span>.</>,
+      note: descs.length > 0 ? `Also deletes ${descs.length} child branch${plural}.` : null,
+      confirmLabel: "Delete",
+      onConfirm: () => deleteBranchCascade(convId, bName),
+    });
   };
 
   const chatProps = {
@@ -934,9 +937,14 @@ export default function App() {
 
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-wrap">
-              {confirmDialog?.msg}
+            <AlertDialogTitle>{confirmDialog?.title ?? "Confirm"}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <div className="text-foreground">{confirmDialog?.body ?? confirmDialog?.msg}</div>
+                {confirmDialog?.note && (
+                  <div className="text-xs text-muted-foreground">{confirmDialog.note}</div>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -945,7 +953,7 @@ export default function App() {
               onClick={() => { confirmDialog?.onConfirm?.(); setConfirmDialog(null); }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Confirm
+              {confirmDialog?.confirmLabel ?? "Confirm"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

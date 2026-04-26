@@ -395,10 +395,13 @@ export default function ChatPanel(props: Props) {
                   onSelect={() => {
                     if (!del || !convId) return;
                     const n = countChildConvs ? countChildConvs(convId) : 0;
-                    const msg = n > 0
-                      ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?`
-                      : "Delete this conversation?";
-                    setConfirmDialog?.({ msg, onConfirm: () => del(convId) });
+                    setConfirmDialog?.({
+                      title: "Delete chat?",
+                      body: <>This will delete <span className="font-semibold">{currentTitle}</span>.</>,
+                      note: n > 0 ? `Also deletes ${n} descendant conversation${n > 1 ? "s" : ""}.` : null,
+                      confirmLabel: "Delete",
+                      onConfirm: () => del(convId),
+                    });
                   }}
                   className="gap-3 py-2"
                 >
@@ -545,7 +548,9 @@ export default function ChatPanel(props: Props) {
                             variant="destructive"
                             onSelect={() => {
                               setConfirmDialog?.({
-                                msg: "Delete this commit and all its children?",
+                                title: "Delete commit?",
+                                body: <>This will delete this commit and all its children.</>,
+                                confirmLabel: "Delete",
                                 onConfirm: () => deleteCommit(cm.id),
                               });
                             }}
