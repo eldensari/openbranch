@@ -347,11 +347,11 @@ export default function ChatPanel(props: Props) {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="group flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-base font-medium hover:bg-accent"
+                  className="group flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-accent"
                   title={currentTitle}
                 >
                   <span className="truncate">{currentTitle}</span>
-                  <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
