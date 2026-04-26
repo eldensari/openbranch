@@ -597,8 +597,8 @@ export default function AppSidebar(props: Props) {
 
   return (
     <>
-      <SidebarHeader className="gap-1 p-2">
-        <div className="flex items-center justify-between">
+      <SidebarHeader className="gap-1 px-2 pt-0 pb-2">
+        <div className="flex h-10 items-center justify-between">
           <div className="flex items-center gap-2 px-2">
             <img src="/favicon.svg" alt="" className="size-5" />
             <span className="text-sm font-medium">OpenBranch</span>
@@ -606,14 +606,14 @@ export default function AppSidebar(props: Props) {
           <Button
             variant="ghost"
             size="icon"
-            className="size-9"
+            className="size-8"
             onClick={toggleSidebar}
             title="Collapse sidebar"
           >
             <PanelLeft className="size-4" />
           </Button>
         </div>
-        <div className="h-2" />
+        <div className="h-1" />
         <Button
           variant="ghost"
           onClick={newConv}
