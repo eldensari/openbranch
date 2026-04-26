@@ -252,11 +252,10 @@ export default function ChatPanel(props: Props) {
                 <Plus className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="w-56 rounded-2xl p-1.5">
+            <DropdownMenuContent align="start" side="top">
               <DropdownMenuItem
                 onSelect={() => fileInputRef.current?.click()}
                 disabled={attachments?.length >= MAX_ATTACHMENTS}
-                className="gap-3 py-2.5"
               >
                 <Paperclip className="size-4" />
                 Upload a file
@@ -264,7 +263,6 @@ export default function ChatPanel(props: Props) {
               <DropdownMenuItem
                 onSelect={toggleWebSearch}
                 className={cn(
-                  "gap-3 py-2.5",
                   webSearchOn && "text-[color:var(--branch-1)] focus:text-[color:var(--branch-1)]",
                 )}
               >
@@ -390,13 +388,12 @@ export default function ChatPanel(props: Props) {
               <PanelRight className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44 rounded-2xl p-1.5">
+          <DropdownMenuContent align="end">
             <DropdownMenuItem
               onSelect={() => {
                 setGraph(!graph);
                 setSourcesOpen(false);
               }}
-              className="gap-3 py-2.5"
             >
               <GitBranch className="size-4" />
               Graph
@@ -408,7 +405,6 @@ export default function ChatPanel(props: Props) {
                 if (!sourcesOpen) setGraph(false);
               }}
               disabled={allSources.length === 0}
-              className="gap-3 py-2.5"
             >
               <Link2 className="size-4" />
               Sources
