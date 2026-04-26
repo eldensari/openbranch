@@ -141,7 +141,7 @@ export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[
           className="my-2 border-l-2 border-border pl-4 italic text-muted-foreground"
         >
           {quoteLines.map((q, idx) => (
-            <div key={idx} className="text-[16px] leading-relaxed">
+            <div key={idx} className="text-[15px] leading-relaxed">
               {renderInline(q, kr, chips)}
             </div>
           ))}
@@ -188,7 +188,7 @@ export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[
     }
     if (line.startsWith("### ")) {
       elements.push(
-        <h3 key={kr.k++} className="mt-4 mb-1 text-[16px] font-semibold">
+        <h3 key={kr.k++} className="mt-4 mb-1 text-[15px] font-semibold">
           {renderInline(line.slice(4), kr, chips)}
         </h3>,
       );
@@ -222,7 +222,7 @@ export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[
       elements.push(
         <ul key={kr.k++} className="my-1 list-disc pl-6">
           {items.map((it) => (
-            <li key={kr.k++} className="text-[16px] leading-relaxed">
+            <li key={kr.k++} className="text-[15px] leading-relaxed">
               {renderInline(it, kr, chips)}
             </li>
           ))}
@@ -239,7 +239,7 @@ export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[
       elements.push(
         <ol key={kr.k++} className="my-1 list-decimal pl-6">
           {items.map((it) => (
-            <li key={kr.k++} className="text-[16px] leading-relaxed">
+            <li key={kr.k++} className="text-[15px] leading-relaxed">
               {renderInline(it, kr, chips)}
             </li>
           ))}
@@ -253,7 +253,7 @@ export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[
       continue;
     }
     elements.push(
-      <p key={kr.k++} className="text-[16px] leading-relaxed">
+      <p key={kr.k++} className="text-[15px] leading-relaxed">
         {renderInline(line, kr, chips)}
       </p>,
     );
