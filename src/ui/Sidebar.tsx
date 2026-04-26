@@ -693,7 +693,7 @@ export default function AppSidebar(props: Props) {
                 <button
                   type="button"
                   onClick={() => setCreatingTag(true)}
-                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent"
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors hover:bg-sidebar-accent"
                 >
                   <span className="shrink-0 text-muted-foreground">+</span>
                   New tag
