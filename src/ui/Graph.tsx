@@ -78,13 +78,12 @@ export default function Graph(props: Props) {
     onRenameBranch, onDeleteBranch,
   } = props;
   const [ctx, setCtx] = useState<any>(null);
-  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  const [labelDraft, setLabelDraft] = useState("");
   const [tagPicker, setTagPicker] = useState<any>(null);
   const [tagInput, setTagInput] = useState("");
   const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
   const [chipCtx, setChipCtx] = useState<{ x: number; y: number; branch: string } | null>(null);
   const [renamingBranchName, setRenamingBranchName] = useState<string | null>(null);
+  const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
   const hasParent = !!parentRef;
   const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
 
@@ -276,7 +275,6 @@ export default function Graph(props: Props) {
           const hov = hoveredCid === n.cid;
           const hasActiveTag = activeTags && activeTags.size > 0 && (cm?.tags || []).some((tg: string) => activeTags.has(tg));
           const r = cur ? 6 : isMrg ? 6 : nR;
-          const isEditing = editingNodeId === n.cid;
           const displayText = cm?.displayLabel || (cm?.prompt || "").replace(/\s+/g, " ").trim();
 
           const nodeOn = cidOnPath(n.cid);
@@ -290,18 +288,11 @@ export default function Graph(props: Props) {
               onMouseEnter={() => setHoverNodeId(n.cid)}
               onMouseLeave={() => setHoverNodeId((p) => (p === n.cid ? null : p))}
               onClick={(e) => {
-                if (isEditing) return;
                 e.stopPropagation();
                 setCtx(null);
                 if (selectMode) { onSelectNode(n.cid); return; }
                 if (mergeMode) { onToggleSel(n.cid); return; }
                 if (cm) onCheckout(cm.id, cm.branch);
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!cm) return;
-                setLabelDraft(cm.displayLabel || (cm.prompt || "").replace(/\s+/g, " ").trim());
-                setEditingNodeId(n.cid);
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -318,33 +309,15 @@ export default function Graph(props: Props) {
               {mergeSel && (
                 <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">✓</text>
               )}
-              {isEditing ? (
-                <foreignObject x={lX - 4} y={p.y - 10} width={Math.max(60, W - lX)} height={22} onClick={(e) => e.stopPropagation()}>
-                  <input
-                    autoFocus
-                    value={labelDraft}
-                    onChange={(e) => setLabelDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { onEditLabel?.(n.cid, labelDraft); setEditingNodeId(null); }
-                      if (e.key === "Escape") setEditingNodeId(null);
-                    }}
-                    onBlur={() => { onEditLabel?.(n.cid, labelDraft); setEditingNodeId(null); }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="box-border w-full rounded-sm border bg-background px-1.5 py-0.5 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-ring"
-                    style={{ borderColor: "var(--ring)" }}
-                  />
-                </foreignObject>
-              ) : (
-                <text x={lX} y={p.y + 4} fontSize={11.5} fontWeight={cur || hov ? 600 : 400} fill={cur || hov ? col : fg} style={{ fontFamily: "system-ui" }}>
-                  {isMrg ? "⮅ " : ""}
-                  {trunc(displayText, maxChars)}
-                  {cm?.tags?.length > 0 && (
-                    <tspan fill="var(--branch-1)" fontSize={10} fontWeight={500}>
-                      {"  " + cm.tags.map((tg: string) => "#" + tg).join(" ")}
-                    </tspan>
-                  )}
-                </text>
-              )}
+              <text x={lX} y={p.y + 4} fontSize={11.5} fontWeight={cur || hov ? 600 : 400} fill={cur || hov ? col : fg} style={{ fontFamily: "system-ui" }}>
+                {isMrg ? "⮅ " : ""}
+                {trunc(displayText, maxChars)}
+                {cm?.tags?.length > 0 && (
+                  <tspan fill="var(--branch-1)" fontSize={10} fontWeight={500}>
+                    {"  " + cm.tags.map((tg: string) => "#" + tg).join(" ")}
+                  </tspan>
+                )}
+              </text>
               {hoverNodeId === n.cid && cm?.model && (
                 <text x={lX} y={p.y + 17} fontSize={9} fill={mutedFg} style={{ fontFamily: "system-ui", pointerEvents: "none" }}>
                   {shortModelName(cm.model)}
@@ -402,6 +375,15 @@ export default function Graph(props: Props) {
             <Plus className="size-4" />
             New
           </button>
+          {!ctx.range && (
+            <button
+              onClick={() => { const cid = ctx.cid; setCtx(null); setRenamingNodeId(cid); }}
+              className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              <Pencil className="size-4" />
+              Rename
+            </button>
+          )}
           {!ctx.range && (
             <button
               onClick={() => { const cid = ctx.cid; const x = ctx.x; const y = ctx.y; setCtx(null); setTagInput(""); setTagPicker({ cid, x, y }); }}
@@ -511,6 +493,18 @@ export default function Graph(props: Props) {
         title="Rename branch"
         initialValue={renamingBranchName ? getBranchLabel(commits, renamingBranchName, branchTitles) : ""}
         onSave={(v) => { if (renamingBranchName) onRenameBranch?.(renamingBranchName, v); setRenamingBranchName(null); }}
+      />
+
+      <RenameDialog
+        open={!!renamingNodeId}
+        onOpenChange={(o) => { if (!o) setRenamingNodeId(null); }}
+        title="Rename commit"
+        initialValue={(() => {
+          if (!renamingNodeId) return "";
+          const cm = commits.find((c: any) => c.id === renamingNodeId);
+          return cm?.displayLabel || (cm?.prompt || "").replace(/\s+/g, " ").trim();
+        })()}
+        onSave={(v) => { if (renamingNodeId) onEditLabel?.(renamingNodeId, v); setRenamingNodeId(null); }}
       />
     </div>
   );
