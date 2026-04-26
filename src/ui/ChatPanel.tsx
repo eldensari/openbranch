@@ -363,7 +363,7 @@ export default function ChatPanel(props: Props) {
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setMovingChat(true)} className="gap-3 py-2">
                   <Folder className="size-4" />
-                  Move to folder
+                  Move to project
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

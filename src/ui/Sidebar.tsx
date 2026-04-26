@@ -3,7 +3,7 @@ import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
 import { buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, PanelLeft, Pencil, Search, Settings, SquarePen, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal, PanelLeft, Pencil, Search, Settings, Sparkles, SquarePen, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -237,7 +237,7 @@ export default function AppSidebar(props: Props) {
       <RenameDialog
         open={!!renamingFolder}
         onOpenChange={(o) => { if (!o) setRenamingClusterId(null); }}
-        title="Rename folder"
+        title="Rename project"
         initialValue={renameVal}
         onSave={(v) => { if (renamingFolder) renameFolder(renamingFolder.id, v); setRenamingClusterId(null); }}
       />
@@ -256,8 +256,8 @@ export default function AppSidebar(props: Props) {
         convId={movingFolderId}
         onMove={(fid, parentId) => moveFolder(fid, parentId)}
         onAfterMove={(parentId) => { if (parentId) expandFolder(parentId); }}
-        title="Move folder"
-        description="Select a parent folder."
+        title="Move project"
+        description="Select a parent project."
         excludeFolderId={movingFolderId}
       />
     </>
@@ -371,7 +371,7 @@ export default function AppSidebar(props: Props) {
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => setMovingConvId(cv.id)} className="gap-3 py-2">
                     <Folder className="size-4" />
-                    Move to folder
+                    Move to project
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -404,7 +404,7 @@ export default function AppSidebar(props: Props) {
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => setMovingConvId(cv.id)} className="gap-3 py-2">
               <Folder className="size-4" />
-              Move to folder
+              Move to project
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -486,7 +486,7 @@ export default function AppSidebar(props: Props) {
         setRenamingId(null);
       },
       delete: () => {
-        const folderTitle = folder.title || "this folder";
+        const folderTitle = folder.title || "this project";
         const set = new Set<string>([folderId]);
         let grew = true;
         while (grew) {
@@ -498,8 +498,8 @@ export default function AppSidebar(props: Props) {
         const affected = convs.filter((cv: any) => set.has(cv.clusterId));
         const n = affected.length;
         const msg = n > 0
-          ? `Delete folder "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent folder. Subfolders stay; only the folder itself is removed.`
-          : `Delete folder "${folderTitle}"?`;
+          ? `Delete project "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent project. Sub-projects stay; only the project itself is removed.`
+          : `Delete project "${folderTitle}"?`;
         setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
       },
     };
@@ -544,7 +544,7 @@ export default function AppSidebar(props: Props) {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem variant="destructive" onSelect={folderActions.delete} className="gap-3 py-2">
                       <Trash2 className="size-4" />
-                      Delete folder
+                      Delete project
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -567,13 +567,13 @@ export default function AppSidebar(props: Props) {
               className="gap-3 py-2"
             >
               <Folder className="size-4" />
-              Move to folder
+              Move to project
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
               variant="destructive"
               onSelect={() => {
-                const folderTitle = folder.title || "this folder";
+                const folderTitle = folder.title || "this project";
                 const affected: any[] = [];
                 const set = new Set([folderId]);
                 let grew = true;
@@ -586,14 +586,14 @@ export default function AppSidebar(props: Props) {
                 for (const cv of convs) if (set.has(cv.clusterId)) affected.push(cv);
                 const n = affected.length;
                 const msg = n > 0
-                  ? `Delete folder "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent folder. Subfolders stay; only the folder itself is removed.`
-                  : `Delete folder "${folderTitle}"?`;
+                  ? `Delete project "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent project. Sub-projects stay; only the project itself is removed.`
+                  : `Delete project "${folderTitle}"?`;
                 setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
               }}
               className="gap-3 py-2"
             >
               <Trash2 className="size-4" />
-              Delete folder
+              Delete project
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -739,22 +739,20 @@ export default function AppSidebar(props: Props) {
               </span>
             </button>
             {projectsOpen && (
-              <button
-                type="button"
-                onClick={() => {
-                  const f = createFolder(null);
-                  setRenameVal("Untitled");
-                  setRenamingClusterId(f.id);
-                  setRenamingId(null);
-                }}
-                className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-normal text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              >
-                <FolderPlus className="size-4 shrink-0" />
-                New folder
-              </button>
-            )}
-            {projectsOpen && folderGroups.length > 0 && (
               <div className="flex flex-col px-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const f = createFolder(null);
+                    setRenameVal("Untitled");
+                    setRenamingClusterId(f.id);
+                    setRenamingId(null);
+                  }}
+                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                >
+                  <Sparkles className="size-4 shrink-0" />
+                  New project
+                </button>
                 {folderGroups.map((group: any) => renderFolder(group, 0))}
               </div>
             )}
@@ -768,7 +766,7 @@ export default function AppSidebar(props: Props) {
               onClick={() => setChatsOpen((v) => !v)}
               className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
-              Chats
+              Recents
               <span className="opacity-0 transition-opacity group-hover/chat-head:opacity-100">
                 {chatsOpen ? (
                   <ChevronDown className="size-3" />

@@ -67,7 +67,7 @@ export default function MoveToFolderDialog({ open, onOpenChange, clusters, convI
       <DialogContent className="gap-3 sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title ?? "Move chat"}</DialogTitle>
-          <DialogDescription>{description ?? "Select a folder to move this chat into."}</DialogDescription>
+          <DialogDescription>{description ?? "Select a project to move this chat into."}</DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2 rounded-md border px-2.5 py-1.5">
           <Search className="size-4 shrink-0 text-muted-foreground" />
@@ -75,7 +75,7 @@ export default function MoveToFolderDialog({ open, onOpenChange, clusters, convI
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search folders..."
+            placeholder="Search projects..."
             className="h-7 flex-1 bg-transparent text-sm outline-none"
           />
         </div>
@@ -100,10 +100,10 @@ export default function MoveToFolderDialog({ open, onOpenChange, clusters, convI
             </button>
           ))}
           {matches.length === 0 && q && (
-            <div className="py-6 text-center text-sm text-muted-foreground">No folders match "{query}"</div>
+            <div className="py-6 text-center text-sm text-muted-foreground">No projects match "{query}"</div>
           )}
           {flat.length === 0 && (
-            <div className="py-6 text-center text-sm text-muted-foreground">No folders yet — create one from the sidebar.</div>
+            <div className="py-6 text-center text-sm text-muted-foreground">No projects yet — create one from the sidebar.</div>
           )}
         </div>
       </DialogContent>
