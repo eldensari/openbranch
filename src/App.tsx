@@ -78,7 +78,8 @@ export default function App() {
   const [scrollTarget, setScrollTarget] = useState(null);
   const [hoveredCid, setHoveredCid] = useState(null);
   const [chatMenu, setChatMenu] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(null); // { msg, onConfirm } | null
+  const [confirmDialog, setConfirmDialog] = useState(null); // { title, body, msg, note, confirmLabel, onConfirm } | null
+  const confirmDialogRef = useRef(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renamingBranch, setRenamingBranch] = useState(null); // { convId, branch } | null
   const [renamingClusterId, setRenamingClusterId] = useState(null);
@@ -936,26 +937,34 @@ export default function App() {
         </div>
 
         <AlertDialogContent>
-          <AlertDialogHeader className="gap-3">
-            <AlertDialogTitle>{confirmDialog?.title ?? "Confirm"}</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <div className="text-foreground">{confirmDialog?.body ?? confirmDialog?.msg}</div>
-                {confirmDialog?.note && (
-                  <div className="text-xs text-muted-foreground">{confirmDialog.note}</div>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => { confirmDialog?.onConfirm?.(); setConfirmDialog(null); }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {confirmDialog?.confirmLabel ?? "Confirm"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          {(() => {
+            if (confirmDialog) confirmDialogRef.current = confirmDialog;
+            const dlg = confirmDialog ?? confirmDialogRef.current;
+            return (
+              <>
+                <AlertDialogHeader className="gap-3">
+                  <AlertDialogTitle>{dlg?.title ?? "Confirm"}</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2">
+                      <div className="text-foreground">{dlg?.body ?? dlg?.msg}</div>
+                      {dlg?.note && (
+                        <div className="text-xs text-muted-foreground">{dlg.note}</div>
+                      )}
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => { dlg?.onConfirm?.(); setConfirmDialog(null); }}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {dlg?.confirmLabel ?? "Confirm"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })()}
         </AlertDialogContent>
       </AlertDialog>
     </SidebarProvider>
