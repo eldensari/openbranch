@@ -25,16 +25,34 @@ type Props = {
   convId: string | null;
   onMove: (convId: string, folderId: string | null) => void;
   onAfterMove?: (folderId: string | null) => void;
+  title?: string;
+  description?: string;
+  excludeFolderId?: string | null;
 };
 
-export default function MoveToFolderDialog({ open, onOpenChange, clusters, convId, onMove, onAfterMove }: Props) {
+export default function MoveToFolderDialog({ open, onOpenChange, clusters, convId, onMove, onAfterMove, title, description, excludeFolderId }: Props) {
   const [query, setQuery] = useState("");
 
   const flat = flattenFolders(clusters);
+  const excludedSet = new Set<string>();
+  if (excludeFolderId) {
+    excludedSet.add(excludeFolderId);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of clusters) {
+        if (!excludedSet.has(c.id) && c.parentId && excludedSet.has(c.parentId)) {
+          excludedSet.add(c.id);
+          grew = true;
+        }
+      }
+    }
+  }
+  const visible = flat.filter(({ folder }) => !excludedSet.has(folder.id));
   const q = query.trim().toLowerCase();
   const matches = q
-    ? flat.filter(({ folder }) => (folder.title || formatClusterTitle(folder.createdAt) || "").toLowerCase().includes(q))
-    : flat;
+    ? visible.filter(({ folder }) => (folder.title || formatClusterTitle(folder.createdAt) || "").toLowerCase().includes(q))
+    : visible;
 
   const choose = (folderId: string | null) => {
     if (!convId) return;
@@ -48,8 +66,8 @@ export default function MoveToFolderDialog({ open, onOpenChange, clusters, convI
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) setQuery(""); }}>
       <DialogContent className="gap-3 sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Move chat</DialogTitle>
-          <DialogDescription>Select a folder to move this chat into.</DialogDescription>
+          <DialogTitle>{title ?? "Move chat"}</DialogTitle>
+          <DialogDescription>{description ?? "Select a folder to move this chat into."}</DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2 rounded-md border px-2.5 py-1.5">
           <Search className="size-4 shrink-0 text-muted-foreground" />

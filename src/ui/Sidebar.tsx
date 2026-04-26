@@ -78,7 +78,7 @@ export default function AppSidebar(props: Props) {
     renameVal, setRenameVal,
     expandedClusters, toggleCluster, expandFolder,
     activeFolderId, setActiveFolderId,
-    createFolder, renameFolder, deleteFolder, moveConvToFolder,
+    createFolder, renameFolder, deleteFolder, moveConvToFolder, moveFolder,
     apiKey, setApiKey, showKeyInput, setShowKeyInput, keyDraft, setKeyDraft, hasKey, setRateLimited,
     newConv, loadMain,
     renameConv, del, countChildConvs,
@@ -92,6 +92,7 @@ export default function AppSidebar(props: Props) {
   const [tagsOpen, setTagsOpen] = useState(false);
   const [chatsOpen, setChatsOpen] = useState(true);
   const [movingConvId, setMovingConvId] = useState<string | null>(null);
+  const [movingFolderId, setMovingFolderId] = useState<string | null>(null);
   const q = searchQuery.trim().toLowerCase();
 
   const openSearch = () => {
@@ -246,6 +247,17 @@ export default function AppSidebar(props: Props) {
         convId={movingConvId}
         onMove={moveConvToFolder}
         onAfterMove={(fid) => { if (fid) expandFolder(fid); }}
+      />
+      <MoveToFolderDialog
+        open={!!movingFolderId}
+        onOpenChange={(o) => { if (!o) setMovingFolderId(null); }}
+        clusters={clusters}
+        convId={movingFolderId}
+        onMove={(fid, parentId) => moveFolder(fid, parentId)}
+        onAfterMove={(parentId) => { if (parentId) expandFolder(parentId); }}
+        title="Move folder"
+        description="Select a parent folder."
+        excludeFolderId={movingFolderId}
       />
     </>
   );
@@ -520,18 +532,13 @@ export default function AppSidebar(props: Props) {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" side="bottom" className="min-w-[14rem] rounded-2xl p-1" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem onSelect={folderActions.newChat} className="gap-3 py-2">
-                      <SquarePen className="size-4" />
-                      New chat
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={folderActions.newFolder} className="gap-3 py-2">
-                      <FolderPlus className="size-4" />
-                      New folder
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={folderActions.rename} className="gap-3 py-2">
                       <Pencil className="size-4" />
                       Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setMovingFolderId(folderId)} className="gap-3 py-2">
+                      <Folder className="size-4" />
+                      Move to folder
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem variant="destructive" onSelect={folderActions.delete} className="gap-3 py-2">
@@ -545,31 +552,6 @@ export default function AppSidebar(props: Props) {
           <ContextMenuContent className="min-w-[14rem] rounded-2xl p-1">
             <ContextMenuItem
               onSelect={() => {
-                setActiveFolderId(folderId);
-                expandFolder(folderId);
-                newConv();
-              }}
-              className="gap-3 py-2"
-            >
-              <SquarePen className="size-4" />
-              New chat
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => {
-                expandFolder(folderId);
-                const f = createFolder(folderId);
-                setRenameVal("Untitled");
-                setRenamingClusterId(f.id);
-                setRenamingId(null);
-              }}
-              className="gap-3 py-2"
-            >
-              <FolderPlus className="size-4" />
-              New folder
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              onSelect={() => {
                 setRenameVal(folder.title || "");
                 setRenamingClusterId(folderId);
                 setRenamingId(null);
@@ -578,6 +560,13 @@ export default function AppSidebar(props: Props) {
             >
               <Pencil className="size-4" />
               Rename
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => setMovingFolderId(folderId)}
+              className="gap-3 py-2"
+            >
+              <Folder className="size-4" />
+              Move to folder
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -748,6 +737,21 @@ export default function AppSidebar(props: Props) {
                 )}
               </span>
             </button>
+            {chatsOpen && (
+              <button
+                type="button"
+                onClick={() => {
+                  const f = createFolder(null);
+                  setRenameVal("Untitled");
+                  setRenamingClusterId(f.id);
+                  setRenamingId(null);
+                }}
+                className="mx-1 flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-normal text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              >
+                <FolderPlus className="size-4" />
+                New folder
+              </button>
+            )}
             {chatsOpen && (
               <ContextMenu>
                 <ContextMenuTrigger asChild>
