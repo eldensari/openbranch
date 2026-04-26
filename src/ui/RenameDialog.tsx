@@ -44,7 +44,7 @@ export default function RenameDialog({ open, onOpenChange, title, initialValue, 
             setTimeout(() => target.select(), 0);
           }}
           placeholder={placeholder}
-          className="h-10 rounded-lg selection:bg-[#3b82f6]/30 selection:text-foreground focus-visible:ring-[#3b82f6]/50"
+          className="h-10 rounded-lg selection:bg-[#3b82f6]/30 selection:text-foreground focus-visible:ring-[#3b82f6]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-full px-4">
