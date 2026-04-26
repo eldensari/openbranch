@@ -936,13 +936,13 @@ export default function App() {
           </div>
         </div>
 
-        <AlertDialogContent className="gap-6">
+        <AlertDialogContent>
           {(() => {
             if (confirmDialog) confirmDialogRef.current = confirmDialog;
             const dlg = confirmDialog ?? confirmDialogRef.current;
             return (
               <>
-                <AlertDialogHeader className="gap-5">
+                <AlertDialogHeader>
                   <AlertDialogTitle>{dlg?.title ?? "Confirm"}</AlertDialogTitle>
                   <AlertDialogDescription asChild>
                     <div className="space-y-2">
