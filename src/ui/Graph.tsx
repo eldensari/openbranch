@@ -184,6 +184,8 @@ export default function Graph(props: Props) {
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                setCtx(null);
+                setTagPicker(null);
                 setChipCtx({ x: e.clientX, y: e.clientY, branch: b });
               }}
               title={raw}
@@ -297,6 +299,8 @@ export default function Graph(props: Props) {
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                setChipCtx(null);
+                setTagPicker(null);
                 setCtx({ x: e.clientX, y: e.clientY, cid: n.cid, range: selectMode && rangeSel && selectedRangeIds?.length > 0 });
               }}
             >
