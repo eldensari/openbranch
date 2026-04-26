@@ -40,6 +40,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import RenameDialog from "./RenameDialog";
 import MoveToFolderDialog from "./MoveToFolderDialog";
 import {
@@ -500,21 +507,57 @@ export default function ChatPanel(props: Props) {
                     </div>
                   ) : (
                     <>
-                      <div
-                        className={cn(
-                          "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
-                          isMrg
-                            ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
-                            : "bg-user-bubble text-user-foreground",
-                        )}
-                      >
-                        {isMrg && (
-                          <div className="mb-1 text-[11px] font-semibold text-[color:var(--branch-5)]">MERGE</div>
-                        )}
-                        {cm.prompt}
-                      </div>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            className={cn(
+                              "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
+                              isMrg
+                                ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
+                                : "bg-user-bubble text-user-foreground",
+                            )}
+                          >
+                            {isMrg && (
+                              <div className="mb-1 text-[11px] font-semibold text-[color:var(--branch-5)]">MERGE</div>
+                            )}
+                            {cm.prompt}
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="min-w-[12rem] rounded-2xl p-1">
+                          <ContextMenuItem onSelect={() => copyToClipboard(cm.prompt)} className="gap-3 py-2">
+                            <Copy className="size-4" />
+                            Copy
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => beginInlineEdit(cm)} className="gap-3 py-2">
+                            <Pencil className="size-4" />
+                            Edit
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => startBranchFrom(cm.id)} className="gap-3 py-2">
+                            <GitBranch className="size-4" />
+                            Branch
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => startNew(cm.id)} className="gap-3 py-2">
+                            <Plus className="size-4" />
+                            New
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            variant="destructive"
+                            onSelect={() => {
+                              setConfirmDialog?.({
+                                msg: "Delete this commit and all its children?",
+                                onConfirm: () => deleteCommit(cm.id),
+                              });
+                            }}
+                            className="gap-3 py-2"
+                          >
+                            <Trash2 className="size-4" />
+                            Delete
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                       {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
-                      <div className="mt-1 flex justify-end gap-0.5 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/cm:opacity-100 focus-within:opacity-100">
+                      <div className="mt-1 flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -556,7 +599,7 @@ export default function ChatPanel(props: Props) {
                         </>
                       )}
                   </div>
-                  <div className="-ml-2 mt-1 flex gap-0.5 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/cm:opacity-100 focus-within:opacity-100">
+                  <div className="-ml-2 mt-1 flex gap-0.5">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
