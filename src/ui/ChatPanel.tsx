@@ -445,12 +445,12 @@ export default function ChatPanel(props: Props) {
       </div>
       <div
         className={cn(
-          "flex-1 overflow-y-auto pt-10",
+          "flex-1 overflow-y-auto pt-14",
           thread.length === 0 && !pending && !newFromRef && "flex items-center",
         )}
       >
         {thread.length === 0 && !pending && !newFromRef ? (
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4">
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4">
             <div className="flex flex-col items-center gap-8">
               <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
               <div className="w-full max-w-2xl">{composer}</div>
@@ -458,14 +458,14 @@ export default function ChatPanel(props: Props) {
           </div>
         ) : (
           <div className="flex min-h-full w-full flex-col">
-            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4">
+            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4">
               {thread.map((cm: any) => {
                 const isMrg = (cm.mergeIds || []).length > 0;
                 return (
               <div
                 key={cm.id}
                 id={"cm-" + cm.id}
-                className="group/cm flex flex-col gap-2"
+                className="group/cm flex flex-col gap-4"
                 onMouseEnter={() => setHoveredCid(cm.id)}
                 onMouseLeave={() => setHoveredCid(null)}
               >
