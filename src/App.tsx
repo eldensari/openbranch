@@ -936,7 +936,7 @@ export default function App() {
         </div>
 
         <AlertDialogContent>
-          <AlertDialogHeader>
+          <AlertDialogHeader className="gap-3">
             <AlertDialogTitle>{confirmDialog?.title ?? "Confirm"}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
