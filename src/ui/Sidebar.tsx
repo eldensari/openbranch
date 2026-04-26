@@ -262,7 +262,7 @@ export default function AppSidebar(props: Props) {
               onClick={toggleSidebar}
               title="Expand sidebar"
             >
-              <img src="/favicon.svg" alt="OpenBranch" className="size-5" />
+              <img src="/favicon.svg" alt="OpenBranch" className="size-6" />
             </Button>
             <Button
               variant="ghost"
