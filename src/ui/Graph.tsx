@@ -357,7 +357,7 @@ export default function Graph(props: Props) {
 
       {chipCtx && (
         <div
-          className="fixed z-[100] min-w-[12rem] rounded-2xl border bg-popover p-1.5 text-popover-foreground shadow-md"
+          className="fixed z-[100] min-w-[14rem] rounded-2xl border bg-popover p-1 text-popover-foreground shadow-md"
           style={{ left: chipCtx.x, top: chipCtx.y }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -366,7 +366,7 @@ export default function Graph(props: Props) {
               setRenamingBranchName(chipCtx.branch);
               setChipCtx(null);
             }}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
           >
             <Pencil className="size-4" />
             Rename
@@ -374,7 +374,7 @@ export default function Graph(props: Props) {
           <div className="my-1 h-px bg-border" />
           <button
             onClick={() => { const b = chipCtx.branch; setChipCtx(null); onDeleteBranch?.(b); }}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="size-4" />
             Delete
@@ -384,20 +384,20 @@ export default function Graph(props: Props) {
 
       {ctx && !ctx.confirm && (
         <div
-          className="fixed z-[100] min-w-[12rem] rounded-2xl border bg-popover p-1.5 text-popover-foreground shadow-md"
+          className="fixed z-[100] min-w-[14rem] rounded-2xl border bg-popover p-1 text-popover-foreground shadow-md"
           style={{ left: ctx.x, top: ctx.y }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
             onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeBranch() : onBranch(cid); }}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
           >
             <GitBranch className="size-4" />
             Branch
           </button>
           <button
             onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeNew() : onNew(cid); }}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
           >
             <Plus className="size-4" />
             New
@@ -405,7 +405,7 @@ export default function Graph(props: Props) {
           {!ctx.range && (
             <button
               onClick={() => { const cid = ctx.cid; const x = ctx.x; const y = ctx.y; setCtx(null); setTagInput(""); setTagPicker({ cid, x, y }); }}
-              className="flex w-full items-center gap-3 rounded-sm px-2 py-2.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
             >
               <TagIcon className="size-4" />
               Tag
@@ -414,7 +414,7 @@ export default function Graph(props: Props) {
           <div className="my-1 h-px bg-border" />
           <button
             onClick={() => setCtx({ ...ctx, confirm: true })}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2.5 text-left text-sm text-destructive hover:bg-destructive/10"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="size-4" />
             Delete
