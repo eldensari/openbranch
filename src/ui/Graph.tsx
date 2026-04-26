@@ -154,7 +154,7 @@ export default function Graph(props: Props) {
 
   return (
     <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
-      <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
+      <div className="graph-scroll sticky top-0 z-10 flex gap-1 overflow-x-auto border-b bg-graph-bg px-3 py-2">
         {orderBranchesByTree(commits, names).map((b) => {
           const c = bCol(names, b);
           const act = b === activeBranch;
@@ -174,7 +174,7 @@ export default function Graph(props: Props) {
               }}
               title={raw}
               className={cn(
-                "rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors",
+                "shrink-0 rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors",
                 act ? "font-semibold" : "font-normal opacity-80 hover:opacity-100",
               )}
               style={{

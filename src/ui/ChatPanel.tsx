@@ -747,7 +747,6 @@ export default function ChatPanel(props: Props) {
                 setSel([]);
               }}
               className="h-7 rounded-full px-2.5 text-xs"
-              style={{ color: "var(--branch-5)", borderColor: "var(--branch-5)" }}
             >
               Merge
             </Button>
