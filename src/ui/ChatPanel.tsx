@@ -472,7 +472,7 @@ export default function ChatPanel(props: Props) {
               <div
                 key={cm.id}
                 id={"cm-" + cm.id}
-                className="group/cm flex flex-col gap-4"
+                className={cn("group/cm flex flex-col", inlineEditId === cm.id ? "gap-8" : "gap-4")}
                 onMouseEnter={() => setHoveredCid(cm.id)}
                 onMouseLeave={() => setHoveredCid(null)}
               >
