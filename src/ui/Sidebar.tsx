@@ -90,6 +90,7 @@ export default function AppSidebar(props: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [tagsOpen, setTagsOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(true);
   const [movingConvId, setMovingConvId] = useState<string | null>(null);
   const [movingFolderId, setMovingFolderId] = useState<string | null>(null);
@@ -725,19 +726,19 @@ export default function AppSidebar(props: Props) {
           <SidebarGroup>
             <button
               type="button"
-              onClick={() => setChatsOpen((v) => !v)}
-              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              onClick={() => setProjectsOpen((v) => !v)}
+              className="group/proj-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
-              Chats
-              <span className="opacity-0 transition-opacity group-hover/chat-head:opacity-100">
-                {chatsOpen ? (
+              Projects
+              <span className="opacity-0 transition-opacity group-hover/proj-head:opacity-100">
+                {projectsOpen ? (
                   <ChevronDown className="size-3" />
                 ) : (
                   <ChevronRight className="size-3" />
                 )}
               </span>
             </button>
-            {chatsOpen && (
+            {projectsOpen && (
               <button
                 type="button"
                 onClick={() => {
@@ -752,29 +753,34 @@ export default function AppSidebar(props: Props) {
                 New folder
               </button>
             )}
+            {projectsOpen && folderGroups.length > 0 && (
+              <div className="flex flex-col px-1">
+                {folderGroups.map((group: any) => renderFolder(group, 0))}
+              </div>
+            )}
+          </SidebarGroup>
+        )}
+
+        {!collapsed && (
+          <SidebarGroup>
+            <button
+              type="button"
+              onClick={() => setChatsOpen((v) => !v)}
+              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+            >
+              Chats
+              <span className="opacity-0 transition-opacity group-hover/chat-head:opacity-100">
+                {chatsOpen ? (
+                  <ChevronDown className="size-3" />
+                ) : (
+                  <ChevronRight className="size-3" />
+                )}
+              </span>
+            </button>
             {chatsOpen && (
-              <ContextMenu>
-                <ContextMenuTrigger asChild>
-                  <div className="flex flex-col px-1">
-                    {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0))}
-                    {folderGroups.map((group: any) => renderFolder(group, 0))}
-                  </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent className="min-w-[14rem] rounded-2xl p-1">
-                  <ContextMenuItem
-                    onSelect={() => {
-                      const f = createFolder(null);
-                      setRenameVal("Untitled");
-                      setRenamingClusterId(f.id);
-                      setRenamingId(null);
-                    }}
-                    className="gap-3 py-2"
-                  >
-                    <FolderPlus className="size-4" />
-                    New folder
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
+              <div className="flex flex-col px-1">
+                {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0))}
+              </div>
             )}
           </SidebarGroup>
         )}
