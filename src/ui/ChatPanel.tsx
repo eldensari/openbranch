@@ -514,7 +514,7 @@ export default function ChatPanel(props: Props) {
                         {cm.prompt}
                       </div>
                       {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
-                      <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
+                      <div className="mt-1 flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -556,7 +556,7 @@ export default function ChatPanel(props: Props) {
                         </>
                       )}
                   </div>
-                  <div className="-ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
+                  <div className="-ml-2 mt-1 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
