@@ -197,7 +197,7 @@ export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[
     }
     if (line.startsWith("## ")) {
       elements.push(
-        <h2 key={kr.k++} className="mt-4 mb-1 text-[17px] font-semibold">
+        <h2 key={kr.k++} className="mt-4 mb-1 text-[18px] font-semibold">
           {renderInline(line.slice(3), kr, chips)}
         </h2>,
       );
@@ -206,7 +206,7 @@ export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[
     }
     if (line.startsWith("# ")) {
       elements.push(
-        <h1 key={kr.k++} className="mt-4 mb-1 text-[19px] font-semibold">
+        <h1 key={kr.k++} className="mt-4 mb-1 text-[20px] font-semibold">
           {renderInline(line.slice(2), kr, chips)}
         </h1>,
       );

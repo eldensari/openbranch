@@ -19,9 +19,12 @@ import {
   Square,
   Plus,
   Check,
-  MoreHorizontal,
   GitBranch,
   Link2,
+  ChevronDown,
+  PanelRight,
+  Pencil,
+  Folder,
   Trash2,
 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -36,6 +39,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import RenameDialog from "./RenameDialog";
+import MoveToFolderDialog from "./MoveToFolderDialog";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -50,7 +63,7 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export default function ChatPanel(props: Props) {
   const {
     commits, headId, branch, names, parentRef, thread,
-    convs, convId, activeTags,
+    convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
     webSearchOn, toggleWebSearch,
@@ -73,10 +86,32 @@ export default function ChatPanel(props: Props) {
     handleSelectNode, rangeToBranch, rangeToNew, deleteRange,
     editNodeLabel, editCommitTags,
     del, countChildConvs, setConfirmDialog,
+    renameBranch, requestDeleteBranch,
+    renameConv, moveConvToFolder, clusters, expandFolder,
   } = props;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [renamingChat, setRenamingChat] = useState(false);
+  const [movingChat, setMovingChat] = useState(false);
+  const [inlineEditId, setInlineEditId] = useState<string | null>(null);
+
+  const beginInlineEdit = (cm: any) => {
+    setInlineEditId(cm.id);
+    startEdit(cm.id);
+  };
+  const cancelInlineEdit = () => {
+    setInlineEditId(null);
+    setEditId(null);
+    setInput("");
+  };
+  const sendInlineEdit = () => {
+    setInlineEditId(null);
+    send();
+  };
+
+  const currentConv = convs.find((c: any) => c.id === convId);
+  const currentTitle = currentConv?.title || "Untitled";
 
   const allSources = (() => {
     const seen = new Set<string>();
@@ -243,11 +278,11 @@ export default function ChatPanel(props: Props) {
                 <Plus className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="w-56 rounded-2xl p-1.5">
+            <DropdownMenuContent align="start" side="top" className="min-w-[14rem] rounded-2xl p-1">
               <DropdownMenuItem
                 onSelect={() => fileInputRef.current?.click()}
                 disabled={attachments?.length >= MAX_ATTACHMENTS}
-                className="gap-3 py-2.5"
+                className="gap-3 py-2"
               >
                 <Paperclip className="size-4" />
                 Upload a file
@@ -255,7 +290,7 @@ export default function ChatPanel(props: Props) {
               <DropdownMenuItem
                 onSelect={toggleWebSearch}
                 className={cn(
-                  "gap-3 py-2.5",
+                  "gap-3 py-2",
                   webSearchOn && "text-[color:var(--branch-1)] focus:text-[color:var(--branch-1)]",
                 )}
               >
@@ -330,25 +365,71 @@ export default function ChatPanel(props: Props) {
 
   const chatArea = (
     <div className="relative flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center justify-end px-3">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
+        <div className="min-w-0 flex-1">
+          {convId && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="group flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-accent"
+                  title={currentTitle}
+                >
+                  <span className="truncate">{currentTitle}</span>
+                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[14rem] rounded-2xl p-1">
+                <DropdownMenuItem onSelect={() => setRenamingChat(true)} className="gap-3 py-2">
+                  <Pencil className="size-4" />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setMovingChat(true)} className="gap-3 py-2">
+                  <Folder className="size-4" />
+                  Move to project
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={!del}
+                  onSelect={() => {
+                    if (!del || !convId) return;
+                    const n = countChildConvs ? countChildConvs(convId) : 0;
+                    setConfirmDialog?.({
+                      title: "Delete chat?",
+                      body: <>This will delete <span className="font-semibold">{currentTitle}</span>.</>,
+                      note: n > 0 ? `Also deletes ${n} descendant conversation${n > 1 ? "s" : ""}.` : null,
+                      confirmLabel: "Delete",
+                      onConfirm: () => del(convId),
+                    });
+                  }}
+                  className="gap-3 py-2"
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
               className="size-8 text-muted-foreground hover:text-foreground"
-              title="More"
+              title="Panels"
             >
-              <MoreHorizontal className="size-4" />
+              <PanelRight className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 rounded-2xl p-1.5">
+          <DropdownMenuContent align="end" className="min-w-[14rem] rounded-2xl p-1">
             <DropdownMenuItem
               onSelect={() => {
                 setGraph(!graph);
                 setSourcesOpen(false);
               }}
-              className="gap-3 py-2.5"
+              className="gap-3 py-2"
             >
               <GitBranch className="size-4" />
               Graph
@@ -360,93 +441,159 @@ export default function ChatPanel(props: Props) {
                 if (!sourcesOpen) setGraph(false);
               }}
               disabled={allSources.length === 0}
-              className="gap-3 py-2.5"
+              className="gap-3 py-2"
             >
               <Link2 className="size-4" />
               Sources
               {sourcesOpen && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
             </DropdownMenuItem>
-            {convId && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  disabled={!del}
-                  onSelect={() => {
-                    if (!del || !convId) return;
-                    const n = countChildConvs ? countChildConvs(convId) : 0;
-                    const msg = n > 0
-                      ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?`
-                      : "Delete this conversation?";
-                    if (setConfirmDialog) {
-                      setConfirmDialog({ msg, onConfirm: () => del(convId) });
-                    } else if (window.confirm(msg)) {
-                      del(convId);
-                    }
-                  }}
-                  className="gap-3 py-2.5"
-                >
-                  <Trash2 className="size-4" />
-                  Delete
-                </DropdownMenuItem>
-              </>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
       <div
         className={cn(
-          "flex-1 overflow-y-auto pt-6",
+          "flex-1 overflow-y-auto pt-14",
           thread.length === 0 && !pending && !newFromRef && "flex items-center",
         )}
       >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4">
-          {thread.length === 0 && !pending && !newFromRef && (
+        {thread.length === 0 && !pending && !newFromRef ? (
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4">
             <div className="flex flex-col items-center gap-8">
               <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
               <div className="w-full max-w-2xl">{composer}</div>
             </div>
-          )}
-          {thread.map((cm: any) => {
-            const isMrg = (cm.mergeIds || []).length > 0;
-            return (
+          </div>
+        ) : (
+          <div className="flex min-h-full w-full flex-col">
+            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4">
+              {thread.map((cm: any) => {
+                const isMrg = (cm.mergeIds || []).length > 0;
+                return (
               <div
                 key={cm.id}
                 id={"cm-" + cm.id}
-                className="group/cm flex flex-col gap-2"
+                className={cn("group/cm flex flex-col", inlineEditId === cm.id ? "gap-8" : "gap-4")}
                 onMouseEnter={() => setHoveredCid(cm.id)}
                 onMouseLeave={() => setHoveredCid(null)}
               >
-                <div className="self-end max-w-[82%] flex flex-col items-end">
-                  <div
-                    className={cn(
-                      "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
-                      isMrg
-                        ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
-                        : "bg-user-bubble text-user-foreground",
-                    )}
-                  >
-                    {isMrg && (
-                      <div className="mb-1 text-[11px] font-semibold text-[color:var(--branch-5)]">MERGE</div>
-                    )}
-                    {cm.prompt}
-                  </div>
-                  {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
-                  <div className="mt-0.5 flex justify-end">
-                    <button
-                      onClick={() => startEdit(cm.id)}
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-[11px] transition-colors",
-                        editId === cm.id
-                          ? "text-[color:var(--user-foreground)]"
-                          : "text-muted-foreground/70 hover:text-[color:var(--user-foreground)]",
-                      )}
-                    >
-                      edit
-                    </button>
-                  </div>
+                <div
+                  className={cn(
+                    "flex flex-col items-end",
+                    inlineEditId === cm.id ? "w-full" : "self-end max-w-[82%]",
+                  )}
+                >
+                  {inlineEditId === cm.id ? (
+                    <div className="w-full rounded-2xl bg-user-bubble text-user-foreground px-4 py-3">
+                      <Textarea
+                        autoFocus
+                        value={input}
+                        onChange={(e: any) => setInput(e.target.value)}
+                        onKeyDown={(e: any) => {
+                          if (e.key === "Escape") { e.preventDefault(); cancelInlineEdit(); }
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendInlineEdit(); }
+                        }}
+                        rows={1}
+                        className="min-h-[24px] resize-none border-0 bg-transparent p-0 text-[15px] leading-relaxed shadow-none focus-visible:ring-0 md:text-[15px]"
+                        onInput={(e: any) => {
+                          e.target.style.height = "auto";
+                          e.target.style.height = Math.min(e.target.scrollHeight, 320) + "px";
+                        }}
+                      />
+                      <div className="mt-2 flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={cancelInlineEdit} className="h-8 rounded-full px-4">
+                          Cancel
+                        </Button>
+                        <Button size="sm" onClick={sendInlineEdit} disabled={!(input && input.trim())} className="h-8 rounded-full px-4">
+                          Send
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            className={cn(
+                              "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
+                              isMrg
+                                ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
+                                : "bg-user-bubble text-user-foreground",
+                            )}
+                          >
+                            {isMrg && (
+                              <div className="mb-1 text-[11px] font-semibold text-[color:var(--branch-5)]">MERGE</div>
+                            )}
+                            {cm.prompt}
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="min-w-[12rem] rounded-2xl p-1">
+                          <ContextMenuItem onSelect={() => copyToClipboard(cm.prompt)} className="gap-3 py-2">
+                            <Copy className="size-4" />
+                            Copy
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => beginInlineEdit(cm)} className="gap-3 py-2">
+                            <Pencil className="size-4" />
+                            Edit
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => startBranchFrom(cm.id)} className="gap-3 py-2">
+                            <GitBranch className="size-4" />
+                            Branch
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => startNew(cm.id)} className="gap-3 py-2">
+                            <Plus className="size-4" />
+                            New
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            variant="destructive"
+                            onSelect={() => {
+                              setConfirmDialog?.({
+                                title: "Delete commit?",
+                                body: <>This will delete this commit and all its children.</>,
+                                confirmLabel: "Delete",
+                                onConfirm: () => deleteCommit(cm.id),
+                              });
+                            }}
+                            className="gap-3 py-2"
+                          >
+                            <Trash2 className="size-4" />
+                            Delete
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                      {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
+                      <div className="mt-1 flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground"
+                              onClick={() => copyToClipboard(cm.prompt)}
+                            >
+                              <Copy className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Copy</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground"
+                              onClick={() => beginInlineEdit(cm)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Edit</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div className="self-start max-w-[82%] flex flex-col gap-1.5">
+                <div className="self-start w-full flex flex-col gap-1.5">
                   <div className="text-[15px] leading-relaxed">
                     {cm.responseBlocks?.length
                       ? renderResponseBlocks(cm.responseBlocks)
@@ -457,26 +604,60 @@ export default function ChatPanel(props: Props) {
                         </>
                       )}
                   </div>
-                  <div className="ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      title="Copy"
-                      onClick={() => copyToClipboard(cm.response)}
-                    >
-                      <Copy className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      title="Retry"
-                      onClick={() => retryResponse(cm.id)}
-                      disabled={thinking}
-                    >
-                      <RotateCcw className="size-3.5" />
-                    </Button>
+                  <div className="-ml-2 mt-1 flex gap-0.5">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => copyToClipboard(cm.response)}
+                        >
+                          <Copy className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">Copy</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => retryResponse(cm.id)}
+                          disabled={thinking}
+                        >
+                          <RotateCcw className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">Retry</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => startBranchFrom(cm.id)}
+                        >
+                          <GitBranch className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">Branch</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => startNew(cm.id)}
+                        >
+                          <Plus className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">New</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               </div>
@@ -498,10 +679,12 @@ export default function ChatPanel(props: Props) {
             </div>
           )}
           <div ref={endRef} />
-        </div>
-        {(thread.length > 0 || pending || newFromRef) && (
-          <div className="sticky bottom-0 z-10 bg-background px-4 pb-5 pt-8">
-            <div className="mx-auto w-full max-w-3xl">{composer}</div>
+            </div>
+            {!inlineEditId && (
+              <div className="sticky bottom-0 z-10 mt-auto bg-background px-4 pb-5 pt-8">
+                <div className="mx-auto w-full max-w-3xl">{composer}</div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -515,7 +698,7 @@ export default function ChatPanel(props: Props) {
               onCancel={() => { setBranchFromId(null); setInput(""); }}
             />
           )}
-          {editId && (
+          {editId && !inlineEditId && (
             <ModeBanner
               label="Editing — new branch"
               tone="user"
@@ -625,13 +808,29 @@ export default function ChatPanel(props: Props) {
           </div>
         </div>
       )}
+
+      <RenameDialog
+        open={renamingChat}
+        onOpenChange={setRenamingChat}
+        title="Rename chat"
+        initialValue={currentTitle}
+        onSave={(v) => { if (convId) renameConv?.(convId, v); }}
+      />
+      <MoveToFolderDialog
+        open={movingChat}
+        onOpenChange={setMovingChat}
+        clusters={clusters || []}
+        convId={convId}
+        onMove={moveConvToFolder}
+        onAfterMove={(fid) => { if (fid) expandFolder?.(fid); }}
+      />
     </div>
   );
 
   const graphArea = graph && commits.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
-      <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-graph-bg px-3">
-        <span className="text-sm font-medium">Graph</span>
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-graph-bg px-3">
+        <span className="text-base font-medium">Graph</span>
         <div className="flex items-center gap-1.5">
           {mm && (
             <span className="rounded-full bg-[color:var(--branch-5)] px-2 py-0.5 text-[10px] font-medium text-white">
@@ -679,7 +878,6 @@ export default function ChatPanel(props: Props) {
                 setSel([]);
               }}
               className="h-7 rounded-full px-2.5 text-xs"
-              style={{ color: "var(--branch-5)", borderColor: "var(--branch-5)" }}
             >
               Merge
             </Button>
@@ -725,17 +923,22 @@ export default function ChatPanel(props: Props) {
         onEditLabel={editNodeLabel}
         onEditTags={editCommitTags}
         allTags={Array.from(
-          new Set(convs.flatMap((cv: any) => (cv.commits || []).flatMap((c: any) => c.tags || []))),
+          new Set([
+            ...convs.flatMap((cv: any) => (cv.commits || []).flatMap((c: any) => c.tags || [])),
+            ...(tagPool || []),
+          ]),
         )}
         activeTags={activeTags}
+        onRenameBranch={(b: string, newTitle: string) => renameBranch(convId, b, newTitle)}
+        onDeleteBranch={(b: string) => requestDeleteBranch(b)}
       />
     </div>
   );
 
   const sourcesArea = sourcesOpen && allSources.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
-      <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3">
-        <span className="text-sm font-medium">Sources</span>
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
+        <span className="text-base font-medium">Sources</span>
         <Button
           variant="ghost"
           size="icon"

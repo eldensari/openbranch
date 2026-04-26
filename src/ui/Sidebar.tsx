@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
-import { getBranchLabel, buildBranchTree, getBranchDescendantNames } from "@/graph/branches";
-import { sidebarBranchKey, buildSidebarLayout } from "@/storage/sidebar";
+import { buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal, Menu, Search, Settings, SquarePen } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, PanelLeft, Pencil, Search, Settings, SquarePen, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +36,8 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import RenameDialog from "./RenameDialog";
+import MoveToFolderDialog from "./MoveToFolderDialog";
 
 type TimeBucket = "today" | "yesterday" | "week" | "month" | "older";
 const BUCKET_LABELS: Record<TimeBucket, string> = {
@@ -70,19 +71,17 @@ type Props = any;
 export default function AppSidebar(props: Props) {
   const {
     convs, clusters,
-    convId, branch,
-    activeTags, setActiveTags, renameTag, deleteTag,
+    convId,
+    activeTags, setActiveTags, renameTag, deleteTag, tagPool, createTag,
     renamingId, setRenamingId,
-    renamingBranch, setRenamingBranch,
     renamingClusterId, setRenamingClusterId,
     renameVal, setRenameVal,
     expandedClusters, toggleCluster, expandFolder,
-    sidebarItemOpen, toggleSidebarItem,
     activeFolderId, setActiveFolderId,
-    createFolder, renameFolder, deleteFolder, moveConvToFolder,
+    createFolder, renameFolder, deleteFolder, moveConvToFolder, moveFolder,
     apiKey, setApiKey, showKeyInput, setShowKeyInput, keyDraft, setKeyDraft, hasKey, setRateLimited,
-    newConv, loadMain, loadBranch,
-    renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
+    newConv, loadMain,
+    renameConv, del, countChildConvs,
     setConfirmDialog,
     collapsed,
     toggleSidebar,
@@ -90,8 +89,16 @@ export default function AppSidebar(props: Props) {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [tagsOpen, setTagsOpen] = useState(false);
-  const [chatsOpen, setChatsOpen] = useState(true);
+  const [tagsOpen, setTagsOpen] = useState(() => storage.get("sb.tagsOpen").value === "1");
+  const [projectsOpen, setProjectsOpen] = useState(() => storage.get("sb.projectsOpen").value !== "0");
+  const [chatsOpen, setChatsOpen] = useState(() => storage.get("sb.chatsOpen").value !== "0");
+  useEffect(() => { storage.set("sb.tagsOpen", tagsOpen ? "1" : "0"); }, [tagsOpen]);
+  useEffect(() => { storage.set("sb.projectsOpen", projectsOpen ? "1" : "0"); }, [projectsOpen]);
+  useEffect(() => { storage.set("sb.chatsOpen", chatsOpen ? "1" : "0"); }, [chatsOpen]);
+  const [movingConvId, setMovingConvId] = useState<string | null>(null);
+  const [movingFolderId, setMovingFolderId] = useState<string | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [creatingTag, setCreatingTag] = useState(false);
   const q = searchQuery.trim().toLowerCase();
 
   const openSearch = () => {
@@ -221,19 +228,89 @@ export default function AppSidebar(props: Props) {
     </Dialog>
   );
 
+  const renamingConv = renamingId ? convs.find((c: any) => c.id === renamingId) : null;
+  const renamingFolder = renamingClusterId ? clusters.find((c: any) => c.id === renamingClusterId) : null;
+  const convDialogs = (
+    <>
+      <RenameDialog
+        open={!!renamingConv}
+        onOpenChange={(o) => { if (!o) setRenamingId(null); }}
+        title="Rename chat"
+        initialValue={renameVal}
+        onSave={(v) => { if (renamingConv) renameConv(renamingConv.id, v); setRenamingId(null); }}
+      />
+      <RenameDialog
+        open={!!renamingFolder}
+        onOpenChange={(o) => { if (!o) setRenamingClusterId(null); }}
+        title="Rename project"
+        initialValue={renameVal}
+        onSave={(v) => { if (renamingFolder) renameFolder(renamingFolder.id, v); setRenamingClusterId(null); }}
+      />
+      <RenameDialog
+        open={creatingProject}
+        onOpenChange={setCreatingProject}
+        title="New project"
+        initialValue=""
+        placeholder="Project name"
+        onSave={(v) => {
+          const f = createFolder(null);
+          renameFolder(f.id, v);
+        }}
+      />
+      <RenameDialog
+        open={creatingTag}
+        onOpenChange={setCreatingTag}
+        title="New tag"
+        initialValue=""
+        placeholder="Tag name"
+        onSave={(v) => createTag(v)}
+      />
+      <MoveToFolderDialog
+        open={!!movingConvId}
+        onOpenChange={(o) => { if (!o) setMovingConvId(null); }}
+        clusters={clusters}
+        convId={movingConvId}
+        onMove={moveConvToFolder}
+        onAfterMove={(fid) => { if (fid) expandFolder(fid); }}
+      />
+      <MoveToFolderDialog
+        open={!!movingFolderId}
+        onOpenChange={(o) => { if (!o) setMovingFolderId(null); }}
+        clusters={clusters}
+        convId={movingFolderId}
+        onMove={(fid, parentId) => moveFolder(fid, parentId)}
+        onAfterMove={(parentId) => { if (parentId) expandFolder(parentId); }}
+        title="Move project"
+        description="Select a parent project."
+        excludeFolderId={movingFolderId}
+      />
+    </>
+  );
+
   if (collapsed) {
     return (
       <>
-        <div className="flex h-full flex-col items-start gap-1 p-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={toggleSidebar}
-            title="Expand sidebar"
-          >
-            <Menu className="size-4" />
-          </Button>
+        <div className="group/rail flex h-full flex-col items-start gap-1 p-2">
+          <div className="relative size-9">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute inset-0 size-9 transition-opacity group-hover/rail:pointer-events-none group-hover/rail:opacity-0"
+              onClick={toggleSidebar}
+              title="Expand sidebar"
+            >
+              <img src="/favicon.svg" alt="OpenBranch" className="size-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="pointer-events-none absolute inset-0 size-9 opacity-0 transition-opacity group-hover/rail:pointer-events-auto group-hover/rail:opacity-100"
+              onClick={toggleSidebar}
+              title="Expand sidebar"
+            >
+              <PanelLeft className="size-4" />
+            </Button>
+          </div>
           <div className="h-2" />
           <Button
             variant="ghost"
@@ -243,6 +320,15 @@ export default function AppSidebar(props: Props) {
             title="New chat"
           >
             <SquarePen className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9"
+            onClick={openSearch}
+            title="Search chats"
+          >
+            <Search className="size-4" />
           </Button>
           <div className="flex-1" />
           <Button
@@ -257,331 +343,118 @@ export default function AppSidebar(props: Props) {
         </div>
         {searchDialog}
         {settingsDialog}
+        {convDialogs}
       </>
     );
   }
 
-  const goToChildRef = (childCv: any) => {
-    if (childCv.clusterId) {
-      setActiveFolderId(childCv.clusterId);
-      expandFolder(childCv.clusterId);
-    }
-    loadMain(childCv);
-  };
-
-  const renderConvItem = (cv: any, keyPrefix: string, depth = 0, toggle: any = null, childRefs = new Map()) => {
-    const chain = cv.commits || [];
-    const branchTree = buildBranchTree(chain);
+  const renderConvItem = (cv: any, keyPrefix: string, depth = 0) => {
     const convActive = convId === cv.id;
-    const convActiveOnMain = convActive && branch === "main";
-    const renamingThisConv = renamingId === cv.id;
-    const branchesByParent: Record<string, any[]> = {};
-    branchTree.forEach((b: any) => {
-      const parent = b.parentBranch || "main";
-      (branchesByParent[parent] || (branchesByParent[parent] = [])).push(b);
-    });
-    const rootBranches = branchesByParent["main"] || [];
-    const myChildren = childRefs.get(cv.id) || [];
-    const isNewChild = (c: any) => !c.parentRef?.anchorBranch || c.parentRef.anchorBranch === "main";
-    const branchGhosts = myChildren.filter((c: any) => !isNewChild(c));
-    const newGhosts = myChildren.filter(isNewChild);
-    const hasChildren = rootBranches.length > 0 || myChildren.length > 0;
-    const ownToggleKey = cv.id + ":conv";
-    const localToggle = !toggle && hasChildren
-      ? { open: sidebarItemOpen(ownToggleKey), onToggle: () => toggleSidebarItem(ownToggleKey) }
-      : null;
-    const activeToggle = toggle || localToggle;
-    const hasToggle = !!activeToggle;
-    const showBranches = !hasToggle || activeToggle.open;
-    const branchKey = (bName: string) => sidebarBranchKey(cv.id, bName);
-    const branchOpen = (bName: string) => sidebarItemOpen(branchKey(bName));
-    const branchSubtreeContainsActive = (bName: string): boolean => {
-      if (!convActive) return false;
-      if (bName === branch) return true;
-      const kids = branchesByParent[bName] || [];
-      return kids.some((k: any) => branchSubtreeContainsActive(k.branch));
-    };
-
-    const renderBranchNode = ({ branch: bName, depth: bDepth }: any) => {
-      const branchActive = convActive && branch === bName;
-      const renamingThisBranch = renamingBranch && renamingBranch.convId === cv.id && renamingBranch.branch === bName;
-      const displayLabel = getBranchLabel(chain, bName, cv.branchTitles);
-      const childBranches = branchesByParent[bName] || [];
-      const hasBranchChildren = childBranches.length > 0;
-      const isBranchOpen = branchOpen(bName) || branchSubtreeContainsActive(bName);
-      return (
-        <div key={keyPrefix + ":" + cv.id + ":" + bName}>
-          <ContextMenu>
-            <ContextMenuTrigger asChild>
-              <div
-                onClick={() => {
-                  if (!renamingThisBranch) {
-                    if (hasBranchChildren && !isBranchOpen) toggleSidebarItem(branchKey(bName));
-                    loadBranch(cv, bName);
-                  }
-                }}
-                className={cn(
-                  "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic transition-colors",
-                  branchActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground opacity-100"
-                    : "text-sidebar-foreground/70 opacity-80 hover:bg-sidebar-accent hover:opacity-100",
-                )}
-                style={{ paddingLeft: 8 + (depth + bDepth) * 14 + (depth > 0 ? 18 : 0) }}
-              >
-                <div className="min-w-0 flex-1">
-                  {renamingThisBranch ? (
-                    <Input
-                      autoFocus
-                      value={renameVal}
-                      onChange={(e) => setRenameVal(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }
-                        if (e.key === "Escape") setRenamingBranch(null);
-                      }}
-                      onBlur={() => { renameBranch(cv.id, bName, renameVal); setRenamingBranch(null); }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="h-6 px-1.5 text-sm"
-                    />
-                  ) : (
-                    <div className={cn("truncate", hasBranchChildren && isBranchOpen && "font-semibold")} title={displayLabel}>
-                      {displayLabel}
-                    </div>
-                  )}
-                </div>
-                {!renamingThisBranch && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label="More actions"
-                        className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-                      >
-                        <MoreHorizontal className="size-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          setRenameVal(displayLabel);
-                          setRenamingBranch({ convId: cv.id, branch: bName });
-                          setRenamingId(null);
-                          setRenamingClusterId(null);
-                        }}
-                      >
-                        Rename
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => {
-                          const descs = getBranchDescendantNames(cv.commits || [], bName);
-                          const msg = descs.length > 0
-                            ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
-                            : `Delete branch "${bName}"?`;
-                          setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cv.id, bName) });
-                        }}
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem
-                onSelect={() => {
-                  setRenameVal(displayLabel);
-                  setRenamingBranch({ convId: cv.id, branch: bName });
-                  setRenamingId(null);
-                  setRenamingClusterId(null);
-                }}
-              >
-                Rename
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                variant="destructive"
-                onSelect={() => {
-                  const descs = getBranchDescendantNames(cv.commits || [], bName);
-                  const msg = descs.length > 0
-                    ? `Delete branch "${bName}"? This will also delete ${descs.length} child branch${descs.length > 1 ? "es" : ""}.`
-                    : `Delete branch "${bName}"?`;
-                  setConfirmDialog({ msg, onConfirm: () => deleteBranchCascade(cv.id, bName) });
-                }}
-              >
-                Delete
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-          {hasBranchChildren && isBranchOpen && childBranches.map(renderBranchNode)}
-        </div>
-      );
-    };
 
     return (
       <div key={keyPrefix + ":" + cv.id}>
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
-              onClick={() => {
-                if (!renamingThisConv) {
-                  if (hasToggle) activeToggle.onToggle();
-                  loadMain(cv);
-                }
-              }}
+              onClick={() => loadMain(cv)}
               className={cn(
                 "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm transition-colors",
-                convActiveOnMain
+                convActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : hasToggle && activeToggle.open
-                  ? "bg-sidebar-accent/50"
                   : "hover:bg-sidebar-accent",
               )}
               style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
             >
               <div className="min-w-0 flex-1">
-                {renamingThisConv ? (
-                  <Input
-                    autoFocus
-                    value={renameVal}
-                    onChange={(e) => setRenameVal(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { renameConv(cv.id, renameVal); setRenamingId(null); }
-                      if (e.key === "Escape") setRenamingId(null);
-                    }}
-                    onBlur={() => { renameConv(cv.id, renameVal); setRenamingId(null); }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-6 px-1.5 text-sm"
-                  />
-                ) : (
-                  <div className={cn("truncate", hasToggle && activeToggle.open && "font-semibold")} title={cv.title || "Untitled"}>
-                    {cv.title || "Untitled"}
-                  </div>
-                )}
+                <div className="truncate" title={cv.title || "Untitled"}>
+                  {cv.title || "Untitled"}
+                </div>
               </div>
-              {!renamingThisConv && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label="More actions"
-                      className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-                    >
-                      <MoreHorizontal className="size-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        setRenameVal(cv.title || "");
-                        setRenamingId(cv.id);
-                        setRenamingBranch(null);
-                        setRenamingClusterId(null);
-                      }}
-                    >
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>Move to folder</DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent>
-                        <DropdownMenuItem onSelect={() => moveConvToFolder(cv.id, null)}>
-                          <span className="italic text-muted-foreground">(top level)</span>
-                        </DropdownMenuItem>
-                        {flattenFolders().map(({ folder, depth: fd }) => (
-                          <DropdownMenuItem
-                            key={folder.id}
-                            onSelect={() => { moveConvToFolder(cv.id, folder.id); expandFolder(folder.id); }}
-                            style={{ paddingLeft: 8 + fd * 10 }}
-                          >
-                            {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => {
-                        const n = countChildConvs(cv.id);
-                        const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
-                        setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
-                      }}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="More actions"
+                    className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="bottom" className="min-w-[14rem] rounded-2xl p-1" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setRenameVal(cv.title || "");
+                      setRenamingId(cv.id);
+                      setRenamingClusterId(null);
+                    }}
+                    className="gap-3 py-2"
+                  >
+                    <Pencil className="size-4" />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setMovingConvId(cv.id)} className="gap-3 py-2">
+                    <Folder className="size-4" />
+                    Move to project
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => {
+                      const n = countChildConvs(cv.id);
+                      setConfirmDialog({
+                        title: "Delete chat?",
+                        body: <>This will delete <span className="font-semibold">{cv.title || "Untitled"}</span>.</>,
+                        note: n > 0 ? `Also deletes ${n} descendant conversation${n > 1 ? "s" : ""}.` : null,
+                        confirmLabel: "Delete",
+                        onConfirm: () => del(cv.id),
+                      });
+                    }}
+                    className="gap-3 py-2"
+                  >
+                    <Trash2 className="size-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent>
+          <ContextMenuContent className="min-w-[14rem] rounded-2xl p-1">
             <ContextMenuItem
               onSelect={() => {
                 setRenameVal(cv.title || "");
                 setRenamingId(cv.id);
-                setRenamingBranch(null);
                 setRenamingClusterId(null);
               }}
+              className="gap-3 py-2"
             >
+              <Pencil className="size-4" />
               Rename
             </ContextMenuItem>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>Move to folder</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem onSelect={() => moveConvToFolder(cv.id, null)}>
-                  <span className="italic text-muted-foreground">(top level)</span>
-                </ContextMenuItem>
-                {flattenFolders().map(({ folder, depth }) => (
-                  <ContextMenuItem
-                    key={folder.id}
-                    onSelect={() => { moveConvToFolder(cv.id, folder.id); expandFolder(folder.id); }}
-                    style={{ paddingLeft: 8 + depth * 10 }}
-                  >
-                    <Folder className="size-3.5" /> {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
+            <ContextMenuItem onSelect={() => setMovingConvId(cv.id)} className="gap-3 py-2">
+              <Folder className="size-4" />
+              Move to project
+            </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
               variant="destructive"
               onSelect={() => {
                 const n = countChildConvs(cv.id);
-                const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
-                setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
+                setConfirmDialog({
+                  title: "Delete chat?",
+                  body: <>This will delete <span className="font-semibold">{cv.title || "Untitled"}</span>.</>,
+                  note: n > 0 ? `Also deletes ${n} descendant conversation${n > 1 ? "s" : ""}.` : null,
+                  confirmLabel: "Delete",
+                  onConfirm: () => del(cv.id),
+                });
               }}
+              className="gap-3 py-2"
             >
+              <Trash2 className="size-4" />
               Delete
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
-
-        {showBranches && rootBranches.map(renderBranchNode)}
-        {showBranches && branchGhosts.map((child: any) => (
-          <div
-            key={keyPrefix + ":" + cv.id + ":bref:" + child.id}
-            onClick={(e) => { e.stopPropagation(); goToChildRef(child); }}
-            title={child.title || "Untitled"}
-            className="flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic text-sidebar-foreground/60 opacity-70 hover:bg-sidebar-accent/50 hover:opacity-100"
-            style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
-          >
-            <div className="min-w-0 flex-1 truncate">{child.title || "Untitled"}</div>
-          </div>
-        ))}
-        {showBranches && newGhosts.map((child: any) => (
-          <div
-            key={keyPrefix + ":" + cv.id + ":nref:" + child.id}
-            onClick={(e) => { e.stopPropagation(); goToChildRef(child); }}
-            title={child.title || "Untitled"}
-            className="flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm italic text-sidebar-foreground/60 opacity-70 hover:bg-sidebar-accent/50 hover:opacity-100"
-            style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
-          >
-            <div className="min-w-0 flex-1 truncate">{child.title || "Untitled"}</div>
-          </div>
-        ))}
       </div>
     );
   };
@@ -592,7 +465,10 @@ export default function AppSidebar(props: Props) {
       tagCounts[tg] = (tagCounts[tg] || 0) + 1;
     })),
   );
-  const tagEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+  (tagPool || []).forEach((tg: string) => {
+    if (!(tg in tagCounts)) tagCounts[tg] = 0;
+  });
+  const tagEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
   const liveTags = new Set<string>();
   convs.forEach((cv: any) => (cv.commits || []).forEach((c: any) => (c.tags || []).forEach((tg: string) => liveTags.add(tg))));
@@ -606,7 +482,7 @@ export default function AppSidebar(props: Props) {
     return { ...group, children: prunedChildren };
   };
   const folderGroups = liveActive.size ? folderGroupsAll.map(pruneEmpty).filter(Boolean) : folderGroupsAll;
-  const { rootItems: topRootItems, childRefs: topChildRefs } = buildSidebarLayout(topLevelConvs);
+  const { rootItems: topRootItems } = buildSidebarLayout(topLevelConvs);
   const userClusters = clusters.filter((c: any) => c.auto !== true);
 
   function flattenFolders() {
@@ -626,9 +502,8 @@ export default function AppSidebar(props: Props) {
     const folder = group.folder;
     const folderId = folder.id;
     const isCollapsed = !expandedClusters.has(folderId);
-    const isRenaming = renamingClusterId === folderId;
     const hasContent = group.items.length > 0 || group.children.length > 0;
-    const { rootItems, childRefs } = buildSidebarLayout(group.items);
+    const { rootItems } = buildSidebarLayout(group.items);
     const folderActions = {
       newChat: () => {
         setActiveFolderId(folderId);
@@ -641,16 +516,14 @@ export default function AppSidebar(props: Props) {
         setRenameVal("Untitled");
         setRenamingClusterId(f.id);
         setRenamingId(null);
-        setRenamingBranch(null);
       },
       rename: () => {
         setRenameVal(folder.title || "");
         setRenamingClusterId(folderId);
         setRenamingId(null);
-        setRenamingBranch(null);
       },
       delete: () => {
-        const folderTitle = folder.title || "this folder";
+        const folderTitle = folder.title || formatClusterTitle(folder.createdAt) || "Untitled";
         const set = new Set<string>([folderId]);
         let grew = true;
         while (grew) {
@@ -661,10 +534,19 @@ export default function AppSidebar(props: Props) {
         }
         const affected = convs.filter((cv: any) => set.has(cv.clusterId));
         const n = affected.length;
-        const msg = n > 0
-          ? `Delete folder "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent folder. Subfolders stay; only the folder itself is removed.`
-          : `Delete folder "${folderTitle}"?`;
-        setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
+        setConfirmDialog({
+          title: "Delete project?",
+          body: n > 0 ? (
+            <>
+              This will delete <span className="font-semibold">{folderTitle}</span>.
+              {" "}Its {n} conversation{n > 1 ? "s" : ""} will move up to the parent project; sub-projects stay.
+            </>
+          ) : (
+            <>This will delete <span className="font-semibold">{folderTitle}</span>.</>
+          ),
+          confirmLabel: "Delete",
+          onConfirm: () => deleteFolder(folderId),
+        });
       },
     };
     return (
@@ -673,37 +555,19 @@ export default function AppSidebar(props: Props) {
           <ContextMenuTrigger asChild>
             <div
               onClick={() => {
-                if (!isRenaming) {
-                  setActiveFolderId(folderId);
-                  if (hasContent) toggleCluster(folderId);
-                }
+                setActiveFolderId(folderId);
+                if (hasContent) toggleCluster(folderId);
               }}
               className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent"
               style={{ paddingLeft: 8 + depth * 14 }}
             >
               {isCollapsed ? <Folder className="size-4 shrink-0" /> : <FolderOpen className="size-4 shrink-0" />}
               <div className="min-w-0 flex-1">
-                {isRenaming ? (
-                  <Input
-                    autoFocus
-                    value={renameVal}
-                    onChange={(e) => setRenameVal(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { renameFolder(folderId, renameVal); setRenamingClusterId(null); }
-                      if (e.key === "Escape") setRenamingClusterId(null);
-                    }}
-                    onBlur={() => { renameFolder(folderId, renameVal); setRenamingClusterId(null); }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-6 px-1.5 text-sm"
-                  />
-                ) : (
-                  <div className="truncate" title={folder.title || "Untitled"}>
-                    {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
-                  </div>
-                )}
+                <div className="truncate" title={folder.title || "Untitled"}>
+                  {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+                </div>
               </div>
-              {!isRenaming && (
-                <DropdownMenu>
+              <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
@@ -714,64 +578,48 @@ export default function AppSidebar(props: Props) {
                       <MoreHorizontal className="size-3.5" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem onSelect={folderActions.newChat}>
-                      New chat
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={folderActions.newFolder}>
-                      New folder
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={folderActions.rename}>
+                  <DropdownMenuContent align="end" side="bottom" className="min-w-[14rem] rounded-2xl p-1" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem onSelect={folderActions.rename} className="gap-3 py-2">
+                      <Pencil className="size-4" />
                       Rename
                     </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setMovingFolderId(folderId)} className="gap-3 py-2">
+                      <Folder className="size-4" />
+                      Move to folder
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" onSelect={folderActions.delete}>
-                      Delete folder
+                    <DropdownMenuItem variant="destructive" onSelect={folderActions.delete} className="gap-3 py-2">
+                      <Trash2 className="size-4" />
+                      Delete project
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              )}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent>
-            <ContextMenuItem
-              onSelect={() => {
-                setActiveFolderId(folderId);
-                expandFolder(folderId);
-                newConv();
-              }}
-            >
-              New chat
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => {
-                expandFolder(folderId);
-                const f = createFolder(folderId);
-                setRenameVal("Untitled");
-                setRenamingClusterId(f.id);
-                setRenamingId(null);
-                setRenamingBranch(null);
-              }}
-            >
-              New folder
-            </ContextMenuItem>
-            <ContextMenuSeparator />
+          <ContextMenuContent className="min-w-[14rem] rounded-2xl p-1">
             <ContextMenuItem
               onSelect={() => {
                 setRenameVal(folder.title || "");
                 setRenamingClusterId(folderId);
                 setRenamingId(null);
-                setRenamingBranch(null);
               }}
+              className="gap-3 py-2"
             >
+              <Pencil className="size-4" />
               Rename
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => setMovingFolderId(folderId)}
+              className="gap-3 py-2"
+            >
+              <Folder className="size-4" />
+              Move to project
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
               variant="destructive"
               onSelect={() => {
-                const folderTitle = folder.title || "this folder";
+                const folderTitle = folder.title || formatClusterTitle(folder.createdAt) || "Untitled";
                 const affected: any[] = [];
                 const set = new Set([folderId]);
                 let grew = true;
@@ -783,19 +631,30 @@ export default function AppSidebar(props: Props) {
                 }
                 for (const cv of convs) if (set.has(cv.clusterId)) affected.push(cv);
                 const n = affected.length;
-                const msg = n > 0
-                  ? `Delete folder "${folderTitle}"?\n\n${n} conversation${n > 1 ? "s" : ""} will move up to the parent folder. Subfolders stay; only the folder itself is removed.`
-                  : `Delete folder "${folderTitle}"?`;
-                setConfirmDialog({ msg, onConfirm: () => deleteFolder(folderId) });
+                setConfirmDialog({
+                  title: "Delete project?",
+                  body: n > 0 ? (
+                    <>
+                      This will delete <span className="font-semibold">{folderTitle}</span>.
+                      {" "}Its {n} conversation{n > 1 ? "s" : ""} will move up to the parent project; sub-projects stay.
+                    </>
+                  ) : (
+                    <>This will delete <span className="font-semibold">{folderTitle}</span>.</>
+                  ),
+                  confirmLabel: "Delete",
+                  onConfirm: () => deleteFolder(folderId),
+                });
               }}
+              className="gap-3 py-2"
             >
-              Delete folder
+              <Trash2 className="size-4" />
+              Delete project
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
         {!isCollapsed && (
           <>
-            {rootItems.map((item: any) => renderConvItem(item.conv, "fd:" + folderId, depth + 1, null, childRefs))}
+            {rootItems.map((item: any) => renderConvItem(item.conv, "fd:" + folderId, depth + 1))}
             {group.children.map((child: any) => renderFolder(child, depth + 1))}
           </>
         )}
@@ -805,21 +664,27 @@ export default function AppSidebar(props: Props) {
 
   return (
     <>
-      <SidebarHeader className="gap-1 p-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9"
-          onClick={toggleSidebar}
-          title="Collapse sidebar"
-        >
-          <Menu className="size-4" />
-        </Button>
-        <div className="h-2" />
+      <SidebarHeader className="gap-1 px-2 pt-0 pb-2">
+        <div className="flex h-12 items-center justify-between">
+          <div className="flex items-center gap-2 px-2">
+            <img src="/favicon.svg" alt="" className="size-5" />
+            <span className="text-base font-semibold">OpenBranch</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={toggleSidebar}
+            title="Collapse sidebar"
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+        </div>
+        <div className="h-1" />
         <Button
           variant="ghost"
           onClick={newConv}
-          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent"
+          className="h-9 w-full justify-start gap-2 px-2.5 font-normal hover:bg-sidebar-accent"
         >
           <SquarePen className="size-4" />
           New chat
@@ -827,7 +692,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={openSearch}
-          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent"
+          className="h-9 w-full justify-start gap-2 px-2.5 font-normal hover:bg-sidebar-accent"
         >
           <Search className="size-4" />
           Search chats
@@ -835,12 +700,12 @@ export default function AppSidebar(props: Props) {
       </SidebarHeader>
 
       <SidebarContent>
-        {!collapsed && tagEntries.length > 0 && (
+        {!collapsed && (
           <SidebarGroup>
             <button
               type="button"
               onClick={() => setTagsOpen((v) => !v)}
-              className="group/tag-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              className="group/tag-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
               Tags
               <span className="opacity-0 transition-opacity group-hover/tag-head:opacity-100">
@@ -853,6 +718,14 @@ export default function AppSidebar(props: Props) {
             </button>
             {tagsOpen && (
               <div className="flex flex-col gap-0.5 px-1 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setCreatingTag(true)}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors hover:bg-sidebar-accent"
+                >
+                  <span className="shrink-0 text-muted-foreground">+</span>
+                  New tag
+                </button>
                 {tagEntries.map(([tg, n]) => {
                   const on = activeTags.has(tg);
                   return (
@@ -867,7 +740,7 @@ export default function AppSidebar(props: Props) {
                             })
                           }
                           className={cn(
-                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors select-none",
+                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors select-none",
                             on
                               ? "bg-sidebar-accent text-sidebar-accent-foreground"
                               : "hover:bg-sidebar-accent",
@@ -875,16 +748,18 @@ export default function AppSidebar(props: Props) {
                         >
                           <span className="shrink-0 text-muted-foreground">#</span>
                           <span className="flex-1 truncate">{tg}</span>
-                          <span className="text-[10px] text-muted-foreground">{n}</span>
+                          <span className="text-xs text-muted-foreground">{n}</span>
                         </span>
                       </ContextMenuTrigger>
-                      <ContextMenuContent>
+                      <ContextMenuContent className="min-w-[14rem] rounded-2xl p-1">
                         <ContextMenuItem
                           onSelect={() => {
                             const nv = window.prompt("Rename tag", tg);
                             if (nv != null) renameTag(tg, nv);
                           }}
+                          className="gap-3 py-2"
                         >
+                          <Pencil className="size-4" />
                           Rename
                         </ContextMenuItem>
                         <ContextMenuSeparator />
@@ -892,11 +767,15 @@ export default function AppSidebar(props: Props) {
                           variant="destructive"
                           onSelect={() =>
                             setConfirmDialog({
-                              msg: `Remove tag "${tg}" from all commits?`,
+                              title: "Delete tag?",
+                              body: <>This will remove <span className="font-semibold">#{tg}</span> from all commits.</>,
+                              confirmLabel: "Delete",
                               onConfirm: () => deleteTag(tg),
                             })
                           }
+                          className="gap-3 py-2"
                         >
+                          <Trash2 className="size-4" />
                           Delete
                         </ContextMenuItem>
                       </ContextMenuContent>
@@ -912,10 +791,42 @@ export default function AppSidebar(props: Props) {
           <SidebarGroup>
             <button
               type="button"
-              onClick={() => setChatsOpen((v) => !v)}
-              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              onClick={() => setProjectsOpen((v) => !v)}
+              className="group/proj-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
-              Chats
+              Projects
+              <span className="opacity-0 transition-opacity group-hover/proj-head:opacity-100">
+                {projectsOpen ? (
+                  <ChevronDown className="size-3" />
+                ) : (
+                  <ChevronRight className="size-3" />
+                )}
+              </span>
+            </button>
+            {projectsOpen && (
+              <div className="flex flex-col px-1">
+                <button
+                  type="button"
+                  onClick={() => setCreatingProject(true)}
+                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent"
+                >
+                  <FolderPlus className="size-4 shrink-0" />
+                  New project
+                </button>
+                {folderGroups.map((group: any) => renderFolder(group, 0))}
+              </div>
+            )}
+          </SidebarGroup>
+        )}
+
+        {!collapsed && (
+          <SidebarGroup>
+            <button
+              type="button"
+              onClick={() => setChatsOpen((v) => !v)}
+              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+            >
+              Recents
               <span className="opacity-0 transition-opacity group-hover/chat-head:opacity-100">
                 {chatsOpen ? (
                   <ChevronDown className="size-3" />
@@ -925,27 +836,9 @@ export default function AppSidebar(props: Props) {
               </span>
             </button>
             {chatsOpen && (
-              <ContextMenu>
-                <ContextMenuTrigger asChild>
-                  <div className="flex flex-col px-1">
-                    {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0, null, topChildRefs))}
-                    {folderGroups.map((group: any) => renderFolder(group, 0))}
-                  </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem
-                    onSelect={() => {
-                      const f = createFolder(null);
-                      setRenameVal("Untitled");
-                      setRenamingClusterId(f.id);
-                      setRenamingId(null);
-                      setRenamingBranch(null);
-                    }}
-                  >
-                    New folder
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
+              <div className="flex flex-col px-1">
+                {topRootItems.map((item: any) => renderConvItem(item.conv, "top", 0))}
+              </div>
             )}
           </SidebarGroup>
         )}
@@ -963,6 +856,7 @@ export default function AppSidebar(props: Props) {
       </SidebarFooter>
       {searchDialog}
       {settingsDialog}
+      {convDialogs}
     </>
   );
 }

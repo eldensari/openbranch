@@ -1,8 +1,39 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { GitBranch, Plus, Tag as TagIcon, Trash2, Pencil } from "lucide-react";
 import { bCol } from "@/lib/branch-colors";
 import { bHead, shortModelName } from "@/graph/model";
 import { getBranchLabel } from "@/graph/branches";
 import { cn } from "@/lib/utils";
+import RenameDialog from "./RenameDialog";
+
+function orderBranchesByTree(commits: any[], names: string[]): string[] {
+  const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
+  const nameSet = new Set(names);
+  const parentOf = new Map<string, string | null>();
+  for (const b of names) {
+    const first = sorted.find((c: any) => c.branch === b);
+    if (!first || !first.parentId) { parentOf.set(b, null); continue; }
+    const parent = commits.find((c: any) => c.id === first.parentId);
+    parentOf.set(b, parent && parent.branch !== b && nameSet.has(parent.branch) ? parent.branch : null);
+  }
+  const childrenOf = new Map<string | null, string[]>();
+  for (const b of names) {
+    const p = parentOf.get(b) ?? null;
+    if (!childrenOf.has(p)) childrenOf.set(p, []);
+    childrenOf.get(p)!.push(b);
+  }
+  const result: string[] = [];
+  const visited = new Set<string>();
+  const visit = (b: string) => {
+    if (visited.has(b)) return;
+    visited.add(b);
+    result.push(b);
+    for (const c of childrenOf.get(b) || []) visit(c);
+  };
+  for (const root of childrenOf.get(null) || []) visit(root);
+  for (const b of names) if (!visited.has(b)) visit(b);
+  return result;
+}
 
 type Props = {
   commits: any[];
@@ -33,6 +64,8 @@ type Props = {
   onEditTags?: (cid: string, tags: string) => void;
   allTags?: string[];
   activeTags?: Set<string>;
+  onRenameBranch?: (bName: string, newTitle: string) => void;
+  onDeleteBranch?: (bName: string) => void;
 };
 
 export default function Graph(props: Props) {
@@ -42,15 +75,31 @@ export default function Graph(props: Props) {
     onRangeBranch, onRangeNew, onRangeDelete, parentRef, onGoToParent, childRefs,
     onGoToChild, hoveredCid, panelW, branchTitles, onEditLabel, onEditTags,
     allTags = [], activeTags,
+    onRenameBranch, onDeleteBranch,
   } = props;
   const [ctx, setCtx] = useState<any>(null);
-  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  const [labelDraft, setLabelDraft] = useState("");
   const [tagPicker, setTagPicker] = useState<any>(null);
   const [tagInput, setTagInput] = useState("");
   const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const [chipCtx, setChipCtx] = useState<{ x: number; y: number; branch: string } | null>(null);
+  const [renamingBranchName, setRenamingBranchName] = useState<string | null>(null);
+  const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
   const hasParent = !!parentRef;
   const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [measuredW, setMeasuredW] = useState<number>(panelW || 280);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w > 0) setMeasuredW(w);
+    });
+    ro.observe(el);
+    setMeasuredW(el.clientWidth || panelW || 280);
+    return () => ro.disconnect();
+  }, [panelW]);
 
   const vnodes: any[] = [];
   if (hasParent) {
@@ -103,7 +152,7 @@ export default function Graph(props: Props) {
 
   const lW = 22, rH = 26, pL = 18, nR = 6;
   const lX = pL + Math.max(names.length, 1) * lW + 12;
-  const W = panelW || 280;
+  const W = measuredW;
   const H = vnodes.length * rH + 30;
   const maxChars = Math.max(12, Math.floor((W - lX - 20) / 6));
   const trunc = (s: string, n: number) => (s && s.length > n ? s.slice(0, n) + ".." : s);
@@ -118,9 +167,9 @@ export default function Graph(props: Props) {
   const bg = "var(--background)";
 
   return (
-    <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => setCtx(null)}>
+    <div ref={containerRef} className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
       <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
-        {names.map((b) => {
+        {orderBranchesByTree(commits, names).map((b) => {
           const c = bCol(names, b);
           const act = b === activeBranch;
           const raw = getBranchLabel(commits, b, branchTitles);
@@ -131,6 +180,13 @@ export default function Graph(props: Props) {
               onClick={() => {
                 const h = bHead(commits, b);
                 if (h) onCheckout(h.id, b);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setCtx(null);
+                setTagPicker(null);
+                setChipCtx({ x: e.clientX, y: e.clientY, branch: b });
               }}
               title={raw}
               className={cn(
@@ -221,7 +277,6 @@ export default function Graph(props: Props) {
           const hov = hoveredCid === n.cid;
           const hasActiveTag = activeTags && activeTags.size > 0 && (cm?.tags || []).some((tg: string) => activeTags.has(tg));
           const r = cur ? 6 : isMrg ? 6 : nR;
-          const isEditing = editingNodeId === n.cid;
           const displayText = cm?.displayLabel || (cm?.prompt || "").replace(/\s+/g, " ").trim();
 
           const nodeOn = cidOnPath(n.cid);
@@ -235,22 +290,17 @@ export default function Graph(props: Props) {
               onMouseEnter={() => setHoverNodeId(n.cid)}
               onMouseLeave={() => setHoverNodeId((p) => (p === n.cid ? null : p))}
               onClick={(e) => {
-                if (isEditing) return;
                 e.stopPropagation();
                 setCtx(null);
                 if (selectMode) { onSelectNode(n.cid); return; }
                 if (mergeMode) { onToggleSel(n.cid); return; }
                 if (cm) onCheckout(cm.id, cm.branch);
               }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!cm) return;
-                setLabelDraft(cm.displayLabel || (cm.prompt || "").replace(/\s+/g, " ").trim());
-                setEditingNodeId(n.cid);
-              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                setChipCtx(null);
+                setTagPicker(null);
                 setCtx({ x: e.clientX, y: e.clientY, cid: n.cid, range: selectMode && rangeSel && selectedRangeIds?.length > 0 });
               }}
             >
@@ -263,33 +313,15 @@ export default function Graph(props: Props) {
               {mergeSel && (
                 <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">✓</text>
               )}
-              {isEditing ? (
-                <foreignObject x={lX - 4} y={p.y - 10} width={Math.max(60, W - lX)} height={22} onClick={(e) => e.stopPropagation()}>
-                  <input
-                    autoFocus
-                    value={labelDraft}
-                    onChange={(e) => setLabelDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { onEditLabel?.(n.cid, labelDraft); setEditingNodeId(null); }
-                      if (e.key === "Escape") setEditingNodeId(null);
-                    }}
-                    onBlur={() => { onEditLabel?.(n.cid, labelDraft); setEditingNodeId(null); }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="box-border w-full rounded-sm border bg-background px-1.5 py-0.5 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-ring"
-                    style={{ borderColor: "var(--ring)" }}
-                  />
-                </foreignObject>
-              ) : (
-                <text x={lX} y={p.y + 4} fontSize={11.5} fontWeight={cur || hov ? 600 : 400} fill={cur || hov ? col : fg} style={{ fontFamily: "system-ui" }}>
-                  {isMrg ? "⮅ " : ""}
-                  {trunc(displayText, maxChars)}
-                  {cm?.tags?.length > 0 && (
-                    <tspan fill="var(--branch-1)" fontSize={10} fontWeight={500}>
-                      {"  " + cm.tags.map((tg: string) => "#" + tg).join(" ")}
-                    </tspan>
-                  )}
-                </text>
-              )}
+              <text x={lX} y={p.y + 4} fontSize={11.5} fontWeight={cur || hov ? 600 : 400} fill={cur || hov ? col : fg} style={{ fontFamily: "system-ui" }}>
+                {isMrg ? "⮅ " : ""}
+                {trunc(displayText, maxChars)}
+                {cm?.tags?.length > 0 && (
+                  <tspan fill="var(--branch-1)" fontSize={10} fontWeight={500}>
+                    {"  " + cm.tags.map((tg: string) => "#" + tg).join(" ")}
+                  </tspan>
+                )}
+              </text>
               {hoverNodeId === n.cid && cm?.model && (
                 <text x={lX} y={p.y + 17} fontSize={9} fill={mutedFg} style={{ fontFamily: "system-ui", pointerEvents: "none" }}>
                   {shortModelName(cm.model)}
@@ -300,37 +332,77 @@ export default function Graph(props: Props) {
         })}
       </svg>
 
+      {chipCtx && (
+        <div
+          className="fixed z-[100] min-w-[14rem] rounded-2xl border bg-popover p-1 text-popover-foreground shadow-md"
+          style={{ left: chipCtx.x, top: chipCtx.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              setRenamingBranchName(chipCtx.branch);
+              setChipCtx(null);
+            }}
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+          >
+            <Pencil className="size-4" />
+            Rename
+          </button>
+          <div className="my-1 h-px bg-border" />
+          <button
+            onClick={() => { const b = chipCtx.branch; setChipCtx(null); onDeleteBranch?.(b); }}
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
+          >
+            <Trash2 className="size-4" />
+            Delete
+          </button>
+        </div>
+      )}
+
       {ctx && !ctx.confirm && (
         <div
-          className="fixed z-[100] min-w-[140px] overflow-hidden rounded-md border bg-popover py-1 text-popover-foreground shadow-md"
+          className="fixed z-[100] min-w-[14rem] rounded-2xl border bg-popover p-1 text-popover-foreground shadow-md"
           style={{ left: ctx.x, top: ctx.y }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
             onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeBranch() : onBranch(cid); }}
-            className="block w-full px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
           >
+            <GitBranch className="size-4" />
             Branch
           </button>
           <button
             onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeNew() : onNew(cid); }}
-            className="block w-full px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
           >
+            <Plus className="size-4" />
             New
           </button>
           {!ctx.range && (
             <button
-              onClick={() => { const cid = ctx.cid; const x = ctx.x; const y = ctx.y; setCtx(null); setTagInput(""); setTagPicker({ cid, x, y }); }}
-              className="block w-full px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => { const cid = ctx.cid; setCtx(null); setRenamingNodeId(cid); }}
+              className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
             >
+              <Pencil className="size-4" />
+              Rename
+            </button>
+          )}
+          {!ctx.range && (
+            <button
+              onClick={() => { const cid = ctx.cid; const x = ctx.x; const y = ctx.y; setCtx(null); setTagInput(""); setTagPicker({ cid, x, y }); }}
+              className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              <TagIcon className="size-4" />
               Tag
             </button>
           )}
           <div className="my-1 h-px bg-border" />
           <button
             onClick={() => setCtx({ ...ctx, confirm: true })}
-            className="block w-full px-3 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
           >
+            <Trash2 className="size-4" />
             Delete
           </button>
         </div>
@@ -418,6 +490,26 @@ export default function Graph(props: Props) {
           </div>
         );
       })()}
+
+      <RenameDialog
+        open={!!renamingBranchName}
+        onOpenChange={(o) => { if (!o) setRenamingBranchName(null); }}
+        title="Rename branch"
+        initialValue={renamingBranchName ? getBranchLabel(commits, renamingBranchName, branchTitles) : ""}
+        onSave={(v) => { if (renamingBranchName) onRenameBranch?.(renamingBranchName, v); setRenamingBranchName(null); }}
+      />
+
+      <RenameDialog
+        open={!!renamingNodeId}
+        onOpenChange={(o) => { if (!o) setRenamingNodeId(null); }}
+        title="Rename commit"
+        initialValue={(() => {
+          if (!renamingNodeId) return "";
+          const cm = commits.find((c: any) => c.id === renamingNodeId);
+          return cm?.displayLabel || (cm?.prompt || "").replace(/\s+/g, " ").trim();
+        })()}
+        onSave={(v) => { if (renamingNodeId) onEditLabel?.(renamingNodeId, v); setRenamingNodeId(null); }}
+      />
     </div>
   );
 }

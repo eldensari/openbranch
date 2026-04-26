@@ -10,7 +10,6 @@ export function getBranchLabel(
 ): string {
   const custom = branchTitles?.[branchName];
   if (custom) return custom;
-  if (branchName === "main") return "main";
   const firstOnBranch = (commits || [])
     .filter((c) => c.branch === branchName)
     .sort((a, b) => a.ts - b.ts)[0];

@@ -13,6 +13,9 @@ import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { cn } from "./lib/utils";
+import { useSidebarUI } from "./hooks/use-sidebar-ui";
+import { useUndoRedo } from "./hooks/use-undo-redo";
+import { useConversationTags } from "./hooks/use-conversation-tags";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,7 +67,6 @@ export default function App() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectRange, setSelectRange] = useState({ startId: null, endId: null });
   const [selectError, setSelectError] = useState("");
-  const [undoAction, setUndoAction] = useState(null);
   const [editId, setEditId] = useState(null);
   const [branchFromId, setBranchFromId] = useState(null);
   const [newFromRef, setNewFromRef] = useState(null);
@@ -75,9 +77,9 @@ export default function App() {
   const [graphW, setGraphW] = useState(280);
   const [scrollTarget, setScrollTarget] = useState(null);
   const [hoveredCid, setHoveredCid] = useState(null);
-  const [activeTags, setActiveTags] = useState(() => new Set());
   const [chatMenu, setChatMenu] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(null); // { msg, onConfirm } | null
+  const [confirmDialog, setConfirmDialog] = useState(null); // { title, body, msg, note, confirmLabel, onConfirm } | null
+  const confirmDialogRef = useRef(null);
   const [renamingId, setRenamingId] = useState(null);
   const [renamingBranch, setRenamingBranch] = useState(null); // { convId, branch } | null
   const [renamingClusterId, setRenamingClusterId] = useState(null);
@@ -115,33 +117,6 @@ export default function App() {
   }, []);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commits, headId, pending]);
-
-  // Auto-expand folder/conv/branch chain when a tag filter is activated
-  useEffect(() => {
-    if (activeTags.size === 0) return;
-    const clusterMap = new Map(clusters.map(c => [c.id, c]));
-    const folderSet = new Set(expandedClusters);
-    const itemSet = new Set(openSidebarItems);
-    convs.forEach(cv => {
-      const matchingCommits = (cv.commits || []).filter(c => (c.tags || []).some(tg => activeTags.has(tg)));
-      if (!matchingCommits.length) return;
-      let fid = cv.clusterId;
-      const seen = new Set();
-      while (fid && !seen.has(fid)) {
-        seen.add(fid);
-        folderSet.add(fid);
-        fid = clusterMap.get(fid)?.parentId || null;
-      }
-      itemSet.add(cv.id + ":conv");
-      const matchingBranches = new Set(matchingCommits.map(c => c.branch));
-      matchingBranches.forEach((bName: string) => {
-        const path = branchPathToRoot(cv.commits || [], bName);
-        path.forEach((b: string) => itemSet.add(sidebarBranchKey(cv.id, b)));
-      });
-    });
-    setExpandedClusters(folderSet);
-    setOpenSidebarItems(itemSet);
-  }, [activeTags]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-send from starter cards (use setTimeout to ensure state is settled)
   useEffect(() => {
@@ -209,6 +184,12 @@ export default function App() {
     setConvs(p => [cv, ...p.filter(c => c.id !== id)]);
     setConvId(id);
   };
+
+  const { activeTags, setActiveTags, renameTag, deleteTag, editCommitTags, tagPool, createTag } = useConversationTags({
+    convs, setConvs, clusters, expandedClusters, setExpandedClusters,
+    openSidebarItems, setOpenSidebarItems, convId, commits, setCommits, cRef,
+    headId, branch, save,
+  });
 
   const load = cv => {
     const commits = cv.commits || [];
@@ -431,15 +412,7 @@ export default function App() {
   const selectedRangeCommits = rangeCommitsFor(commits, selectRange);
   const selectedRangeIds = selectedRangeCommits.map(c => c.id);
   const clearSelectRange = () => { setSelectRange({ startId: null, endId: null }); setSelectError(""); };
-  const snap = value => JSON.parse(JSON.stringify(value));
-  const rememberUndo = label => {
-    setUndoAction({
-      label,
-      convs: snap(convs),
-      clusters: snap(clusters),
-      current: { convId, commits: snap(commits), headId, branch, parentRef: snap(parentRef) },
-    });
-  };
+  const { undoAction, setUndoAction, rememberUndo } = useUndoRedo({ convs, clusters, convId, commits, headId, branch, parentRef });
   const restoreUndo = () => {
     if (!undoAction) return;
     const beforeConvIds = new Set(undoAction.convs.map(c => c.id));
@@ -792,70 +765,6 @@ export default function App() {
 
   // Per-commit custom display label for the graph node. Empty clears it.
   // commit.prompt (conversation content) is never mutated.
-  const renameTag = (oldName, newName) => {
-    const trimmed = (newName || "").trim().replace(/^#+/, "");
-    if (!trimmed || trimmed === oldName) return;
-    const touched = [];
-    const nextConvs = convs.map(cv => {
-      let changed = false;
-      const newCommits = (cv.commits || []).map(c => {
-        if (!(c.tags || []).includes(oldName)) return c;
-        changed = true;
-        const merged = c.tags.map(tg => tg === oldName ? trimmed : tg);
-        const deduped = [...new Set(merged)];
-        return { ...c, tags: deduped };
-      });
-      if (!changed) return cv;
-      const updated = { ...cv, commits: newCommits, u: new Date().toISOString() };
-      touched.push(updated);
-      return updated;
-    });
-    touched.forEach(persistConv);
-    setConvs(nextConvs);
-    const currentCv = nextConvs.find(c => c.id === convId);
-    if (currentCv) { setCommits(currentCv.commits); cRef.current = currentCv.commits; }
-    setActiveTags(p => {
-      if (!p.has(oldName)) return p;
-      const n = new Set(p); n.delete(oldName); n.add(trimmed); return n;
-    });
-  };
-  const deleteTag = (name) => {
-    const touched = [];
-    const nextConvs = convs.map(cv => {
-      let changed = false;
-      const newCommits = (cv.commits || []).map(c => {
-        if (!(c.tags || []).includes(name)) return c;
-        changed = true;
-        const filtered = c.tags.filter(tg => tg !== name);
-        if (filtered.length === 0) { const { tags: _drop, ...rest } = c; return rest; }
-        return { ...c, tags: filtered };
-      });
-      if (!changed) return cv;
-      const updated = { ...cv, commits: newCommits, u: new Date().toISOString() };
-      touched.push(updated);
-      return updated;
-    });
-    touched.forEach(persistConv);
-    setConvs(nextConvs);
-    const currentCv = nextConvs.find(c => c.id === convId);
-    if (currentCv) { setCommits(currentCv.commits); cRef.current = currentCv.commits; }
-    setActiveTags(p => { if (!p.has(name)) return p; const n = new Set(p); n.delete(name); return n; });
-  };
-
-  const editCommitTags = (cid, tagsInput) => {
-    const tags = (tagsInput || "")
-      .split(",")
-      .map(s => s.trim().replace(/^#+/, ""))
-      .filter(Boolean);
-    const newCommits = cRef.current.map(c => {
-      if (c.id !== cid) return c;
-      const { tags: _omit, ...rest } = c;
-      return tags.length ? { ...rest, tags } : rest;
-    });
-    setCommits(newCommits); cRef.current = newCommits;
-    save(null, newCommits, headId, branch);
-  };
-
   const editNodeLabel = (cid, newLabel) => {
     const trimmed = (newLabel || "").trim();
     const existing = cRef.current.find(c => c.id === cid);
@@ -926,53 +835,23 @@ export default function App() {
   };
 
   /* RENDER */
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const toggleSidebar = () => setSidebarCollapsed((v) => !v);
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    const saved = Number(storage.get("sidebarWidth")?.value);
-    return Number.isFinite(saved) && saved >= 200 && saved <= 560 ? saved : 320;
-  });
-  const sidebarDrag = useRef<{ startX: number; startW: number } | null>(null);
-  const onSidebarResizeDown = (e: React.MouseEvent) => {
-    if (sidebarCollapsed) return;
-    e.preventDefault();
-    sidebarDrag.current = { startX: e.clientX, startW: sidebarWidth };
-    const onMove = (me: MouseEvent) => {
-      if (!sidebarDrag.current) return;
-      const dx = me.clientX - sidebarDrag.current.startX;
-      const next = Math.min(560, Math.max(200, sidebarDrag.current.startW + dx));
-      setSidebarWidth(next);
-    };
-    const onUp = () => {
-      if (sidebarDrag.current) storage.set("sidebarWidth", String(sidebarWidth));
-      sidebarDrag.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  };
-  useEffect(() => {
-    if (!sidebarCollapsed) storage.set("sidebarWidth", String(sidebarWidth));
-  }, [sidebarWidth, sidebarCollapsed]);
+  const { sidebarCollapsed, toggleSidebar, sidebarWidth, sidebarDrag, onSidebarResizeDown } = useSidebarUI();
 
   const sidebarProps = {
-    convs, clusters, clusterGroups, convId, branch,
-    activeTags, setActiveTags, renameTag, deleteTag,
+    convs, clusters, clusterGroups, convId,
+    activeTags, setActiveTags, renameTag, deleteTag, tagPool, createTag,
     chatMenu, setChatMenu,
     renamingId, setRenamingId,
-    renamingBranch, setRenamingBranch,
     renamingClusterId, setRenamingClusterId,
     renameVal, setRenameVal,
     expandedClusters, toggleCluster, expandFolder,
-    sidebarItemOpen, toggleSidebarItem,
     activeFolderId, setActiveFolderId,
     createFolder, renameFolder, deleteFolder,
     moveConvToFolder, moveFolder,
     apiKey, setApiKey, showKeyInput, setShowKeyInput,
     keyDraft, setKeyDraft, hasKey, setRateLimited,
-    newConv, loadMain, loadBranch,
-    renameConv, renameBranch, del, countChildConvs, deleteBranchCascade,
+    newConv, loadMain,
+    renameConv, del, countChildConvs,
     setConfirmDialog,
     collapsed: sidebarCollapsed,
     toggleSidebar,
@@ -986,9 +865,22 @@ export default function App() {
     });
   };
 
+  const requestDeleteBranch = (bName: string) => {
+    if (!convId) return;
+    const descs = getBranchDescendantNames(commits, bName);
+    const plural = descs.length > 1 ? "es" : "";
+    setConfirmDialog({
+      title: "Delete branch?",
+      body: <>This will delete <span className="font-semibold">{bName}</span>.</>,
+      note: descs.length > 0 ? `Also deletes ${descs.length} child branch${plural}.` : null,
+      confirmLabel: "Delete",
+      onConfirm: () => deleteBranchCascade(convId, bName),
+    });
+  };
+
   const chatProps = {
     commits, headId, branch, names, parentRef, thread,
-    convs, convId, activeTags,
+    convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
     webSearchOn, toggleWebSearch,
@@ -1012,6 +904,8 @@ export default function App() {
     handleSelectNode, rangeToBranch, rangeToNew, deleteRange,
     editNodeLabel, editCommitTags,
     del, countChildConvs, setConfirmDialog,
+    renameBranch, requestDeleteBranch,
+    renameConv, moveConvToFolder, clusters, expandFolder,
   };
 
   return (
@@ -1042,22 +936,35 @@ export default function App() {
           </div>
         </div>
 
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-wrap">
-              {confirmDialog?.msg}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => { confirmDialog?.onConfirm?.(); setConfirmDialog(null); }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
+        <AlertDialogContent className="gap-4 rounded-2xl p-5 sm:max-w-md">
+          {(() => {
+            if (confirmDialog) confirmDialogRef.current = confirmDialog;
+            const dlg = confirmDialog ?? confirmDialogRef.current;
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="text-base font-semibold">{dlg?.title ?? "Confirm"}</AlertDialogTitle>
+                </AlertDialogHeader>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2">
+                    <div className="text-foreground">{dlg?.body ?? dlg?.msg}</div>
+                    {dlg?.note && (
+                      <div className="text-xs text-muted-foreground">{dlg.note}</div>
+                    )}
+                  </div>
+                </AlertDialogDescription>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="rounded-full px-4">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => { dlg?.onConfirm?.(); setConfirmDialog(null); }}
+                    className="rounded-full px-4 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {dlg?.confirmLabel ?? "Confirm"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })()}
         </AlertDialogContent>
       </AlertDialog>
     </SidebarProvider>
