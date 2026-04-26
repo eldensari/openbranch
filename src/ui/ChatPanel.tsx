@@ -490,7 +490,7 @@ export default function ChatPanel(props: Props) {
                         </>
                       )}
                   </div>
-                  <div className="ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
+                  <div className="-ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -509,6 +509,24 @@ export default function ChatPanel(props: Props) {
                       disabled={thinking}
                     >
                       <RotateCcw className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground"
+                      title="Branch from here"
+                      onClick={() => startBranchFrom(cm.id)}
+                    >
+                      <GitBranch className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground"
+                      title="New conversation from here"
+                      onClick={() => startNew(cm.id)}
+                    >
+                      <Plus className="size-3.5" />
                     </Button>
                   </div>
                 </div>
