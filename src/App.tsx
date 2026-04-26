@@ -184,7 +184,7 @@ export default function App() {
     setConvId(id);
   };
 
-  const { activeTags, setActiveTags, renameTag, deleteTag, editCommitTags } = useConversationTags({
+  const { activeTags, setActiveTags, renameTag, deleteTag, editCommitTags, tagPool, createTag } = useConversationTags({
     convs, setConvs, clusters, expandedClusters, setExpandedClusters,
     openSidebarItems, setOpenSidebarItems, convId, commits, setCommits, cRef,
     headId, branch, save,
@@ -838,7 +838,7 @@ export default function App() {
 
   const sidebarProps = {
     convs, clusters, clusterGroups, convId,
-    activeTags, setActiveTags, renameTag, deleteTag,
+    activeTags, setActiveTags, renameTag, deleteTag, tagPool, createTag,
     chatMenu, setChatMenu,
     renamingId, setRenamingId,
     renamingClusterId, setRenamingClusterId,
@@ -876,7 +876,7 @@ export default function App() {
 
   const chatProps = {
     commits, headId, branch, names, parentRef, thread,
-    convs, convId, activeTags,
+    convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
     webSearchOn, toggleWebSearch,

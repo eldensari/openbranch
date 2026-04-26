@@ -72,7 +72,7 @@ export default function AppSidebar(props: Props) {
   const {
     convs, clusters,
     convId,
-    activeTags, setActiveTags, renameTag, deleteTag,
+    activeTags, setActiveTags, renameTag, deleteTag, tagPool, createTag,
     renamingId, setRenamingId,
     renamingClusterId, setRenamingClusterId,
     renameVal, setRenameVal,
@@ -98,6 +98,7 @@ export default function AppSidebar(props: Props) {
   const [movingConvId, setMovingConvId] = useState<string | null>(null);
   const [movingFolderId, setMovingFolderId] = useState<string | null>(null);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [creatingTag, setCreatingTag] = useState(false);
   const q = searchQuery.trim().toLowerCase();
 
   const openSearch = () => {
@@ -255,6 +256,14 @@ export default function AppSidebar(props: Props) {
           const f = createFolder(null);
           renameFolder(f.id, v);
         }}
+      />
+      <RenameDialog
+        open={creatingTag}
+        onOpenChange={setCreatingTag}
+        title="New tag"
+        initialValue=""
+        placeholder="Tag name"
+        onSave={(v) => createTag(v)}
       />
       <MoveToFolderDialog
         open={!!movingConvId}
@@ -446,7 +455,10 @@ export default function AppSidebar(props: Props) {
       tagCounts[tg] = (tagCounts[tg] || 0) + 1;
     })),
   );
-  const tagEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+  (tagPool || []).forEach((tg: string) => {
+    if (!(tg in tagCounts)) tagCounts[tg] = 0;
+  });
+  const tagEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
   const liveTags = new Set<string>();
   convs.forEach((cv: any) => (cv.commits || []).forEach((c: any) => (c.tags || []).forEach((tg: string) => liveTags.add(tg))));
@@ -660,7 +672,7 @@ export default function AppSidebar(props: Props) {
       </SidebarHeader>
 
       <SidebarContent>
-        {!collapsed && tagEntries.length > 0 && (
+        {!collapsed && (
           <SidebarGroup>
             <button
               type="button"
@@ -678,6 +690,14 @@ export default function AppSidebar(props: Props) {
             </button>
             {tagsOpen && (
               <div className="flex flex-col gap-0.5 px-1 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setCreatingTag(true)}
+                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent"
+                >
+                  <span className="shrink-0 text-muted-foreground">+</span>
+                  New tag
+                </button>
                 {tagEntries.map(([tg, n]) => {
                   const on = activeTags.has(tg);
                   return (

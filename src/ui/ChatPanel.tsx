@@ -63,7 +63,7 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export default function ChatPanel(props: Props) {
   const {
     commits, headId, branch, names, parentRef, thread,
-    convs, convId, activeTags,
+    convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
     webSearchOn, toggleWebSearch,
@@ -918,7 +918,10 @@ export default function ChatPanel(props: Props) {
         onEditLabel={editNodeLabel}
         onEditTags={editCommitTags}
         allTags={Array.from(
-          new Set(convs.flatMap((cv: any) => (cv.commits || []).flatMap((c: any) => c.tags || []))),
+          new Set([
+            ...convs.flatMap((cv: any) => (cv.commits || []).flatMap((c: any) => c.tags || [])),
+            ...(tagPool || []),
+          ]),
         )}
         activeTags={activeTags}
         onRenameBranch={(b: string, newTitle: string) => renameBranch(convId, b, newTitle)}

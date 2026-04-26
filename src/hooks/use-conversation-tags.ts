@@ -2,6 +2,7 @@ import { useState, useEffect, MutableRefObject } from "react";
 import { persistConv } from "../storage/conv";
 import { branchPathToRoot } from "../graph/branches";
 import { sidebarBranchKey } from "../storage/sidebar";
+import storage from "../lib/storage";
 
 export function useConversationTags(deps: {
   convs: any[];
@@ -22,6 +23,21 @@ export function useConversationTags(deps: {
   const { convs, setConvs, clusters, expandedClusters, setExpandedClusters, openSidebarItems, setOpenSidebarItems, convId, setCommits, cRef, headId, branch, save } = deps;
 
   const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set());
+  const [tagPool, setTagPool] = useState<string[]>(() => {
+    const v = storage.get("tagPool").value;
+    if (!v) return [];
+    try { const parsed = JSON.parse(v); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+  });
+  const persistTagPool = (next: string[]) => {
+    setTagPool(next);
+    storage.set("tagPool", JSON.stringify(next));
+  };
+  const createTag = (name: string) => {
+    const trimmed = (name || "").trim().replace(/^#+/, "");
+    if (!trimmed) return;
+    if (tagPool.includes(trimmed)) return;
+    persistTagPool([...tagPool, trimmed]);
+  };
 
   // Auto-expand folder/conv/branch chain when a tag filter is activated
   useEffect(() => {
@@ -76,6 +92,10 @@ export function useConversationTags(deps: {
       if (!p.has(oldName)) return p;
       const n = new Set(p); n.delete(oldName); n.add(trimmed); return n;
     });
+    if (tagPool.includes(oldName) || !tagPool.includes(trimmed)) {
+      const next = Array.from(new Set(tagPool.map((t) => t === oldName ? trimmed : t)));
+      persistTagPool(next);
+    }
   };
 
   const deleteTag = (name: string) => {
@@ -99,6 +119,7 @@ export function useConversationTags(deps: {
     const currentCv = nextConvs.find(c => c.id === convId);
     if (currentCv) { setCommits(currentCv.commits); cRef.current = currentCv.commits; }
     setActiveTags(p => { if (!p.has(name)) return p; const n = new Set(p); n.delete(name); return n; });
+    if (tagPool.includes(name)) persistTagPool(tagPool.filter((t) => t !== name));
   };
 
   const editCommitTags = (cid: string, tagsInput: string) => {
@@ -115,5 +136,5 @@ export function useConversationTags(deps: {
     save(null, newCommits, headId, branch);
   };
 
-  return { activeTags, setActiveTags, renameTag, deleteTag, editCommitTags };
+  return { activeTags, setActiveTags, renameTag, deleteTag, editCommitTags, tagPool, createTag };
 }
