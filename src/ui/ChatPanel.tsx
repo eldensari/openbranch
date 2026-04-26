@@ -27,7 +27,6 @@ import {
   Pencil,
   Folder,
 } from "lucide-react";
-import { buildFolderTree, formatClusterTitle } from "@/storage/clusters";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -39,10 +38,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
+import RenameDialog from "./RenameDialog";
+import MoveToFolderDialog from "./MoveToFolderDialog";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -87,27 +85,10 @@ export default function ChatPanel(props: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [renamingChat, setRenamingChat] = useState(false);
-  const [chatRenameDraft, setChatRenameDraft] = useState("");
+  const [movingChat, setMovingChat] = useState(false);
 
   const currentConv = convs.find((c: any) => c.id === convId);
   const currentTitle = currentConv?.title || "Untitled";
-  const userClusters = (clusters || []).filter((c: any) => c.auto !== true);
-  const flattenFolders = () => {
-    const { rootFolders, childrenByParentId } = buildFolderTree(userClusters);
-    const out: { folder: any; depth: number }[] = [];
-    const walk = (arr: any[], depth: number) => {
-      for (const f of arr) {
-        out.push({ folder: f, depth });
-        walk(childrenByParentId.get(f.id) || [], depth + 1);
-      }
-    };
-    walk(rootFolders, 0);
-    return out;
-  };
-  const commitChatRename = () => {
-    if (convId && chatRenameDraft.trim()) renameConv?.(convId, chatRenameDraft.trim());
-    setRenamingChat(false);
-  };
 
   const allSources = (() => {
     const seen = new Set<string>();
@@ -364,82 +345,51 @@ export default function ChatPanel(props: Props) {
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
         <div className="min-w-0 flex-1">
           {convId && (
-            renamingChat ? (
-              <Input
-                autoFocus
-                value={chatRenameDraft}
-                onChange={(e) => setChatRenameDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitChatRename();
-                  if (e.key === "Escape") setRenamingChat(false);
-                }}
-                onBlur={commitChatRename}
-                className="h-7 max-w-xs px-2 text-sm font-medium"
-              />
-            ) : (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="group flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-accent"
-                    title={currentTitle}
-                  >
-                    <span className="truncate">{currentTitle}</span>
-                    <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56 rounded-2xl p-1.5">
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      setChatRenameDraft(currentTitle);
-                      setRenamingChat(true);
-                    }}
-                    className="gap-3 py-2.5"
-                  >
-                    <Pencil className="size-4" />
-                    Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="gap-3 py-2.5">
-                      <Folder className="size-4" />
-                      Move to folder
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem onSelect={() => moveConvToFolder?.(convId, null)}>
-                        <span className="italic text-muted-foreground">(top level)</span>
-                      </DropdownMenuItem>
-                      {flattenFolders().map(({ folder, depth: fd }) => (
-                        <DropdownMenuItem
-                          key={folder.id}
-                          onSelect={() => { moveConvToFolder?.(convId, folder.id); expandFolder?.(folder.id); }}
-                          style={{ paddingLeft: 8 + fd * 10 }}
-                        >
-                          <Folder className="size-3.5" />
-                          {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    disabled={!del}
-                    onSelect={() => {
-                      if (!del || !convId) return;
-                      const n = countChildConvs ? countChildConvs(convId) : 0;
-                      const msg = n > 0
-                        ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?`
-                        : "Delete this conversation?";
-                      setConfirmDialog?.({ msg, onConfirm: () => del(convId) });
-                    }}
-                    className="gap-3 py-2.5"
-                  >
-                    <Trash2 className="size-4" />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="group flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-accent"
+                  title={currentTitle}
+                >
+                  <span className="truncate">{currentTitle}</span>
+                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56 rounded-2xl p-1.5">
+                <DropdownMenuItem
+                  onSelect={() => setRenamingChat(true)}
+                  className="gap-3 py-2.5"
+                >
+                  <Pencil className="size-4" />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setMovingChat(true)}
+                  className="gap-3 py-2.5"
+                >
+                  <Folder className="size-4" />
+                  Move to folder
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={!del}
+                  onSelect={() => {
+                    if (!del || !convId) return;
+                    const n = countChildConvs ? countChildConvs(convId) : 0;
+                    const msg = n > 0
+                      ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?`
+                      : "Delete this conversation?";
+                    setConfirmDialog?.({ msg, onConfirm: () => del(convId) });
+                  }}
+                  className="gap-3 py-2.5"
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
         <DropdownMenu>
@@ -531,7 +481,7 @@ export default function ChatPanel(props: Props) {
                 <div className="self-end max-w-[82%] flex flex-col items-end">
                   <div
                     className={cn(
-                      "rounded-2xl px-4 py-3 text-[17px] leading-relaxed whitespace-pre-wrap",
+                      "rounded-2xl px-4 py-3 text-[16px] leading-relaxed whitespace-pre-wrap",
                       isMrg
                         ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
                         : "bg-user-bubble text-user-foreground",
@@ -558,7 +508,7 @@ export default function ChatPanel(props: Props) {
                   </div>
                 </div>
                 <div className="self-start max-w-[82%] flex flex-col gap-1.5">
-                  <div className="text-[17px] leading-relaxed">
+                  <div className="text-[16px] leading-relaxed">
                     {cm.responseBlocks?.length
                       ? renderResponseBlocks(cm.responseBlocks)
                       : (
@@ -596,7 +546,7 @@ export default function ChatPanel(props: Props) {
           {pending && (
             <div
               className={cn(
-                "self-end max-w-[82%] rounded-2xl px-4 py-3 text-[17px] leading-relaxed",
+                "self-end max-w-[82%] rounded-2xl px-4 py-3 text-[16px] leading-relaxed",
                 newFromRef ? "bg-[color:var(--branch-1)]/12 text-[color:var(--branch-1)]" : "bg-user-bubble text-user-foreground",
               )}
             >
@@ -604,7 +554,7 @@ export default function ChatPanel(props: Props) {
             </div>
           )}
           {thinking && (
-            <div className="self-start text-[17px] text-muted-foreground">
+            <div className="self-start text-[16px] text-muted-foreground">
               <ThinkingDots />
             </div>
           )}
@@ -736,6 +686,22 @@ export default function ChatPanel(props: Props) {
           </div>
         </div>
       )}
+
+      <RenameDialog
+        open={renamingChat}
+        onOpenChange={setRenamingChat}
+        title="Rename chat"
+        initialValue={currentTitle}
+        onSave={(v) => { if (convId) renameConv?.(convId, v); }}
+      />
+      <MoveToFolderDialog
+        open={movingChat}
+        onOpenChange={setMovingChat}
+        clusters={clusters || []}
+        convId={convId}
+        onMove={moveConvToFolder}
+        onAfterMove={(fid) => { if (fid) expandFolder?.(fid); }}
+      />
     </div>
   );
 

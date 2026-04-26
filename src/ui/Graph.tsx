@@ -3,6 +3,7 @@ import { bCol } from "@/lib/branch-colors";
 import { bHead, shortModelName } from "@/graph/model";
 import { getBranchLabel } from "@/graph/branches";
 import { cn } from "@/lib/utils";
+import RenameDialog from "./RenameDialog";
 
 function orderBranchesByTree(commits: any[], names: string[]): string[] {
   const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
@@ -82,8 +83,7 @@ export default function Graph(props: Props) {
   const [tagInput, setTagInput] = useState("");
   const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
   const [chipCtx, setChipCtx] = useState<{ x: number; y: number; branch: string } | null>(null);
-  const [renamingChip, setRenamingChip] = useState<string | null>(null);
-  const [chipDraft, setChipDraft] = useState("");
+  const [renamingBranchName, setRenamingBranchName] = useState<string | null>(null);
   const hasParent = !!parentRef;
   const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
 
@@ -160,24 +160,6 @@ export default function Graph(props: Props) {
           const act = b === activeBranch;
           const raw = getBranchLabel(commits, b, branchTitles);
           const label = raw.length > 16 ? raw.slice(0, 16) + ".." : raw;
-          if (renamingChip === b) {
-            return (
-              <input
-                key={b}
-                autoFocus
-                value={chipDraft}
-                onChange={(e) => setChipDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { onRenameBranch?.(b, chipDraft); setRenamingChip(null); }
-                  if (e.key === "Escape") setRenamingChip(null);
-                }}
-                onBlur={() => { onRenameBranch?.(b, chipDraft); setRenamingChip(null); }}
-                onClick={(e) => e.stopPropagation()}
-                className="rounded-md border px-2 py-0.5 font-mono text-[11px] outline-none focus:ring-1"
-                style={{ color: c, borderColor: c, minWidth: 80 }}
-              />
-            );
-          }
           return (
             <button
               key={b}
@@ -366,10 +348,7 @@ export default function Graph(props: Props) {
         >
           <button
             onClick={() => {
-              const b = chipCtx.branch;
-              const raw = getBranchLabel(commits, b, branchTitles);
-              setChipDraft(raw);
-              setRenamingChip(b);
+              setRenamingBranchName(chipCtx.branch);
               setChipCtx(null);
             }}
             className="block w-full px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
@@ -504,6 +483,14 @@ export default function Graph(props: Props) {
           </div>
         );
       })()}
+
+      <RenameDialog
+        open={!!renamingBranchName}
+        onOpenChange={(o) => { if (!o) setRenamingBranchName(null); }}
+        title="Rename branch"
+        initialValue={renamingBranchName ? getBranchLabel(commits, renamingBranchName, branchTitles) : ""}
+        onSave={(v) => { if (renamingBranchName) onRenameBranch?.(renamingBranchName, v); setRenamingBranchName(null); }}
+      />
     </div>
   );
 }

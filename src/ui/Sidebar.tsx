@@ -36,6 +36,8 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import RenameDialog from "./RenameDialog";
+import MoveToFolderDialog from "./MoveToFolderDialog";
 
 type TimeBucket = "today" | "yesterday" | "week" | "month" | "older";
 const BUCKET_LABELS: Record<TimeBucket, string> = {
@@ -89,6 +91,7 @@ export default function AppSidebar(props: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [tagsOpen, setTagsOpen] = useState(false);
   const [chatsOpen, setChatsOpen] = useState(true);
+  const [movingConvId, setMovingConvId] = useState<string | null>(null);
   const q = searchQuery.trim().toLowerCase();
 
   const openSearch = () => {
@@ -218,6 +221,35 @@ export default function AppSidebar(props: Props) {
     </Dialog>
   );
 
+  const renamingConv = renamingId ? convs.find((c: any) => c.id === renamingId) : null;
+  const renamingFolder = renamingClusterId ? clusters.find((c: any) => c.id === renamingClusterId) : null;
+  const convDialogs = (
+    <>
+      <RenameDialog
+        open={!!renamingConv}
+        onOpenChange={(o) => { if (!o) setRenamingId(null); }}
+        title="Rename chat"
+        initialValue={renameVal}
+        onSave={(v) => { if (renamingConv) renameConv(renamingConv.id, v); setRenamingId(null); }}
+      />
+      <RenameDialog
+        open={!!renamingFolder}
+        onOpenChange={(o) => { if (!o) setRenamingClusterId(null); }}
+        title="Rename folder"
+        initialValue={renameVal}
+        onSave={(v) => { if (renamingFolder) renameFolder(renamingFolder.id, v); setRenamingClusterId(null); }}
+      />
+      <MoveToFolderDialog
+        open={!!movingConvId}
+        onOpenChange={(o) => { if (!o) setMovingConvId(null); }}
+        clusters={clusters}
+        convId={movingConvId}
+        onMove={moveConvToFolder}
+        onAfterMove={(fid) => { if (fid) expandFolder(fid); }}
+      />
+    </>
+  );
+
   if (collapsed) {
     return (
       <>
@@ -274,22 +306,20 @@ export default function AppSidebar(props: Props) {
         </div>
         {searchDialog}
         {settingsDialog}
+        {convDialogs}
       </>
     );
   }
 
   const renderConvItem = (cv: any, keyPrefix: string, depth = 0) => {
     const convActive = convId === cv.id;
-    const renamingThisConv = renamingId === cv.id;
 
     return (
       <div key={keyPrefix + ":" + cv.id}>
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
-              onClick={() => {
-                if (!renamingThisConv) loadMain(cv);
-              }}
+              onClick={() => loadMain(cv)}
               className={cn(
                 "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm transition-colors",
                 convActive
@@ -299,78 +329,47 @@ export default function AppSidebar(props: Props) {
               style={{ paddingLeft: 8 + depth * 14 + (depth > 0 ? 18 : 0) }}
             >
               <div className="min-w-0 flex-1">
-                {renamingThisConv ? (
-                  <Input
-                    autoFocus
-                    value={renameVal}
-                    onChange={(e) => setRenameVal(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { renameConv(cv.id, renameVal); setRenamingId(null); }
-                      if (e.key === "Escape") setRenamingId(null);
-                    }}
-                    onBlur={() => { renameConv(cv.id, renameVal); setRenamingId(null); }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-6 px-1.5 text-sm"
-                  />
-                ) : (
-                  <div className="truncate" title={cv.title || "Untitled"}>
-                    {cv.title || "Untitled"}
-                  </div>
-                )}
+                <div className="truncate" title={cv.title || "Untitled"}>
+                  {cv.title || "Untitled"}
+                </div>
               </div>
-              {!renamingThisConv && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label="More actions"
-                      className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-                    >
-                      <MoreHorizontal className="size-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        setRenameVal(cv.title || "");
-                        setRenamingId(cv.id);
-                        setRenamingClusterId(null);
-                      }}
-                    >
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>Move to folder</DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent>
-                        <DropdownMenuItem onSelect={() => moveConvToFolder(cv.id, null)}>
-                          <span className="italic text-muted-foreground">(top level)</span>
-                        </DropdownMenuItem>
-                        {flattenFolders().map(({ folder, depth: fd }) => (
-                          <DropdownMenuItem
-                            key={folder.id}
-                            onSelect={() => { moveConvToFolder(cv.id, folder.id); expandFolder(folder.id); }}
-                            style={{ paddingLeft: 8 + fd * 10 }}
-                          >
-                            {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => {
-                        const n = countChildConvs(cv.id);
-                        const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
-                        setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
-                      }}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="More actions"
+                    className="ml-1 flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-sidebar-accent/80 hover:text-foreground focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="bottom" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setRenameVal(cv.title || "");
+                      setRenamingId(cv.id);
+                      setRenamingClusterId(null);
+                    }}
+                  >
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setMovingConvId(cv.id)}>
+                    Move to folder
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => {
+                      const n = countChildConvs(cv.id);
+                      const msg = n > 0 ? `Delete this conversation and ${n} descendant conversation${n > 1 ? "s" : ""}?` : "Delete this conversation?";
+                      setConfirmDialog({ msg, onConfirm: () => del(cv.id) });
+                    }}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
@@ -383,23 +382,9 @@ export default function AppSidebar(props: Props) {
             >
               Rename
             </ContextMenuItem>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>Move to folder</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem onSelect={() => moveConvToFolder(cv.id, null)}>
-                  <span className="italic text-muted-foreground">(top level)</span>
-                </ContextMenuItem>
-                {flattenFolders().map(({ folder, depth }) => (
-                  <ContextMenuItem
-                    key={folder.id}
-                    onSelect={() => { moveConvToFolder(cv.id, folder.id); expandFolder(folder.id); }}
-                    style={{ paddingLeft: 8 + depth * 10 }}
-                  >
-                    <Folder className="size-3.5" /> {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
+            <ContextMenuItem onSelect={() => setMovingConvId(cv.id)}>
+              Move to folder
+            </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
               variant="destructive"
@@ -457,7 +442,6 @@ export default function AppSidebar(props: Props) {
     const folder = group.folder;
     const folderId = folder.id;
     const isCollapsed = !expandedClusters.has(folderId);
-    const isRenaming = renamingClusterId === folderId;
     const hasContent = group.items.length > 0 || group.children.length > 0;
     const { rootItems } = buildSidebarLayout(group.items);
     const folderActions = {
@@ -502,37 +486,19 @@ export default function AppSidebar(props: Props) {
           <ContextMenuTrigger asChild>
             <div
               onClick={() => {
-                if (!isRenaming) {
-                  setActiveFolderId(folderId);
-                  if (hasContent) toggleCluster(folderId);
-                }
+                setActiveFolderId(folderId);
+                if (hasContent) toggleCluster(folderId);
               }}
               className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent"
               style={{ paddingLeft: 8 + depth * 14 }}
             >
               {isCollapsed ? <Folder className="size-4 shrink-0" /> : <FolderOpen className="size-4 shrink-0" />}
               <div className="min-w-0 flex-1">
-                {isRenaming ? (
-                  <Input
-                    autoFocus
-                    value={renameVal}
-                    onChange={(e) => setRenameVal(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { renameFolder(folderId, renameVal); setRenamingClusterId(null); }
-                      if (e.key === "Escape") setRenamingClusterId(null);
-                    }}
-                    onBlur={() => { renameFolder(folderId, renameVal); setRenamingClusterId(null); }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-6 px-1.5 text-sm"
-                  />
-                ) : (
-                  <div className="truncate" title={folder.title || "Untitled"}>
-                    {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
-                  </div>
-                )}
+                <div className="truncate" title={folder.title || "Untitled"}>
+                  {folder.title || formatClusterTitle(folder.createdAt) || "Untitled"}
+                </div>
               </div>
-              {!isRenaming && (
-                <DropdownMenu>
+              <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
@@ -560,7 +526,6 @@ export default function AppSidebar(props: Props) {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              )}
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
