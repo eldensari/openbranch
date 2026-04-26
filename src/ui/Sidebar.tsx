@@ -639,7 +639,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={newConv}
-          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent"
+          className="h-9 w-full justify-start gap-2 px-2.5 font-normal hover:bg-sidebar-accent"
         >
           <SquarePen className="size-4" />
           New chat
@@ -647,7 +647,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={openSearch}
-          className="h-9 w-full justify-start gap-2 px-2 font-normal hover:bg-sidebar-accent"
+          className="h-9 w-full justify-start gap-2 px-2.5 font-normal hover:bg-sidebar-accent"
         >
           <Search className="size-4" />
           Search chats
