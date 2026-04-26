@@ -944,15 +944,15 @@ export default function App() {
               <>
                 <AlertDialogHeader>
                   <AlertDialogTitle className="text-base font-semibold">{dlg?.title ?? "Confirm"}</AlertDialogTitle>
-                  <AlertDialogDescription asChild>
-                    <div className="space-y-2">
-                      <div className="text-foreground">{dlg?.body ?? dlg?.msg}</div>
-                      {dlg?.note && (
-                        <div className="text-xs text-muted-foreground">{dlg.note}</div>
-                      )}
-                    </div>
-                  </AlertDialogDescription>
                 </AlertDialogHeader>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2">
+                    <div className="text-foreground">{dlg?.body ?? dlg?.msg}</div>
+                    {dlg?.note && (
+                      <div className="text-xs text-muted-foreground">{dlg.note}</div>
+                    )}
+                  </div>
+                </AlertDialogDescription>
                 <AlertDialogFooter>
                   <AlertDialogCancel className="rounded-full px-4">Cancel</AlertDialogCancel>
                   <AlertDialogAction
