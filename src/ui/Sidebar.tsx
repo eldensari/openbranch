@@ -536,10 +536,14 @@ export default function AppSidebar(props: Props) {
         const n = affected.length;
         setConfirmDialog({
           title: "Delete project?",
-          body: <>This will delete <span className="font-semibold">{folderTitle}</span>.</>,
-          note: n > 0
-            ? `${n} conversation${n > 1 ? "s" : ""} will move up to the parent project. Sub-projects stay; only the project itself is removed.`
-            : null,
+          body: n > 0 ? (
+            <>
+              This will delete <span className="font-semibold">{folderTitle}</span>.
+              {" "}Its {n} conversation{n > 1 ? "s" : ""} will move up to the parent project; sub-projects stay.
+            </>
+          ) : (
+            <>This will delete <span className="font-semibold">{folderTitle}</span>.</>
+          ),
           confirmLabel: "Delete",
           onConfirm: () => deleteFolder(folderId),
         });
@@ -629,10 +633,14 @@ export default function AppSidebar(props: Props) {
                 const n = affected.length;
                 setConfirmDialog({
                   title: "Delete project?",
-                  body: <>This will delete <span className="font-semibold">{folderTitle}</span>.</>,
-                  note: n > 0
-                    ? `${n} conversation${n > 1 ? "s" : ""} will move up to the parent project. Sub-projects stay; only the project itself is removed.`
-                    : null,
+                  body: n > 0 ? (
+                    <>
+                      This will delete <span className="font-semibold">{folderTitle}</span>.
+                      {" "}Its {n} conversation{n > 1 ? "s" : ""} will move up to the parent project; sub-projects stay.
+                    </>
+                  ) : (
+                    <>This will delete <span className="font-semibold">{folderTitle}</span>.</>
+                  ),
                   confirmLabel: "Delete",
                   onConfirm: () => deleteFolder(folderId),
                 });
