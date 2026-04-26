@@ -466,7 +466,12 @@ export default function ChatPanel(props: Props) {
                 onMouseEnter={() => setHoveredCid(cm.id)}
                 onMouseLeave={() => setHoveredCid(null)}
               >
-                <div className="self-end max-w-[82%] flex flex-col items-end">
+                <div
+                  className={cn(
+                    "flex flex-col items-end",
+                    inlineEditId === cm.id ? "w-full" : "self-end max-w-[82%]",
+                  )}
+                >
                   {inlineEditId === cm.id ? (
                     <div className="w-full rounded-2xl bg-user-bubble text-user-foreground px-4 py-3">
                       <Textarea
@@ -521,7 +526,7 @@ export default function ChatPanel(props: Props) {
                               <Copy className="size-3.5" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Copy</TooltipContent>
+                          <TooltipContent side="bottom">Copy</TooltipContent>
                         </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -534,7 +539,7 @@ export default function ChatPanel(props: Props) {
                               <Pencil className="size-3.5" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Edit</TooltipContent>
+                          <TooltipContent side="bottom">Edit</TooltipContent>
                         </Tooltip>
                       </div>
                     </>
@@ -577,7 +582,7 @@ export default function ChatPanel(props: Props) {
                           <RotateCcw className="size-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Retry</TooltipContent>
+                      <TooltipContent side="bottom">Retry</TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -590,7 +595,7 @@ export default function ChatPanel(props: Props) {
                           <GitBranch className="size-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Branch</TooltipContent>
+                      <TooltipContent side="bottom">Branch</TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -603,7 +608,7 @@ export default function ChatPanel(props: Props) {
                           <Plus className="size-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>New</TooltipContent>
+                      <TooltipContent side="bottom">New</TooltipContent>
                     </Tooltip>
                   </div>
                 </div>
