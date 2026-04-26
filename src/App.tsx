@@ -936,14 +936,14 @@ export default function App() {
           </div>
         </div>
 
-        <AlertDialogContent>
+        <AlertDialogContent className="gap-4 rounded-2xl p-5 sm:max-w-md">
           {(() => {
             if (confirmDialog) confirmDialogRef.current = confirmDialog;
             const dlg = confirmDialog ?? confirmDialogRef.current;
             return (
               <>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>{dlg?.title ?? "Confirm"}</AlertDialogTitle>
+                  <AlertDialogTitle className="text-base font-semibold">{dlg?.title ?? "Confirm"}</AlertDialogTitle>
                   <AlertDialogDescription asChild>
                     <div className="space-y-2">
                       <div className="text-foreground">{dlg?.body ?? dlg?.msg}</div>
@@ -954,10 +954,10 @@ export default function App() {
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel className="rounded-full px-4">Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => { dlg?.onConfirm?.(); setConfirmDialog(null); }}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    className="rounded-full px-4 bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >
                     {dlg?.confirmLabel ?? "Confirm"}
                   </AlertDialogAction>
