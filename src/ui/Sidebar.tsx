@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
 import { buildSidebarLayout } from "@/storage/sidebar";
@@ -89,9 +89,12 @@ export default function AppSidebar(props: Props) {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [tagsOpen, setTagsOpen] = useState(false);
-  const [projectsOpen, setProjectsOpen] = useState(true);
-  const [chatsOpen, setChatsOpen] = useState(true);
+  const [tagsOpen, setTagsOpen] = useState(() => storage.get("sb.tagsOpen").value === "1");
+  const [projectsOpen, setProjectsOpen] = useState(() => storage.get("sb.projectsOpen").value !== "0");
+  const [chatsOpen, setChatsOpen] = useState(() => storage.get("sb.chatsOpen").value !== "0");
+  useEffect(() => { storage.set("sb.tagsOpen", tagsOpen ? "1" : "0"); }, [tagsOpen]);
+  useEffect(() => { storage.set("sb.projectsOpen", projectsOpen ? "1" : "0"); }, [projectsOpen]);
+  useEffect(() => { storage.set("sb.chatsOpen", chatsOpen ? "1" : "0"); }, [chatsOpen]);
   const [movingConvId, setMovingConvId] = useState<string | null>(null);
   const [movingFolderId, setMovingFolderId] = useState<string | null>(null);
   const [creatingProject, setCreatingProject] = useState(false);
