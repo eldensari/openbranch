@@ -616,7 +616,7 @@ export default function ChatPanel(props: Props) {
                           <Copy className="size-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Copy</TooltipContent>
+                      <TooltipContent side="bottom">Copy</TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
