@@ -450,7 +450,7 @@ export default function ChatPanel(props: Props) {
         )}
       >
         {thread.length === 0 && !pending && !newFromRef ? (
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4">
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4">
             <div className="flex flex-col items-center gap-8">
               <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
               <div className="w-full max-w-2xl">{composer}</div>
@@ -458,7 +458,7 @@ export default function ChatPanel(props: Props) {
           </div>
         ) : (
           <div className="flex min-h-full w-full flex-col">
-            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4">
+            <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4">
               {thread.map((cm: any) => {
                 const isMrg = (cm.mergeIds || []).length > 0;
                 return (
@@ -498,7 +498,7 @@ export default function ChatPanel(props: Props) {
                     </button>
                   </div>
                 </div>
-                <div className="self-start max-w-[82%] flex flex-col gap-1.5">
+                <div className="self-start w-full flex flex-col gap-1.5">
                   <div className="text-[15px] leading-relaxed">
                     {cm.responseBlocks?.length
                       ? renderResponseBlocks(cm.responseBlocks)
@@ -552,14 +552,14 @@ export default function ChatPanel(props: Props) {
           <div ref={endRef} />
             </div>
             <div className="sticky bottom-0 z-10 mt-auto bg-background px-4 pb-5 pt-8">
-              <div className="mx-auto w-full max-w-3xl">{composer}</div>
+              <div className="mx-auto w-full max-w-4xl">{composer}</div>
             </div>
           </div>
         )}
       </div>
 
       {(branchFromId || editId || newFromRef || (mm && sel.length > 0) || undoAction) && (
-        <div className="mx-auto w-full max-w-3xl px-4">
+        <div className="mx-auto w-full max-w-4xl px-4">
           {branchFromId && (
             <ModeBanner
               label="Branch from selected point"
