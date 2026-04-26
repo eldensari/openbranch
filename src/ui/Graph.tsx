@@ -154,8 +154,7 @@ export default function Graph(props: Props) {
 
   return (
     <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
-      <div className="graph-scroll sticky top-0 z-10 overflow-x-auto border-b bg-graph-bg">
-        <div className="mx-auto flex w-full max-w-3xl gap-1 px-3 py-2">
+      <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
         {orderBranchesByTree(commits, names).map((b) => {
           const c = bCol(names, b);
           const act = b === activeBranch;
@@ -175,7 +174,7 @@ export default function Graph(props: Props) {
               }}
               title={raw}
               className={cn(
-                "shrink-0 rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors",
+                "rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors",
                 act ? "font-semibold" : "font-normal opacity-80 hover:opacity-100",
               )}
               style={{
@@ -189,10 +188,8 @@ export default function Graph(props: Props) {
             </button>
           );
         })}
-        </div>
       </div>
 
-      <div className="mx-auto" style={{ maxWidth: "48rem" }}>
       <svg width={W} height={H} style={{ display: "block" }}>
         {names.map((b) => {
           const bv = vnodes.filter((n) => n.branch === b && n.type !== "ghost");
@@ -342,7 +339,6 @@ export default function Graph(props: Props) {
           );
         })}
       </svg>
-      </div>
 
       {chipCtx && (
         <div

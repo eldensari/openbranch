@@ -340,8 +340,7 @@ export default function ChatPanel(props: Props) {
 
   const chatArea = (
     <div className="relative flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-12 shrink-0 items-center px-3">
-        <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-between gap-2">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
         <div className="min-w-0 flex-1">
           {convId && (
             <DropdownMenu>
@@ -443,7 +442,6 @@ export default function ChatPanel(props: Props) {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        </div>
       </div>
       <div
         className={cn(
@@ -452,7 +450,7 @@ export default function ChatPanel(props: Props) {
         )}
       >
         {thread.length === 0 && !pending && !newFromRef ? (
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4">
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4">
             <div className="flex flex-col items-center gap-8">
               <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
               <div className="w-full max-w-2xl">{composer}</div>
@@ -460,7 +458,7 @@ export default function ChatPanel(props: Props) {
           </div>
         ) : (
           <div className="flex min-h-full w-full flex-col">
-            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 px-4">
+            <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-4">
               {thread.map((cm: any) => {
                 const isMrg = (cm.mergeIds || []).length > 0;
                 return (
@@ -554,14 +552,14 @@ export default function ChatPanel(props: Props) {
           <div ref={endRef} />
             </div>
             <div className="sticky bottom-0 z-10 mt-auto bg-background px-4 pb-5 pt-8">
-              <div className="mx-auto w-full max-w-3xl">{composer}</div>
+              <div className="mx-auto w-full max-w-5xl">{composer}</div>
             </div>
           </div>
         )}
       </div>
 
       {(branchFromId || editId || newFromRef || (mm && sel.length > 0) || undoAction) && (
-        <div className="mx-auto w-full max-w-3xl px-4">
+        <div className="mx-auto w-full max-w-5xl px-4">
           {branchFromId && (
             <ModeBanner
               label="Branch from selected point"
@@ -700,8 +698,7 @@ export default function ChatPanel(props: Props) {
 
   const graphArea = graph && commits.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
-      <div className="flex h-12 shrink-0 items-center border-b bg-graph-bg px-3">
-        <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-between gap-2">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-graph-bg px-3">
         <span className="text-base font-medium">Graph</span>
         <div className="flex items-center gap-1.5">
           {mm && (
@@ -764,7 +761,6 @@ export default function ChatPanel(props: Props) {
             <X className="size-4" />
           </Button>
         </div>
-        </div>
       </div>
       <Graph
         commits={commits}
@@ -807,26 +803,22 @@ export default function ChatPanel(props: Props) {
 
   const sourcesArea = sourcesOpen && allSources.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
-      <div className="flex h-12 shrink-0 items-center border-b px-3">
-        <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-between gap-2">
-          <span className="text-base font-medium">Sources</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={() => setSourcesOpen(false)}
-            title="Cancel"
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
+        <span className="text-base font-medium">Sources</span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={() => setSourcesOpen(false)}
+          title="Cancel"
+        >
+          <X className="size-4" />
+        </Button>
       </div>
-      <div className="flex-1 overflow-y-auto px-2 py-2">
-        <div className="mx-auto max-w-3xl space-y-1">
-          {allSources.map((c: any, i: number) => (
-            <SourceCard key={i} c={c} />
-          ))}
-        </div>
+      <div className="flex-1 space-y-1 overflow-y-auto p-2">
+        {allSources.map((c: any, i: number) => (
+          <SourceCard key={i} c={c} />
+        ))}
       </div>
     </div>
   );
