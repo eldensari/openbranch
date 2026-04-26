@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { bCol } from "@/lib/branch-colors";
 import { bHead, shortModelName } from "@/graph/model";
 import { getBranchLabel } from "@/graph/branches";
@@ -87,6 +87,20 @@ export default function Graph(props: Props) {
   const hasParent = !!parentRef;
   const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
 
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [measuredW, setMeasuredW] = useState<number>(panelW || 280);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w > 0) setMeasuredW(w);
+    });
+    ro.observe(el);
+    setMeasuredW(el.clientWidth || panelW || 280);
+    return () => ro.disconnect();
+  }, [panelW]);
+
   const vnodes: any[] = [];
   if (hasParent) {
     vnodes.push({ vid: "ghost", cid: null, type: "ghost", branch: "main", label: parentRef.promptSummary || "Parent conversation", parentVid: null, mergeVids: [] });
@@ -138,7 +152,7 @@ export default function Graph(props: Props) {
 
   const lW = 22, rH = 26, pL = 18, nR = 6;
   const lX = pL + Math.max(names.length, 1) * lW + 12;
-  const W = panelW || 280;
+  const W = measuredW;
   const H = vnodes.length * rH + 30;
   const maxChars = Math.max(12, Math.floor((W - lX - 20) / 6));
   const trunc = (s: string, n: number) => (s && s.length > n ? s.slice(0, n) + ".." : s);
@@ -153,7 +167,7 @@ export default function Graph(props: Props) {
   const bg = "var(--background)";
 
   return (
-    <div className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
+    <div ref={containerRef} className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
       <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
         {orderBranchesByTree(commits, names).map((b) => {
           const c = bCol(names, b);
