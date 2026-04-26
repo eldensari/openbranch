@@ -35,6 +35,8 @@ function TooltipContent({
   className,
   sideOffset = 6,
   avoidCollisions = false,
+  collisionPadding = 0,
+  sticky = "always",
   children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
@@ -42,13 +44,15 @@ function TooltipContent({
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
-        sideOffset={sideOffset}
-        avoidCollisions={avoidCollisions}
         className={cn(
           "bg-primary text-primary-foreground z-50 w-fit rounded-md px-3 py-1.5 text-xs text-balance",
           className,
         )}
         {...props}
+        sideOffset={sideOffset}
+        avoidCollisions={avoidCollisions}
+        collisionPadding={collisionPadding}
+        sticky={sticky}
       >
         {children}
       </TooltipPrimitive.Content>
