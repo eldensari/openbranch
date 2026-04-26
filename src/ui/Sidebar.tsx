@@ -748,7 +748,7 @@ export default function AppSidebar(props: Props) {
                     setRenamingClusterId(f.id);
                     setRenamingId(null);
                   }}
-                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold transition-colors hover:bg-sidebar-accent"
                 >
                   <FolderPlus className="size-4 shrink-0" />
                   New project
