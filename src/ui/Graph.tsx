@@ -153,7 +153,7 @@ export default function Graph(props: Props) {
 
   const lW = 22, rH = 26, pL = 18, nR = 6;
   const lX = pL + Math.max(names.length, 1) * lW + 12;
-  const W = measuredW;
+  const W = Math.min(measuredW, 768);
   const H = vnodes.length * rH + 30;
   const maxChars = Math.max(12, Math.floor((W - lX - 20) / 6));
   const trunc = (s: string, n: number) => (s && s.length > n ? s.slice(0, n) + ".." : s);
@@ -169,43 +169,45 @@ export default function Graph(props: Props) {
 
   return (
     <div ref={containerRef} className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
-      <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
-        {orderBranchesByTree(commits, names).map((b) => {
-          const c = bCol(names, b);
-          const act = b === activeBranch;
-          const raw = getBranchLabel(commits, b, branchTitles);
-          const label = raw.length > 16 ? raw.slice(0, 16) + ".." : raw;
-          return (
-            <button
-              key={b}
-              onClick={() => {
-                const h = bHead(commits, b);
-                if (h) onCheckout(h.id, b);
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setChipCtx({ x: e.clientX, y: e.clientY, branch: b });
-              }}
-              title={raw}
-              className={cn(
-                "rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors",
-                act ? "font-semibold" : "font-normal opacity-80 hover:opacity-100",
-              )}
-              style={{
-                color: c,
-                borderColor: act ? c : "var(--border)",
-                background: act ? `color-mix(in oklch, ${c} 12%, transparent)` : "transparent",
-              }}
-            >
-              {label}
-              {act ? " ●" : ""}
-            </button>
-          );
-        })}
+      <div className="sticky top-0 z-10 border-b bg-graph-bg">
+        <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-1 px-3 py-2">
+          {orderBranchesByTree(commits, names).map((b) => {
+            const c = bCol(names, b);
+            const act = b === activeBranch;
+            const raw = getBranchLabel(commits, b, branchTitles);
+            const label = raw.length > 16 ? raw.slice(0, 16) + ".." : raw;
+            return (
+              <button
+                key={b}
+                onClick={() => {
+                  const h = bHead(commits, b);
+                  if (h) onCheckout(h.id, b);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setChipCtx({ x: e.clientX, y: e.clientY, branch: b });
+                }}
+                title={raw}
+                className={cn(
+                  "rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors",
+                  act ? "font-semibold" : "font-normal opacity-80 hover:opacity-100",
+                )}
+                style={{
+                  color: c,
+                  borderColor: act ? c : "var(--border)",
+                  background: act ? `color-mix(in oklch, ${c} 12%, transparent)` : "transparent",
+                }}
+              >
+                {label}
+                {act ? " ●" : ""}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <svg width={W} height={H} style={{ display: "block" }}>
+      <svg width={W} height={H} style={{ display: "block", marginLeft: "auto", marginRight: "auto" }}>
         {names.map((b) => {
           const bv = vnodes.filter((n) => n.branch === b && n.type !== "ghost");
           if (!bv.length) return null;
