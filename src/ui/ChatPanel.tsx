@@ -39,6 +39,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import RenameDialog from "./RenameDialog";
 import MoveToFolderDialog from "./MoveToFolderDialog";
 import {
@@ -86,6 +87,21 @@ export default function ChatPanel(props: Props) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [renamingChat, setRenamingChat] = useState(false);
   const [movingChat, setMovingChat] = useState(false);
+  const [inlineEditId, setInlineEditId] = useState<string | null>(null);
+
+  const beginInlineEdit = (cm: any) => {
+    setInlineEditId(cm.id);
+    startEdit(cm.id);
+  };
+  const cancelInlineEdit = () => {
+    setInlineEditId(null);
+    setEditId(null);
+    setInput("");
+  };
+  const sendInlineEdit = () => {
+    setInlineEditId(null);
+    send();
+  };
 
   const currentConv = convs.find((c: any) => c.id === convId);
   const currentTitle = currentConv?.title || "Untitled";
@@ -451,40 +467,78 @@ export default function ChatPanel(props: Props) {
                 onMouseLeave={() => setHoveredCid(null)}
               >
                 <div className="self-end max-w-[82%] flex flex-col items-end">
-                  <div
-                    className={cn(
-                      "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
-                      isMrg
-                        ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
-                        : "bg-user-bubble text-user-foreground",
-                    )}
-                  >
-                    {isMrg && (
-                      <div className="mb-1 text-[11px] font-semibold text-[color:var(--branch-5)]">MERGE</div>
-                    )}
-                    {cm.prompt}
-                  </div>
-                  {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
-                  <div className="-mr-2 flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      title="Copy"
-                      onClick={() => copyToClipboard(cm.prompt)}
-                    >
-                      <Copy className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      title="Edit"
-                      onClick={() => startEdit(cm.id)}
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                  </div>
+                  {inlineEditId === cm.id ? (
+                    <div className="w-full rounded-2xl bg-user-bubble text-user-foreground px-4 py-3">
+                      <Textarea
+                        autoFocus
+                        value={input}
+                        onChange={(e: any) => setInput(e.target.value)}
+                        onKeyDown={(e: any) => {
+                          if (e.key === "Escape") { e.preventDefault(); cancelInlineEdit(); }
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendInlineEdit(); }
+                        }}
+                        rows={1}
+                        className="min-h-[24px] resize-none border-0 bg-transparent p-0 text-[15px] leading-relaxed shadow-none focus-visible:ring-0 md:text-[15px]"
+                        onInput={(e: any) => {
+                          e.target.style.height = "auto";
+                          e.target.style.height = Math.min(e.target.scrollHeight, 320) + "px";
+                        }}
+                      />
+                      <div className="mt-2 flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={cancelInlineEdit} className="h-8 rounded-full px-4">
+                          Cancel
+                        </Button>
+                        <Button size="sm" onClick={sendInlineEdit} disabled={!(input && input.trim())} className="h-8 rounded-full px-4">
+                          Send
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        className={cn(
+                          "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
+                          isMrg
+                            ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
+                            : "bg-user-bubble text-user-foreground",
+                        )}
+                      >
+                        {isMrg && (
+                          <div className="mb-1 text-[11px] font-semibold text-[color:var(--branch-5)]">MERGE</div>
+                        )}
+                        {cm.prompt}
+                      </div>
+                      {cm.attachments?.length > 0 && renderAttachments(cm.attachments)}
+                      <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground"
+                              onClick={() => copyToClipboard(cm.prompt)}
+                            >
+                              <Copy className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Copy</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground"
+                              onClick={() => beginInlineEdit(cm)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Edit</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="self-start w-full flex flex-col gap-1.5">
                   <div className="text-[15px] leading-relaxed">
@@ -498,43 +552,59 @@ export default function ChatPanel(props: Props) {
                       )}
                   </div>
                   <div className="-ml-2 flex gap-0.5 opacity-0 transition-opacity group-hover/cm:opacity-100 focus-within:opacity-100">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      title="Copy"
-                      onClick={() => copyToClipboard(cm.response)}
-                    >
-                      <Copy className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      title="Retry"
-                      onClick={() => retryResponse(cm.id)}
-                      disabled={thinking}
-                    >
-                      <RotateCcw className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      title="Branch"
-                      onClick={() => startBranchFrom(cm.id)}
-                    >
-                      <GitBranch className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground"
-                      title="New"
-                      onClick={() => startNew(cm.id)}
-                    >
-                      <Plus className="size-3.5" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => copyToClipboard(cm.response)}
+                        >
+                          <Copy className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Copy</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => retryResponse(cm.id)}
+                          disabled={thinking}
+                        >
+                          <RotateCcw className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Retry</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => startBranchFrom(cm.id)}
+                        >
+                          <GitBranch className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Branch</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => startNew(cm.id)}
+                        >
+                          <Plus className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>New</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               </div>
@@ -557,9 +627,11 @@ export default function ChatPanel(props: Props) {
           )}
           <div ref={endRef} />
             </div>
-            <div className="sticky bottom-0 z-10 mt-auto bg-background px-4 pb-5 pt-8">
-              <div className="mx-auto w-full max-w-3xl">{composer}</div>
-            </div>
+            {!inlineEditId && (
+              <div className="sticky bottom-0 z-10 mt-auto bg-background px-4 pb-5 pt-8">
+                <div className="mx-auto w-full max-w-3xl">{composer}</div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -573,7 +645,7 @@ export default function ChatPanel(props: Props) {
               onCancel={() => { setBranchFromId(null); setInput(""); }}
             />
           )}
-          {editId && (
+          {editId && !inlineEditId && (
             <ModeBanner
               label="Editing — new branch"
               tone="user"
