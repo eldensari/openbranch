@@ -6,7 +6,7 @@ export function useSidebarUI() {
   const toggleSidebar = () => setSidebarCollapsed((v) => !v);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const saved = Number(storage.get("sidebarWidth")?.value);
-    return Number.isFinite(saved) && saved >= 200 && saved <= 560 ? saved : 320;
+    return Number.isFinite(saved) && saved >= 200 && saved <= 560 ? saved : 280;
   });
   const sidebarDrag = useRef<{ startX: number; startW: number } | null>(null);
   const onSidebarResizeDown = (e: React.MouseEvent) => {
