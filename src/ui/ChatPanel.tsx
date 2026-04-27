@@ -497,8 +497,10 @@ export default function ChatPanel(props: Props) {
       </div>
       <div
         className={cn(
-          "flex-1 overflow-y-auto pt-14",
-          thread.length === 0 && !pending && !newFromRef && "flex items-center",
+          "flex-1 overflow-y-auto",
+          thread.length === 0 && !pending && !newFromRef
+            ? "flex items-start pt-[20vh]"
+            : "pt-14",
         )}
       >
         {thread.length === 0 && !pending && !newFromRef ? (
