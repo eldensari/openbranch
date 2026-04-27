@@ -20,8 +20,11 @@ import {
   Plus,
   Check,
   GitBranch,
+  GitMerge,
   Link2,
   ChevronDown,
+  MoreHorizontal,
+  MousePointerSquareDashed,
   PanelRight,
   Pencil,
   Folder,
@@ -361,6 +364,50 @@ export default function ChatPanel(props: Props) {
         );
       })}
     </div>
+  );
+
+  const graphActionsMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground hover:text-foreground"
+          title="Graph actions"
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[14rem] rounded-2xl p-1">
+        <DropdownMenuItem
+          onSelect={() => {
+            setSelectMode((p: boolean) => !p);
+            setMm(false);
+            setSel([]);
+            clearSelectRange();
+          }}
+          className="gap-3 py-2"
+        >
+          <MousePointerSquareDashed className="size-4" />
+          Select commits
+          {selectMode && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            setSelectMode(false);
+            clearSelectRange();
+            setMm(true);
+            setSel([]);
+          }}
+          disabled={names.length <= 1}
+          className="gap-3 py-2"
+        >
+          <GitMerge className="size-4" />
+          Merge branches
+          {mm && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const panelSwitcher = (
@@ -850,40 +897,11 @@ export default function ChatPanel(props: Props) {
                   : "Pick start")}
             </span>
           )}
-          {!mm && (
-            <Button
-              size="sm"
-              variant={selectMode ? "default" : "outline"}
-              onClick={() => {
-                setSelectMode((p: boolean) => !p);
-                setMm(false);
-                setSel([]);
-                clearSelectRange();
-              }}
-              className="h-7 rounded-full px-2.5 text-xs"
-            >
-              Select
-            </Button>
-          )}
-          {names.length > 1 && !mm && !selectMode && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setSelectMode(false);
-                clearSelectRange();
-                setMm(true);
-                setSel([]);
-              }}
-              className="h-7 rounded-full px-2.5 text-xs"
-            >
-              Merge
-            </Button>
-          )}
+          {graphActionsMenu}
           <Button
             variant="ghost"
             size="icon"
-            className="ml-2 size-7"
+            className="size-7"
             onClick={() => setGraph(false)}
             title="Cancel"
           >
