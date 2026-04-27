@@ -558,7 +558,7 @@ export default function AppSidebar(props: Props) {
                 setActiveFolderId(folderId);
                 if (hasContent) toggleCluster(folderId);
               }}
-              className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-base font-semibold text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+              className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-base text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
               style={{ paddingLeft: 8 + depth * 14 }}
             >
               {isCollapsed ? <Folder className="size-4 shrink-0" /> : <FolderOpen className="size-4 shrink-0" />}
@@ -808,7 +808,7 @@ export default function AppSidebar(props: Props) {
                 <button
                   type="button"
                   onClick={() => setCreatingProject(true)}
-                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-base font-semibold text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-base text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
                 >
                   <FolderPlus className="size-4 shrink-0" />
                   New project

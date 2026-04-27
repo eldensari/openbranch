@@ -389,7 +389,7 @@ export default function ChatPanel(props: Props) {
           className="gap-3 py-2"
         >
           <MousePointerSquareDashed className="size-4" />
-          Select commits
+          Select
           {selectMode && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -403,7 +403,7 @@ export default function ChatPanel(props: Props) {
           className="gap-3 py-2"
         >
           <GitMerge className="size-4" />
-          Merge branches
+          Merge
           {mm && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
         </DropdownMenuItem>
       </DropdownMenuContent>
