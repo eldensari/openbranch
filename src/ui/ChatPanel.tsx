@@ -499,7 +499,7 @@ export default function ChatPanel(props: Props) {
         className={cn(
           "flex-1 overflow-y-auto",
           thread.length === 0 && !pending && !newFromRef
-            ? "flex items-start pt-[20vh]"
+            ? "flex items-start pt-[25vh]"
             : "pt-14",
         )}
       >
