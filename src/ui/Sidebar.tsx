@@ -684,7 +684,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={newConv}
-          className="h-9 w-full justify-start gap-2 px-2.5 font-normal hover:bg-sidebar-accent"
+          className="h-9 w-full justify-start gap-2 px-2.5 text-base font-normal hover:bg-sidebar-accent"
         >
           <SquarePen className="size-4" />
           New chat
@@ -692,7 +692,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={openSearch}
-          className="h-9 w-full justify-start gap-2 px-2.5 font-normal hover:bg-sidebar-accent"
+          className="h-9 w-full justify-start gap-2 px-2.5 text-base font-normal hover:bg-sidebar-accent"
         >
           <Search className="size-4" />
           Search chats
@@ -848,7 +848,7 @@ export default function AppSidebar(props: Props) {
         <Button
           variant="ghost"
           onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
-          className="h-10 w-full justify-start gap-3 px-3 font-normal hover:bg-sidebar-accent"
+          className="h-10 w-full justify-start gap-3 px-3 text-base font-normal hover:bg-sidebar-accent"
         >
           <Settings className="size-4" />
           Settings
