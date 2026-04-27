@@ -386,7 +386,7 @@ export default function ChatPanel(props: Props) {
             setSel([]);
             clearSelectRange();
           }}
-          className="gap-3 py-2"
+          className="gap-3 py-2 text-base"
         >
           <MousePointerSquareDashed className="size-4" />
           Select
@@ -400,7 +400,7 @@ export default function ChatPanel(props: Props) {
             setSel([]);
           }}
           disabled={names.length <= 1}
-          className="gap-3 py-2"
+          className="gap-3 py-2 text-base"
         >
           <GitMerge className="size-4" />
           Merge
@@ -425,7 +425,7 @@ export default function ChatPanel(props: Props) {
       <DropdownMenuContent align="end" className="min-w-[14rem] rounded-2xl p-1">
         <DropdownMenuItem
           onSelect={() => { setGraph(!graph); setSourcesOpen(false); }}
-          className="gap-3 py-2"
+          className="gap-3 py-2 text-base"
         >
           <GitBranch className="size-4" />
           Graph
@@ -434,7 +434,7 @@ export default function ChatPanel(props: Props) {
         <DropdownMenuItem
           onSelect={() => { setSourcesOpen(!sourcesOpen); if (!sourcesOpen) setGraph(false); }}
           disabled={allSources.length === 0}
-          className="gap-3 py-2"
+          className="gap-3 py-2 text-base"
         >
           <Link2 className="size-4" />
           Sources
