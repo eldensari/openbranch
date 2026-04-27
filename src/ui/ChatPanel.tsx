@@ -363,6 +363,40 @@ export default function ChatPanel(props: Props) {
     </div>
   );
 
+  const panelSwitcher = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground hover:text-foreground"
+          title="Panels"
+        >
+          <PanelRight className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[14rem] rounded-2xl p-1">
+        <DropdownMenuItem
+          onSelect={() => { setGraph(!graph); setSourcesOpen(false); }}
+          className="gap-3 py-2"
+        >
+          <GitBranch className="size-4" />
+          Graph
+          {graph && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => { setSourcesOpen(!sourcesOpen); if (!sourcesOpen) setGraph(false); }}
+          disabled={allSources.length === 0}
+          className="gap-3 py-2"
+        >
+          <Link2 className="size-4" />
+          Sources
+          {sourcesOpen && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   const chatArea = (
     <div className="relative flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
@@ -412,43 +446,7 @@ export default function ChatPanel(props: Props) {
             </DropdownMenu>
           )}
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-foreground"
-              title="Panels"
-            >
-              <PanelRight className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[14rem] rounded-2xl p-1">
-            <DropdownMenuItem
-              onSelect={() => {
-                setGraph(!graph);
-                setSourcesOpen(false);
-              }}
-              className="gap-3 py-2"
-            >
-              <GitBranch className="size-4" />
-              Graph
-              {graph && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => {
-                setSourcesOpen(!sourcesOpen);
-                if (!sourcesOpen) setGraph(false);
-              }}
-              disabled={allSources.length === 0}
-              className="gap-3 py-2"
-            >
-              <Link2 className="size-4" />
-              Sources
-              {sourcesOpen && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!graph && !sourcesOpen && panelSwitcher}
       </div>
       <div
         className={cn(
@@ -891,6 +889,8 @@ export default function ChatPanel(props: Props) {
           >
             <X className="size-4" />
           </Button>
+          <div className="mx-1 h-5 w-px bg-border" />
+          {panelSwitcher}
         </div>
       </div>
       <Graph
@@ -939,15 +939,19 @@ export default function ChatPanel(props: Props) {
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-base font-medium">Sources</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={() => setSourcesOpen(false)}
-          title="Cancel"
-        >
-          <X className="size-4" />
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => setSourcesOpen(false)}
+            title="Cancel"
+          >
+            <X className="size-4" />
+          </Button>
+          <div className="mx-1 h-5 w-px bg-border" />
+          {panelSwitcher}
+        </div>
       </div>
       <div className="flex-1 space-y-1 overflow-y-auto p-2">
         {allSources.map((c: any, i: number) => (
