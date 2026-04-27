@@ -705,7 +705,7 @@ export default function AppSidebar(props: Props) {
             <button
               type="button"
               onClick={() => setTagsOpen((v) => !v)}
-              className="group/tag-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+              className="group/tag-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-base font-medium text-muted-foreground hover:text-foreground"
             >
               Tags
               <span className="opacity-0 transition-opacity group-hover/tag-head:opacity-100">
@@ -792,7 +792,7 @@ export default function AppSidebar(props: Props) {
             <button
               type="button"
               onClick={() => setProjectsOpen((v) => !v)}
-              className="group/proj-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+              className="group/proj-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-base font-medium text-muted-foreground hover:text-foreground"
             >
               Projects
               <span className="opacity-0 transition-opacity group-hover/proj-head:opacity-100">
@@ -824,7 +824,7 @@ export default function AppSidebar(props: Props) {
             <button
               type="button"
               onClick={() => setChatsOpen((v) => !v)}
-              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-base font-medium text-muted-foreground hover:text-foreground"
             >
               Recents
               <span className="opacity-0 transition-opacity group-hover/chat-head:opacity-100">
