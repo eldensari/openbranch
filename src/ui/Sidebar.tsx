@@ -36,6 +36,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import RenameDialog from "./RenameDialog";
 import MoveToFolderDialog from "./MoveToFolderDialog";
 
@@ -291,55 +292,70 @@ export default function AppSidebar(props: Props) {
     return (
       <>
         <div className="group/rail flex h-full flex-col items-start gap-1 p-2">
-          <div className="relative size-9">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute inset-0 size-9 transition-opacity group-hover/rail:pointer-events-none group-hover/rail:opacity-0"
-              onClick={toggleSidebar}
-              title="Expand sidebar"
-            >
-              <img src="/favicon.svg" alt="OpenBranch" className="size-5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="pointer-events-none absolute inset-0 size-9 opacity-0 transition-opacity group-hover/rail:pointer-events-auto group-hover/rail:opacity-100"
-              onClick={toggleSidebar}
-              title="Expand sidebar"
-            >
-              <PanelLeft className="size-4" />
-            </Button>
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="relative size-9">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute inset-0 size-9 transition-opacity group-hover/rail:pointer-events-none group-hover/rail:opacity-0"
+                  onClick={toggleSidebar}
+                >
+                  <img src="/favicon.svg" alt="OpenBranch" className="size-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="pointer-events-none absolute inset-0 size-9 opacity-0 transition-opacity group-hover/rail:pointer-events-auto group-hover/rail:opacity-100"
+                  onClick={toggleSidebar}
+                >
+                  <PanelLeft className="size-4" />
+                </Button>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">Expand sidebar</TooltipContent>
+          </Tooltip>
           <div className="h-2" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={newConv}
-            title="New chat"
-          >
-            <SquarePen className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={openSearch}
-            title="Search chats"
-          >
-            <Search className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9"
+                onClick={newConv}
+              >
+                <SquarePen className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">New chat</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9"
+                onClick={openSearch}
+              >
+                <Search className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Search chats</TooltipContent>
+          </Tooltip>
           <div className="flex-1" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
-            title="Settings"
-          >
-            <Settings className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9"
+                onClick={() => { setKeyDraft(apiKey); setShowKeyInput(true); }}
+              >
+                <Settings className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Settings</TooltipContent>
+          </Tooltip>
         </div>
         {searchDialog}
         {settingsDialog}
@@ -670,15 +686,19 @@ export default function AppSidebar(props: Props) {
             <img src="/favicon.svg" alt="" className="size-5" />
             <span className="text-base font-semibold">OpenBranch</span>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            onClick={toggleSidebar}
-            title="Collapse sidebar"
-          >
-            <PanelLeft className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                onClick={toggleSidebar}
+              >
+                <PanelLeft className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Collapse sidebar</TooltipContent>
+          </Tooltip>
         </div>
         <div className="h-1" />
         <Button
