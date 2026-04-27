@@ -468,7 +468,7 @@ export default function AppSidebar(props: Props) {
   (tagPool || []).forEach((tg: string) => {
     if (!(tg in tagCounts)) tagCounts[tg] = 0;
   });
-  const tagEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const tagEntries = Object.entries(tagCounts).sort((a, b) => a[0].localeCompare(b[0]));
 
   const liveTags = new Set<string>();
   convs.forEach((cv: any) => (cv.commits || []).forEach((c: any) => (c.tags || []).forEach((tg: string) => liveTags.add(tg))));
