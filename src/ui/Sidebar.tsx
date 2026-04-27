@@ -155,7 +155,7 @@ export default function AppSidebar(props: Props) {
                       loadMain(cv);
                       setSearchOpen(false);
                     }}
-                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm hover:bg-accent"
+                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-base hover:bg-accent"
                   >
                     <span className="truncate">{cv.title || "Untitled"}</span>
                   </button>
@@ -164,7 +164,7 @@ export default function AppSidebar(props: Props) {
             );
           })}
           {dialogConvs.length === 0 && (
-            <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+            <div className="px-4 py-6 text-center text-base text-muted-foreground">
               No chats found
             </div>
           )}
@@ -188,7 +188,7 @@ export default function AppSidebar(props: Props) {
         </DialogHeader>
         <div className="flex flex-col gap-3 pt-2">
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">API Key</label>
+            <label className="text-base font-medium">API Key</label>
             <Input
               autoFocus
               type="password"
@@ -358,7 +358,7 @@ export default function AppSidebar(props: Props) {
             <div
               onClick={() => loadMain(cv)}
               className={cn(
-                "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-sm transition-colors",
+                "group flex cursor-pointer items-center rounded-md py-1.5 pr-1.5 text-base transition-colors",
                 convActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "hover:bg-sidebar-accent",
@@ -558,7 +558,7 @@ export default function AppSidebar(props: Props) {
                 setActiveFolderId(folderId);
                 if (hasContent) toggleCluster(folderId);
               }}
-              className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-sm font-semibold text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+              className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-1 text-base font-semibold text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
               style={{ paddingLeft: 8 + depth * 14 }}
             >
               {isCollapsed ? <Folder className="size-4 shrink-0" /> : <FolderOpen className="size-4 shrink-0" />}
@@ -705,7 +705,7 @@ export default function AppSidebar(props: Props) {
             <button
               type="button"
               onClick={() => setTagsOpen((v) => !v)}
-              className="group/tag-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              className="group/tag-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-base font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
               Tags
               <span className="opacity-0 transition-opacity group-hover/tag-head:opacity-100">
@@ -721,7 +721,7 @@ export default function AppSidebar(props: Props) {
                 <button
                   type="button"
                   onClick={() => setCreatingTag(true)}
-                  className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors hover:bg-sidebar-accent"
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-base transition-colors hover:bg-sidebar-accent"
                 >
                   <span className="shrink-0 text-muted-foreground">+</span>
                   New tag
@@ -740,7 +740,7 @@ export default function AppSidebar(props: Props) {
                             })
                           }
                           className={cn(
-                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors select-none",
+                            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-base transition-colors select-none",
                             on
                               ? "bg-sidebar-accent text-sidebar-accent-foreground"
                               : "hover:bg-sidebar-accent",
@@ -792,7 +792,7 @@ export default function AppSidebar(props: Props) {
             <button
               type="button"
               onClick={() => setProjectsOpen((v) => !v)}
-              className="group/proj-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              className="group/proj-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-base font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
               Projects
               <span className="opacity-0 transition-opacity group-hover/proj-head:opacity-100">
@@ -808,7 +808,7 @@ export default function AppSidebar(props: Props) {
                 <button
                   type="button"
                   onClick={() => setCreatingProject(true)}
-                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-sm font-semibold text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+                  className="group flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2 pr-1 text-base font-semibold text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
                 >
                   <FolderPlus className="size-4 shrink-0" />
                   New project
@@ -824,7 +824,7 @@ export default function AppSidebar(props: Props) {
             <button
               type="button"
               onClick={() => setChatsOpen((v) => !v)}
-              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              className="group/chat-head flex h-8 w-fit shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 text-base font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground"
             >
               Recents
               <span className="opacity-0 transition-opacity group-hover/chat-head:opacity-100">

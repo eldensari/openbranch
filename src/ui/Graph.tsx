@@ -119,7 +119,7 @@ export default function Graph(props: Props) {
   });
 
   if (!vnodes.length)
-    return <div className="p-6 text-center text-sm text-muted-foreground">Start a conversation</div>;
+    return <div className="p-6 text-center text-base text-muted-foreground">Start a conversation</div>;
 
   const pathCids = new Set<string>();
   const isMainActive = activeBranch === names[0];
@@ -343,7 +343,7 @@ export default function Graph(props: Props) {
               setRenamingBranchName(chipCtx.branch);
               setChipCtx(null);
             }}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-base hover:bg-accent hover:text-accent-foreground"
           >
             <Pencil className="size-4" />
             Rename
@@ -351,7 +351,7 @@ export default function Graph(props: Props) {
           <div className="my-1 h-px bg-border" />
           <button
             onClick={() => { const b = chipCtx.branch; setChipCtx(null); onDeleteBranch?.(b); }}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-base text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="size-4" />
             Delete
@@ -367,14 +367,14 @@ export default function Graph(props: Props) {
         >
           <button
             onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeBranch() : onBranch(cid); }}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-base hover:bg-accent hover:text-accent-foreground"
           >
             <GitBranch className="size-4" />
             Branch
           </button>
           <button
             onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeNew() : onNew(cid); }}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-base hover:bg-accent hover:text-accent-foreground"
           >
             <Plus className="size-4" />
             New
@@ -382,7 +382,7 @@ export default function Graph(props: Props) {
           {!ctx.range && (
             <button
               onClick={() => { const cid = ctx.cid; setCtx(null); setRenamingNodeId(cid); }}
-              className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-base hover:bg-accent hover:text-accent-foreground"
             >
               <Pencil className="size-4" />
               Rename
@@ -391,7 +391,7 @@ export default function Graph(props: Props) {
           {!ctx.range && (
             <button
               onClick={() => { const cid = ctx.cid; const x = ctx.x; const y = ctx.y; setCtx(null); setTagInput(""); setTagPicker({ cid, x, y }); }}
-              className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-base hover:bg-accent hover:text-accent-foreground"
             >
               <TagIcon className="size-4" />
               Tag
@@ -400,7 +400,7 @@ export default function Graph(props: Props) {
           <div className="my-1 h-px bg-border" />
           <button
             onClick={() => setCtx({ ...ctx, confirm: true })}
-            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
+            className="flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-base text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="size-4" />
             Delete
@@ -415,17 +415,17 @@ export default function Graph(props: Props) {
             style={{ left: ctx.x, top: ctx.y }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 text-sm font-medium">
+            <div className="mb-3 text-base font-medium">
               {ctx.range ? "Delete selected commits and their children?" : "Delete this commit and all its children?"}
             </div>
             <div className="flex gap-2">
               <button
                 onClick={() => { const cid = ctx.cid; const isRange = ctx.range; setCtx(null); isRange ? onRangeDelete() : onDelete(cid); }}
-                className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90"
+                className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-base font-medium text-destructive-foreground hover:bg-destructive/90"
               >
                 Delete
               </button>
-              <button onClick={() => setCtx(null)} className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent">Cancel</button>
+              <button onClick={() => setCtx(null)} className="flex-1 rounded-md border bg-background px-3 py-1.5 text-base hover:bg-accent">Cancel</button>
             </div>
           </div>
         </div>
@@ -484,7 +484,7 @@ export default function Graph(props: Props) {
                   if (e.key === "Escape") setTagPicker(null);
                 }}
                 placeholder="+ new tag, Enter"
-                className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/50"
+                className="w-full rounded-md border bg-background px-2.5 py-1.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring/50"
               />
             </div>
           </div>

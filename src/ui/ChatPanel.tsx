@@ -372,7 +372,7 @@ export default function ChatPanel(props: Props) {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="group flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-accent"
+                  className="group flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-base font-medium hover:bg-accent"
                   title={currentTitle}
                 >
                   <span className="truncate">{currentTitle}</span>
@@ -493,7 +493,7 @@ export default function ChatPanel(props: Props) {
                           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendInlineEdit(); }
                         }}
                         rows={1}
-                        className="min-h-[24px] resize-none border-0 bg-transparent p-0 text-[15px] leading-relaxed shadow-none focus-visible:ring-0 md:text-[15px]"
+                        className="min-h-[24px] resize-none border-0 bg-transparent p-0 text-[16px] leading-relaxed shadow-none focus-visible:ring-0 md:text-[16px]"
                         onInput={(e: any) => {
                           e.target.style.height = "auto";
                           e.target.style.height = Math.min(e.target.scrollHeight, 320) + "px";
@@ -514,7 +514,7 @@ export default function ChatPanel(props: Props) {
                         <ContextMenuTrigger asChild>
                           <div
                             className={cn(
-                              "rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap",
+                              "rounded-2xl px-4 py-3 text-[16px] leading-relaxed whitespace-pre-wrap",
                               isMrg
                                 ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
                                 : "bg-user-bubble text-user-foreground",
@@ -594,7 +594,7 @@ export default function ChatPanel(props: Props) {
                   )}
                 </div>
                 <div className="self-start w-full flex flex-col gap-1.5">
-                  <div className="text-[15px] leading-relaxed">
+                  <div className="text-[16px] leading-relaxed">
                     {cm.responseBlocks?.length
                       ? renderResponseBlocks(cm.responseBlocks)
                       : (
@@ -666,7 +666,7 @@ export default function ChatPanel(props: Props) {
           {pending && (
             <div
               className={cn(
-                "self-end max-w-[82%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed",
+                "self-end max-w-[82%] rounded-2xl px-4 py-3 text-[16px] leading-relaxed",
                 newFromRef ? "bg-[color:var(--branch-1)]/12 text-[color:var(--branch-1)]" : "bg-user-bubble text-user-foreground",
               )}
             >
@@ -674,7 +674,7 @@ export default function ChatPanel(props: Props) {
             </div>
           )}
           {thinking && (
-            <div className="self-start text-[15px] text-muted-foreground">
+            <div className="self-start text-[16px] text-muted-foreground">
               <ThinkingDots />
             </div>
           )}
@@ -721,7 +721,7 @@ export default function ChatPanel(props: Props) {
           )}
           {undoAction && (
             <div className="mb-2 flex items-center justify-between rounded-md border bg-[color:var(--branch-1)]/12 px-3 py-2">
-              <span className="text-sm font-medium text-[color:var(--branch-1)]">{undoAction.label}</span>
+              <span className="text-base font-medium text-[color:var(--branch-1)]">{undoAction.label}</span>
               <div className="flex gap-1.5">
                 <Button size="sm" variant="outline" onClick={restoreUndo} className="h-7">Undo</Button>
                 <Button size="sm" onClick={() => setUndoAction(null)} className="h-7">Done</Button>
@@ -733,11 +733,11 @@ export default function ChatPanel(props: Props) {
 
       {rateLimited && !hasKey && (
         <div className="border-t bg-merge-bubble px-4 py-3">
-          <div className="mb-2 text-sm font-medium text-merge-foreground">
+          <div className="mb-2 text-base font-medium text-merge-foreground">
             You've reached the free message limit. Enter your API key to continue, or leave your email for updates.
           </div>
           {waitlistStatus === "done" ? (
-            <div className="text-sm font-medium text-[color:var(--branch-0)]">✓ You're on the list! We'll reach out soon.</div>
+            <div className="text-base font-medium text-[color:var(--branch-0)]">✓ You're on the list! We'll reach out soon.</div>
           ) : (
             <div className="flex gap-2">
               <Input
@@ -796,7 +796,7 @@ export default function ChatPanel(props: Props) {
                 : "border-destructive/40 bg-destructive/10 text-destructive",
             )}
           >
-            <span className="text-sm font-medium">{toast.message}</span>
+            <span className="text-base font-medium">{toast.message}</span>
             <button
               type="button"
               className="shrink-0 opacity-70 hover:opacity-100"
@@ -980,7 +980,7 @@ function ModeBanner({ label, tone, onCancel }: { label: string; tone: "user" | "
       : "bg-user-bubble text-user-foreground";
   return (
     <div className={cn("mb-2 flex items-center justify-between rounded-md border px-3 py-2", toneClass)}>
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-base font-medium">{label}</span>
       <Button size="sm" variant="outline" className="h-7" onClick={onCancel}>Cancel</Button>
     </div>
   );
