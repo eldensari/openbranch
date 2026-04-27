@@ -45,7 +45,7 @@ function TooltipContent({
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         className={cn(
-          "bg-primary text-primary-foreground z-50 w-fit rounded-md px-3 py-1.5 text-xs text-balance",
+          "bg-primary text-primary-foreground z-50 w-fit rounded-md px-2.5 py-1 text-xs text-balance",
           className,
         )}
         {...props}

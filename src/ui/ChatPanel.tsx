@@ -368,16 +368,20 @@ export default function ChatPanel(props: Props) {
 
   const graphActionsMenu = (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:text-foreground"
-          title="Graph actions"
-        >
-          <MoreHorizontal className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-muted-foreground hover:text-foreground"
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Actions</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="end" className="min-w-[14rem] rounded-2xl p-1">
         <DropdownMenuItem
           onSelect={() => {
@@ -412,16 +416,20 @@ export default function ChatPanel(props: Props) {
 
   const panelSwitcher = (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:text-foreground"
-          title="Panels"
-        >
-          <PanelRight className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-muted-foreground hover:text-foreground"
+            >
+              <PanelRight className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Views</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="end" className="min-w-[14rem] rounded-2xl p-1">
         <DropdownMenuItem
           onSelect={() => { setGraph(!graph); setSourcesOpen(false); }}
@@ -900,15 +908,19 @@ export default function ChatPanel(props: Props) {
             </span>
           )}
           {graphActionsMenu}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={() => setGraph(false)}
-            title="Cancel"
-          >
-            <X className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={() => setGraph(false)}
+              >
+                <X className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Cancel</TooltipContent>
+          </Tooltip>
           <div className="mx-1 h-5 w-px bg-border" />
           {panelSwitcher}
         </div>
@@ -960,15 +972,19 @@ export default function ChatPanel(props: Props) {
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-base font-medium">Sources</span>
         <div className="flex items-center gap-1.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={() => setSourcesOpen(false)}
-            title="Cancel"
-          >
-            <X className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={() => setSourcesOpen(false)}
+              >
+                <X className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Cancel</TooltipContent>
+          </Tooltip>
           <div className="mx-1 h-5 w-px bg-border" />
           {panelSwitcher}
         </div>
