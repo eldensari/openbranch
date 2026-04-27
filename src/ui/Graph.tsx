@@ -188,7 +188,6 @@ export default function Graph(props: Props) {
                 setTagPicker(null);
                 setChipCtx({ x: e.clientX, y: e.clientY, branch: b });
               }}
-              title={raw}
               className={cn(
                 "rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors",
                 act ? "font-semibold" : "font-normal opacity-80 hover:opacity-100",
