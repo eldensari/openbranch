@@ -49,7 +49,7 @@ export default async (req) => {
     );
   }
 
-  const { messages, model } = body;
+  const { messages, model, webSearch } = body;
   if (!messages || !Array.isArray(messages)) {
     return new Response(
       JSON.stringify({ error: "messages array is required." }),
@@ -58,6 +58,14 @@ export default async (req) => {
   }
 
   try {
+    const upstreamBody = {
+      model: model || "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      messages,
+    };
+    if (webSearch) {
+      upstreamBody.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
+    }
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -65,11 +73,7 @@ export default async (req) => {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({
-        model: model || "claude-sonnet-4-20250514",
-        max_tokens: 4096,
-        messages,
-      }),
+      body: JSON.stringify(upstreamBody),
     });
 
     const data = await res.json();

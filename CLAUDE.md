@@ -3,6 +3,21 @@
 Nonlinear chat app for LLM conversations with git-like branching and merging.
 Live at https://openbranch.app
 
+## 대화 스타일
+
+- 한국어로, 5살 유치원생에게 설명하듯 짧고 쉽게 답해.
+- 긴 문단보다 불릿·표·이모지를 활용해서 한눈에 보이게.
+- 개념은 비유로 풀어 (예: rebase = "책상 옮기기").
+- **단, 기술 식별자는 정확히**: 파일 경로, 함수 이름, 명령어, 커밋 해시, 브랜치 이름은 그대로 쓰고 쉬운 말로 바꾸지 마.
+- 사용자가 "자세히", "기술적으로", "코드 리뷰" 같은 말을 하면 이 스타일은 잠시 해제하고 정식 톤으로.
+
+## Git Workflow
+
+- Always verify the directory is a git repo (`git rev-parse --git-dir`) before attempting commits
+- Pause and confirm with user before committing CHECKPOINT or milestone documents
+- When verifying HEAD/commit state, check if target SHA is in history (ancestor), not exact HEAD match
+- Use `--no-verify` only as a last resort and explain why; prefer fixing or removing broken hooks
+
 ## Commands
 
 ```bash
@@ -13,63 +28,117 @@ npm run preview    # preview production build
 
 ## Architecture
 
-- **Stack**: React 19 + Vite 6 + Tailwind CSS 4 + Netlify
-- **No external UI libraries** - all components built with React + inline styles
-- **No routing library** - single-page app, conversation switching via sidebar
-- **No state management library** - pure React hooks (useState, useEffect, useRef)
-- **Persistence**: localStorage with `ob:` namespace prefix (via `src/lib/storage.js`)
+- **Stack**: React 19 + TypeScript + Vite 6 + Tailwind CSS 4 + shadcn/ui + Netlify
+- **No routing library** — single-page app, conversation switching via sidebar
+- **No state management library** — pure React hooks (`useState`, `useEffect`, `useRef`)
+- **Persistence**: localStorage with `ob:` namespace prefix (via `src/lib/storage.ts`)
 
 ### File Structure
 
 ```
 src/
-  App.jsx              # Monolithic main component (~800 lines): UI, state, handlers
-  main.jsx             # React entry point
-  index.css            # Tailwind import + custom scrollbar hiding
-  seed-moby-dick.js    # Demo seed data loaded on first visit
+  App.tsx               # Monolithic main component (~950 lines): state, handlers, layout
+  main.tsx              # React entry point
+  index.css             # Tailwind + theme CSS variables + .graph-scroll utility
+  types.ts              # Shared types: Commit, Conversation, Folder, Tag, Theme
+  seed-moby-dick.ts     # Demo seed data loaded on first visit
   lib/
-    storage.js         # localStorage wrapper (ob: namespace)
-    llm.js             # LLM API abstraction (BYOK: Anthropic/OpenAI/Gemini + free proxy)
+    storage.ts          # localStorage wrapper (ob: namespace)
+    llm.ts              # LLM API abstraction (BYOK: Anthropic/OpenAI/Gemini + free proxy)
+    utils.ts            # cn() helper for Tailwind class merging
+    branch-colors.ts    # Branch color assignment via --branch-0..7 CSS vars
+  graph/
+    branches.ts         # Branch tree building, descendant walking, labels
+    range.ts            # Range selection, clone/cut commits
+    model.ts            # Commit creation, thread building, ID helpers
+  storage/
+    conv.ts             # Conversation persistence (loadAll, persist, delete)
+    clusters.ts         # Folder grouping + formatting
+    sidebar.ts          # Sidebar branch/item key helpers + layout
+  hooks/
+    use-mobile.ts       # Mobile breakpoint hook
+  components/
+    theme-provider.tsx  # useTheme() + ThemeProvider with localStorage persistence
+    ui/                 # shadcn/ui primitives (Button, Dialog, DropdownMenu, ...)
+  ui/
+    Sidebar.tsx         # Left sidebar: hamburger / new chat / search / chats / folders / tags / Settings
+    ChatPanel.tsx       # Main chat area: header, thread, composer
+    Graph.tsx           # Branch graph visualization
+    Markdown.tsx        # Markdown renderer with thinking dots + citations
+    ModelPicker.tsx     # Model selection dropdown
   assets/
-    herb.svg           # Logo icon
+    herb.svg            # Logo icon
 netlify/
   functions/
-    chat.js            # Free-tier LLM proxy (rate-limited 10/day per IP)
-    waitlist.js        # Email collection via Netlify Blobs
+    chat.js             # Free-tier LLM proxy (rate-limited 10/day per IP)
+    waitlist.js         # Email collection via Netlify Blobs
 public/
-  favicon.svg          # Herb emoji SVG favicon
+  favicon.svg           # Herb emoji SVG favicon
 ```
 
 ### Data Model
 
-Git-like commit/branch/HEAD system (not real git):
-- **Commit**: `{ id, parentId, mergeIds[], branch, ts, prompt, response }`
-- **Conversation**: `{ id, title, commits[], headId, branch, parentRef, u }`
-- **Branches**: Named branches (main, branch-0, ...) tracked by `commit.branch`
+Git-like commit/branch/HEAD system (not real git). Types live in `src/types.ts`:
+
+- **Commit**: `{ id, parentId, mergeIds?, branch, ts, prompt, response, thinking?, attachments?, citations?, ... }`
+- **Conversation**: `{ id, title, commits[], headId, branch, parentRef?, clusterId?, u?, branchTitles?, labels? }`
+- **Folder**: `{ id, name, convIds[], parentId?, expanded? }`
+- **Branches**: Named branches (`main`, `branch-0`, ...) tracked by `commit.branch`
 - **HEAD**: `headId` tracks current position; new messages append from HEAD
 - **Merges**: Commits with `mergeIds[]` synthesize content from multiple branches
 - **Nested conversations**: Parent/child tree via `parentRef` (convId + commitId)
+
+### Sidebar Layout
+
+- Collapses between **rail (w-14, 56px)** and **expanded (w-80, 320px)** via CSS `transition-[width] duration-300`
+- Rail shows: hamburger ☰, new chat ✏️, settings ⚙️ (pinned bottom via `flex-1` spacer)
+- Expanded shows: hamburger, new chat, search chats, Tags (collapsible), Chats (collapsible, with folders), Settings (footer)
+- Search chats opens a Dialog popup with flat time-bucketed list (Today / Yesterday / Previous 7 Days / Previous 30 Days / Older)
+- Settings opens a Dialog popup for API key entry
+- Hover-reveal kebab menu `⋯` on each conv / branch / folder row (right-click ContextMenu also works)
+- Tags / Chats group labels: chevron reveals only on hover (`group-hover`), hiding otherwise
 
 ### LLM Integration
 
 - BYOK (Bring Your Own Key): Anthropic (`sk-ant-`), OpenAI (`sk-`), Gemini (`AI`)
 - Free tier: Netlify function proxy to Anthropic API, 10 requests/day per IP
-- Provider detection by API key prefix in `src/lib/llm.js`
+- Provider detection by API key prefix in `src/lib/llm.ts`
 
 ### Styling
 
-- Inline `style` objects with theme color values from `t` (theme object)
-- Two complete color palettes: LIGHT and DARK, defined in App.jsx
-- Branch colors via `bCol(names, branch)` helper
-- Only CSS class: `.graph-scroll` for scrollbar hiding
+- Tailwind utility classes + CSS variables from `src/index.css` (light + dark palettes)
+- Dark mode via `class="dark"` on `<html>`, managed by `src/components/theme-provider.tsx`
+- Class merging via `cn()` from `src/lib/utils.ts`
+- Branch colors via CSS vars `--branch-0..7`
+- Sidebar hover uses `bg-sidebar-accent` (custom tuned `oklch(0.94)` for visible but subtle feedback)
+- Custom utility: `.graph-scroll` hides scrollbars
 
 ## Coding Conventions
 
-- **Abbreviations in state**: `t` = theme, `mm` = merge mode, `sel` = selected, `cm` = commit, `cv` = conversation, `cid` = commit ID, `hid` = head ID, `br` = branch
+- **TypeScript throughout** — `.tsx` / `.ts` (migration done; `any` is still used in prop destructuring to avoid prop explosion)
+- **Abbreviations in state**: `mm` = merge mode, `sel` = selected, `cm` = commit, `cv` = conversation, `cid` = commit ID, `hid` = head ID, `br` = branch
 - **Naming**: camelCase for functions/variables, PascalCase for components
-- **Imports**: Named imports from React, default import for storage, named for llm
-- **Icons**: Inline SVG components (SunIcon, MoonIcon, GitHubIcon)
-- **No TypeScript** - plain JSX throughout
+- **Imports**: path alias `@/` → `src/` (e.g., `@/components/ui/button`)
+- **Icons**: `lucide-react` components (Menu, Search, Settings, SquarePen, ChevronDown, MoreHorizontal, ...)
+
+## Design Conventions
+
+- Prefer explicit parameter threading over module-level globals (e.g., no `EXECUTOR_MODEL` at module scope)
+- Use full UUIDs for task_id matching, not short prefixes
+- Before proposing refactors, verify code is actually dead by tracing all call sites (don't assume from name alone)
+
+## Background Process Management
+
+- Never launch a long-running benchmark/task without first checking for existing background runs (`ps`, BashOutput on prior shells)
+- Track all background bash_ids in a TodoWrite list before spawning new ones
+- For benchmark tasks: if process self-terminates with valid data, do NOT mark ABORTED based solely on the 30-min wall-clock rule
+
+## Security
+
+### Secrets Hygiene
+
+- Never echo, commit, or write real API keys to files like `.env.example` — use placeholder values only
+- If real secrets are detected in staged/working files, stop immediately and recommend `git checkout` recovery
 
 ## Deployment
 
@@ -109,6 +178,9 @@ QA, visual review, and deployment skills.
 ```
 
 GStack browse binary: `.claude/skills/gstack/browse/dist/browse`
+
+---
+
 # CLAUDE.md
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
