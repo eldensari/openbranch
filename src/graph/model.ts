@@ -35,6 +35,7 @@ export function mkCommit(
     responseBlocks?: ResponseBlock[];
     activities?: CommitActivity[];
     webSearch?: boolean;
+    thinking?: Commit["thinking"];
   },
 ): Commit {
   const c: Commit = {
@@ -52,6 +53,7 @@ export function mkCommit(
   if (extras?.responseBlocks?.length) c.responseBlocks = extras.responseBlocks;
   if (extras?.activities?.length) c.activities = extras.activities;
   if (extras?.webSearch) c.webSearch = true;
+  if (extras?.thinking?.text) c.thinking = extras.thinking;
   return c;
 }
 

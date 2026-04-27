@@ -52,6 +52,9 @@ export type LLMStreamActivity = {
 export type LLMStreamHandlers = {
   onText?: (delta: string) => void;
   onActivity?: (activity: LLMStreamActivity) => void;
+  onThinking?: (delta: string) => void;
+  onThinkingStart?: () => void;
+  onThinkingEnd?: () => void;
 };
 
 class RateLimitError extends Error {
@@ -286,6 +289,8 @@ async function readAnthropicStream(res: Response, handlers: LLMStreamHandlers = 
   const seen = new Set<string>();
   let text = "";
   let anyBlockCitations = false;
+  const blockTypes: Record<number, string> = {};
+  let thinkingActive = false;
 
   await readSse(res, ({ data }) => {
     if (data === "[DONE]") return;
@@ -302,6 +307,16 @@ async function readAnthropicStream(res: Response, handlers: LLMStreamHandlers = 
 
     if (evt.type === "content_block_start") {
       const block = evt.content_block || {};
+      blockTypes[evt.index] = block.type || "";
+      if (block.type === "thinking") {
+        if (!thinkingActive) {
+          thinkingActive = true;
+          handlers.onThinkingStart?.();
+        }
+        if (typeof block.thinking === "string" && block.thinking) {
+          handlers.onThinking?.(block.thinking);
+        }
+      }
       if (block.type === "text") {
         blocks[evt.index] = { text: block.text || "" };
         if (block.text) {
@@ -312,7 +327,7 @@ async function readAnthropicStream(res: Response, handlers: LLMStreamHandlers = 
       if (block.name === "web_search" || block.type === "server_tool_use") {
         handlers.onActivity?.({
           kind: "searching",
-          label: "Checking sources",
+          label: "Searching the web",
           status: "running",
           source: "provider",
         });
@@ -320,9 +335,23 @@ async function readAnthropicStream(res: Response, handlers: LLMStreamHandlers = 
       return;
     }
 
+    if (evt.type === "content_block_stop") {
+      const t = blockTypes[evt.index];
+      if (t === "thinking" && thinkingActive) {
+        thinkingActive = false;
+        handlers.onThinkingEnd?.();
+      }
+      return;
+    }
+
     if (evt.type !== "content_block_delta") return;
     const delta = evt.delta || {};
     const idx = evt.index || 0;
+
+    if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
+      handlers.onThinking?.(delta.thinking);
+      return;
+    }
 
     if (delta.type === "text_delta" && delta.text) {
       const block = blocks[idx] || { text: "" };

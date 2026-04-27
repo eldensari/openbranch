@@ -12,7 +12,6 @@ import {
   Copy,
   RotateCcw,
   ArrowUp,
-  AlertCircle,
   Paperclip,
   Globe,
   X,
@@ -25,9 +24,6 @@ import {
   GitMerge,
   Link2,
   ChevronDown,
-  CircleCheck,
-  CircleDot,
-  Clock3,
   MoreHorizontal,
   MousePointerSquareDashed,
   PanelRight,
@@ -734,7 +730,8 @@ export default function ChatPanel(props: Props) {
                     </>
                   )}
                 </div>
-                <div className="self-start w-full flex flex-col gap-1.5">
+                <div className="self-start w-full flex flex-col gap-1">
+                  <ThinkingPanel thinking={cm.thinking} isStreaming={false} />
                   <ThoughtStream
                     ownerId={cm.id}
                     activities={cm.activities || []}
@@ -847,7 +844,8 @@ export default function ChatPanel(props: Props) {
             </div>
           )}
           {streamingDraft && (
-            <div className="self-start w-full flex flex-col gap-2">
+            <div className="self-start w-full flex flex-col gap-1">
+              <ThinkingPanel thinking={streamingDraft.thinking} isStreaming={true} />
               <ThoughtStream
                 ownerId={streamingDraft.id}
                 activities={streamingDraft.activities || []}
@@ -857,7 +855,11 @@ export default function ChatPanel(props: Props) {
                 getThoughtElementId={thoughtElementId}
               />
               <div className="text-[16px] leading-relaxed">
-                {streamingDraft.response ? renderMd(streamingDraft.response) : <ThinkingDots />}
+                {streamingDraft.response
+                  ? renderMd(streamingDraft.response)
+                  : streamingDraft.thinking?.text
+                    ? null
+                    : <ThinkingDots />}
               </div>
             </div>
           )}
@@ -1221,10 +1223,64 @@ function activityDetail(activity: any) {
   return "I used this step to organize the response.";
 }
 
-function ThoughtStatusIcon({ status }: { status: string }) {
-  if (status === "error") return <AlertCircle className="size-3.5 shrink-0 text-destructive" />;
-  if (status === "done") return <CircleCheck className="size-3.5 shrink-0 text-[color:var(--branch-1)]" />;
-  return <CircleDot className="size-3.5 shrink-0 text-muted-foreground" />;
+function RunningDots() {
+  const [dots, setDots] = useState("");
+  useEffect(() => {
+    const interval = setInterval(() => setDots((d) => (d.length >= 3 ? "" : d + ".")), 400);
+    return () => clearInterval(interval);
+  }, []);
+  return (
+    <span aria-hidden className="inline-block w-[1ch] align-baseline">
+      {dots}
+    </span>
+  );
+}
+
+function ThinkingPanel({ thinking, isStreaming }: { thinking?: any; isStreaming?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const live = isStreaming && !thinking?.finishedAt;
+  const hasText = !!thinking?.text;
+
+  useEffect(() => {
+    if (!live) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [live]);
+
+  if (!hasText && !live) return null;
+
+  const startedAt = thinking?.startedAt;
+  const elapsedMs = thinking?.durationMs
+    ?? (startedAt ? Math.max(0, now - startedAt) : 0);
+  const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
+
+  return (
+    <div className="my-1">
+      <button
+        type="button"
+        onClick={() => hasText && setOpen((o) => !o)}
+        disabled={!hasText}
+        className={cn(
+          "inline-flex items-center gap-1 text-[13px] italic text-muted-foreground/80",
+          hasText && "hover:text-foreground/70 cursor-pointer",
+          !hasText && "cursor-default",
+        )}
+      >
+        <ChevronRight className={cn("size-3.5 transition-transform", open && hasText && "rotate-90")} />
+        {live ? (
+          <span>Thinking<RunningDots /></span>
+        ) : (
+          <span>Thought for {elapsedSec}s</span>
+        )}
+      </button>
+      {open && hasText && (
+        <div className="mt-1 ml-1.5 pl-3 border-l border-border/50 text-[13px] italic leading-relaxed text-muted-foreground/70 whitespace-pre-wrap">
+          {thinking.text}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ThoughtStream({
@@ -1254,33 +1310,46 @@ function ThoughtStream({
   if (!activities?.length) return null;
 
   return (
-    <div className="mt-1 space-y-0.5">
+    <div className="flex flex-col">
       {(activities || []).map((activity) => {
         const open = openThoughtIds.has(getThoughtKey(ownerId, activity.id));
-        const duration = activity.durationMs || (activity.status === "running" ? now - activity.startedAt : 0);
+        const isRunning = activity.status === "running" || activity.status === "pending";
+        const isError = activity.status === "error";
+        const detailText = activityDetail(activity);
+        const expandable = !!detailText;
+        const duration = activity.durationMs || (isRunning ? now - activity.startedAt : 0);
         return (
           <div key={activity.id} id={getThoughtElementId(ownerId, activity.id)} className="scroll-mt-24">
-            <button
-              type="button"
-              onClick={() => onToggleThought(ownerId, activity.id)}
+            <div
+              role={expandable ? "button" : undefined}
+              tabIndex={expandable ? 0 : undefined}
+              onClick={expandable ? () => onToggleThought(ownerId, activity.id) : undefined}
+              onKeyDown={
+                expandable
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onToggleThought(ownerId, activity.id);
+                      }
+                    }
+                  : undefined
+              }
               className={cn(
-                "group inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-                open && "text-foreground",
+                "py-0.5 text-[13px] italic leading-snug select-none",
+                isError ? "text-destructive" : "text-muted-foreground/80",
+                expandable && "cursor-pointer hover:text-foreground/70",
+                open && !isError && "text-foreground/80",
               )}
             >
-              <ThoughtStatusIcon status={activity.status} />
-              <span className="truncate">{activityDisplayLabel(activity, now)}</span>
-              {duration > 0 && (
-                <span className="inline-flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground/80">
-                  <Clock3 className="size-3" />
-                  {formatDuration(duration)}
-                </span>
+              <span>{activityDisplayLabel(activity, now)}</span>
+              {isRunning && <RunningDots />}
+              {!isRunning && duration > 0 && (
+                <span className="opacity-70"> · {formatDuration(duration)}</span>
               )}
-              <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-            </button>
-            {open && (
-              <div className="ml-6 max-w-[44rem] pb-1 text-[13px] leading-relaxed text-muted-foreground">
-                {activityDetail(activity)}
+            </div>
+            {open && expandable && (
+              <div className="pb-1 pl-3 text-[12px] italic leading-relaxed text-muted-foreground/70 whitespace-pre-wrap">
+                {detailText}
               </div>
             )}
           </div>

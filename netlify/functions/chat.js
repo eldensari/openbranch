@@ -49,7 +49,7 @@ export default async (req) => {
     );
   }
 
-  const { messages, model, webSearch, stream } = body;
+  const { messages, model, webSearch, stream, thinking } = body;
   if (!messages || !Array.isArray(messages)) {
     return new Response(
       JSON.stringify({ error: "messages array is required." }),
@@ -65,6 +65,13 @@ export default async (req) => {
     };
     if (stream) {
       upstreamBody.stream = true;
+    }
+    if (thinking?.type === "enabled") {
+      const requested = Number(thinking.budget_tokens) || 5000;
+      upstreamBody.thinking = {
+        type: "enabled",
+        budget_tokens: Math.max(1024, Math.min(requested, 5000)),
+      };
     }
     if (webSearch) {
       upstreamBody.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];

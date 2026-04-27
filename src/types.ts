@@ -52,7 +52,12 @@ export type Commit = {
   prompt: string;
   response: string;
   model?: string;
-  thinking?: boolean;
+  thinking?: {
+    text?: string;
+    startedAt?: number;
+    finishedAt?: number;
+    durationMs?: number;
+  };
   ratelimitExceeded?: boolean;
   editing?: boolean;
   rewriting?: boolean;
