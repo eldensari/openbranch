@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { codeToHtml } from "shiki";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -67,6 +68,19 @@ function makeCiteToken(idx: number): string {
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
+  const [html, setHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    codeToHtml(code, {
+      lang: lang || "text",
+      themes: { light: "github-light", dark: "github-dark" },
+    })
+      .then((out) => { if (!cancelled) setHtml(out); })
+      .catch(() => { if (!cancelled) setHtml(null); });
+    return () => { cancelled = true; };
+  }, [code, lang]);
+
   const doCopy = () => {
     try {
       navigator.clipboard.writeText(code);
@@ -77,7 +91,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   return (
     <div className="relative my-3">
       {lang && (
-        <div className="absolute top-2 left-3 font-mono text-[10px] lowercase text-muted-foreground/80">
+        <div className="absolute top-2 left-3 z-10 font-mono text-[10px] lowercase text-muted-foreground/80">
           {lang}
         </div>
       )}
@@ -85,21 +99,32 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
         onClick={doCopy}
         title={copied ? "Copied" : "Copy"}
         className={cn(
-          "absolute top-1.5 right-1.5 rounded-md border px-2 py-1 font-mono text-[10px] transition-colors",
+          "absolute top-1.5 right-1.5 z-10 rounded-md border px-2 py-1 font-mono text-[10px] transition-colors",
           "border-white/15 bg-black/20 text-white/70 hover:bg-black/40 hover:text-white",
           copied && "text-[color:var(--branch-0)]",
         )}
       >
         {copied ? "✓" : "copy"}
       </button>
-      <pre
-        className={cn(
-          "overflow-x-auto rounded-lg bg-code-bg text-code-foreground font-mono text-[13px] leading-relaxed m-0",
-          lang ? "pt-6 pb-3 px-3" : "py-3 px-3",
-        )}
-      >
-        <code>{code}</code>
-      </pre>
+      {html ? (
+        <div
+          className={cn(
+            "rounded-lg overflow-hidden font-mono text-[13px] leading-relaxed",
+            "[&>pre]:m-0 [&>pre]:overflow-x-auto",
+            lang ? "[&>pre]:pt-6 [&>pre]:pb-3 [&>pre]:px-3" : "[&>pre]:py-3 [&>pre]:px-3",
+          )}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      ) : (
+        <pre
+          className={cn(
+            "overflow-x-auto rounded-lg bg-code-bg text-code-foreground font-mono text-[13px] leading-relaxed m-0",
+            lang ? "pt-6 pb-3 px-3" : "py-3 px-3",
+          )}
+        >
+          <code>{code}</code>
+        </pre>
+      )}
     </div>
   );
 }
