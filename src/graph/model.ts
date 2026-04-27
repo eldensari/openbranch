@@ -36,6 +36,8 @@ export function mkCommit(
     activities?: CommitActivity[];
     webSearch?: boolean;
     thinking?: Commit["thinking"];
+    mode?: Commit["mode"];
+    events?: Commit["events"];
   },
 ): Commit {
   const c: Commit = {
@@ -54,6 +56,8 @@ export function mkCommit(
   if (extras?.activities?.length) c.activities = extras.activities;
   if (extras?.webSearch) c.webSearch = true;
   if (extras?.thinking?.text) c.thinking = extras.thinking;
+  if (extras?.mode) c.mode = extras.mode;
+  if (extras?.events?.length) c.events = extras.events;
   return c;
 }
 

@@ -8,11 +8,30 @@ export type Attachment = {
   ref?: string;
 };
 
-export type Citation = {
+export type WebReference = {
+  kind?: "web";
   url: string;
   title: string;
   snippet?: string;
 };
+
+export type FileReference = {
+  kind: "file";
+  path: string;
+  line?: number;
+  snippet?: string;
+};
+
+export type CommitReference = {
+  kind: "commit";
+  sha: string;
+  message?: string;
+};
+
+export type Reference = WebReference | FileReference | CommitReference;
+
+// Back-compat alias — existing stored data without `kind` is still a valid web reference.
+export type Citation = WebReference;
 
 export type ResponseBlock = {
   text: string;
@@ -43,6 +62,34 @@ export type CommitActivity = {
   source?: string;
 };
 
+export type CommitEvent =
+  | {
+      type: "thinking";
+      text: string;
+      startedAt?: number;
+      endedAt?: number;
+      durationMs?: number;
+    }
+  | {
+      type: "text";
+      content: string;
+    }
+  | {
+      type: "tool_use";
+      tool: string;
+      input?: unknown;
+      status: "pending" | "running" | "done" | "error";
+      output?: unknown;
+      summary?: string;
+      startedAt?: number;
+      endedAt?: number;
+      durationMs?: number;
+    }
+  | {
+      type: "reference";
+      ref: Reference;
+    };
+
 export type Commit = {
   id: CommitId;
   parentId: CommitId | null;
@@ -52,6 +99,7 @@ export type Commit = {
   prompt: string;
   response: string;
   model?: string;
+  mode?: "chat" | "code";
   thinking?: {
     text?: string;
     startedAt?: number;
@@ -67,6 +115,7 @@ export type Commit = {
   citations?: Citation[];
   responseBlocks?: ResponseBlock[];
   activities?: CommitActivity[];
+  events?: CommitEvent[];
   webSearch?: boolean;
 };
 
