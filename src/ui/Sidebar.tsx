@@ -723,7 +723,7 @@ export default function AppSidebar(props: Props) {
                   onClick={() => setCreatingTag(true)}
                   className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-base transition-colors hover:bg-sidebar-accent"
                 >
-                  <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/50 text-[11px] leading-none text-muted-foreground">+</span>
+                  <span className="shrink-0 text-muted-foreground">+</span>
                   New tag
                 </button>
                 {tagEntries.map(([tg, n]) => {
