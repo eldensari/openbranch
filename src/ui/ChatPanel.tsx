@@ -250,7 +250,7 @@ export default function ChatPanel(props: Props) {
             : "Reply..."
           }
           rows={1}
-          className="min-h-[48px] resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 md:text-base"
+          className="field-sizing-fixed min-h-[48px] resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 md:text-base"
           onInput={(e: any) => {
             e.target.style.height = "auto";
             e.target.style.height = Math.min(e.target.scrollHeight, 240) + "px";
