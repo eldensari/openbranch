@@ -1,7 +1,26 @@
 import { useState, useEffect, useRef } from "react";
 import { codeToHtml } from "shiki";
+import katex from "katex";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
+function MathInline({ tex }: { tex: string }) {
+  const html = katex.renderToString(tex, {
+    displayMode: false,
+    throwOnError: false,
+    errorColor: "var(--destructive)",
+  });
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function MathBlock({ tex }: { tex: string }) {
+  const html = katex.renderToString(tex, {
+    displayMode: true,
+    throwOnError: false,
+    errorColor: "var(--destructive)",
+  });
+  return <div className="my-3 overflow-x-auto" dangerouslySetInnerHTML={{ __html: html }} />;
+}
 
 type CitationLike = { url: string; title: string; snippet?: string };
 
@@ -32,25 +51,29 @@ const CITE_TOKEN_RE = /(\d+)/;
 
 function renderInline(text: string, keyRef: KeyRef, chips?: CitationLike[]) {
   const parts: React.ReactNode[] = [];
-  const regex = /(\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|~~(.+?)~~|(\d+)|https?:\/\/[^\s)]+)/g;
+  // Inline math `$...$` requires non-whitespace next to the delimiters so
+  // that "$10 each $20" or "Total: $5" isn't accidentally parsed as math.
+  const regex = /(\$([^\s$](?:[^$\n]*?[^\s$])?)\$|\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|~~(.+?)~~|(\d+)|https?:\/\/[^\s)]+)/g;
   let lastIdx = 0;
   let match: RegExpExecArray | null;
   const linkClass = "text-[color:var(--branch-1)] underline underline-offset-2 hover:opacity-80";
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIdx) parts.push(<span key={keyRef.k++}>{text.slice(lastIdx, match.index)}</span>);
-    if (match[2] && match[3])
-      parts.push(<a key={keyRef.k++} href={match[3]} target="_blank" rel="noopener noreferrer" className={linkClass}>{match[2]}</a>);
-    else if (match[4]) parts.push(<strong key={keyRef.k++} className="font-semibold">{match[4]}</strong>);
-    else if (match[5]) parts.push(<em key={keyRef.k++}>{match[5]}</em>);
-    else if (match[6])
+    if (match[2] !== undefined)
+      parts.push(<MathInline key={keyRef.k++} tex={match[2]} />);
+    else if (match[3] && match[4])
+      parts.push(<a key={keyRef.k++} href={match[4]} target="_blank" rel="noopener noreferrer" className={linkClass}>{match[3]}</a>);
+    else if (match[5]) parts.push(<strong key={keyRef.k++} className="font-semibold">{match[5]}</strong>);
+    else if (match[6]) parts.push(<em key={keyRef.k++}>{match[6]}</em>);
+    else if (match[7])
       parts.push(
         <code key={keyRef.k++} className="rounded-sm bg-inline-code px-1.5 py-0.5 font-mono text-[0.9em]">
-          {match[6]}
+          {match[7]}
         </code>,
       );
-    else if (match[7]) parts.push(<span key={keyRef.k++} className="line-through opacity-70">{match[7]}</span>);
-    else if (match[8] !== undefined) {
-      const c = chips?.[parseInt(match[8], 10)];
+    else if (match[8]) parts.push(<span key={keyRef.k++} className="line-through opacity-70">{match[8]}</span>);
+    else if (match[9] !== undefined) {
+      const c = chips?.[parseInt(match[9], 10)];
       if (c) parts.push(<CitationChip key={keyRef.k++} c={c} />);
     } else if (match[0].startsWith("http"))
       parts.push(<a key={keyRef.k++} href={match[0]} target="_blank" rel="noopener noreferrer" className={linkClass}>{match[0]}</a>);
@@ -147,6 +170,31 @@ export function renderMd(text: string, chips?: CitationLike[]): React.ReactNode[
       }
       i++;
       elements.push(<CodeBlock key={kr.k++} lang={lang} code={codeLines.join("\n")} />);
+      continue;
+    }
+    if (line.startsWith("$$")) {
+      const buf: string[] = [];
+      const rest = line.slice(2);
+      const closeIdx = rest.indexOf("$$");
+      if (closeIdx >= 0) {
+        buf.push(rest.slice(0, closeIdx));
+        elements.push(<MathBlock key={kr.k++} tex={buf.join("\n")} />);
+        i++;
+        continue;
+      }
+      if (rest) buf.push(rest);
+      i++;
+      while (i < lines.length) {
+        const idx = lines[i].indexOf("$$");
+        if (idx >= 0) {
+          if (idx > 0) buf.push(lines[i].slice(0, idx));
+          i++;
+          break;
+        }
+        buf.push(lines[i]);
+        i++;
+      }
+      elements.push(<MathBlock key={kr.k++} tex={buf.join("\n")} />);
       continue;
     }
     if (/^---+$/.test(line.trim()) || /^\*\*\*+$/.test(line.trim())) {
