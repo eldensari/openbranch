@@ -19,6 +19,30 @@ export type ResponseBlock = {
   citations?: Citation[];
 };
 
+export type CommitActivityKind =
+  | "thinking"
+  | "planning"
+  | "searching"
+  | "writing"
+  | "source"
+  | "tool"
+  | "done"
+  | "error";
+
+export type CommitActivityStatus = "pending" | "running" | "done" | "error";
+
+export type CommitActivity = {
+  id: string;
+  kind: CommitActivityKind;
+  label: string;
+  detail?: string;
+  status: CommitActivityStatus;
+  startedAt: number;
+  endedAt?: number;
+  durationMs?: number;
+  source?: string;
+};
+
 export type Commit = {
   id: CommitId;
   parentId: CommitId | null;
@@ -37,6 +61,7 @@ export type Commit = {
   attachments?: Attachment[];
   citations?: Citation[];
   responseBlocks?: ResponseBlock[];
+  activities?: CommitActivity[];
   webSearch?: boolean;
 };
 

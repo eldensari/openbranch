@@ -49,7 +49,7 @@ export default async (req) => {
     );
   }
 
-  const { messages, model, webSearch } = body;
+  const { messages, model, webSearch, stream } = body;
   if (!messages || !Array.isArray(messages)) {
     return new Response(
       JSON.stringify({ error: "messages array is required." }),
@@ -63,6 +63,9 @@ export default async (req) => {
       max_tokens: 4096,
       messages,
     };
+    if (stream) {
+      upstreamBody.stream = true;
+    }
     if (webSearch) {
       upstreamBody.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
     }
@@ -76,14 +79,26 @@ export default async (req) => {
       body: JSON.stringify(upstreamBody),
     });
 
-    const data = await res.json();
-
     if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
       return new Response(
         JSON.stringify({ error: data.error?.message || "Anthropic API error", status: res.status }),
         { status: res.status, headers: { "Content-Type": "application/json" } }
       );
     }
+
+    if (stream) {
+      return new Response(res.body, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          "Connection": "keep-alive",
+        },
+      });
+    }
+
+    const data = await res.json();
 
     return new Response(JSON.stringify(data), {
       status: 200,

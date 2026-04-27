@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import storage from "./lib/storage";
-import { callLLM, detectProvider, MODEL_CHOICES } from "./lib/llm";
+import { callLLMStream, detectProvider, MODEL_CHOICES } from "./lib/llm";
 import { mkCommit, buildMsgs, getThread, bNames, bHead, bumpIdCounter } from "./graph/model";
 import { branchPathToRoot, getBranchDescendantNames } from "./graph/branches";
 import { rangeCommitsFor, cutRangeFromCommits, chooseHeadAfterCut, cloneRangeCommits, nextBranchName } from "./graph/range";
@@ -26,6 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
+import type { CommitActivity } from "./types";
 
 /* ═══════ MAIN ═══════ */
 export default function App() {
@@ -61,6 +62,7 @@ export default function App() {
   });
   const [thinking, setThinking] = useState(false);
   const [pending, setPending] = useState(null);
+  const [streamingDraft, setStreamingDraft] = useState(null);
   const [graph, setGraph] = useState(true);
   const [mm, setMm] = useState(false);
   const [sel, setSel] = useState([]);
@@ -92,6 +94,7 @@ export default function App() {
   const endRef = useRef(null);
   const inputRef = useRef(null);
   const cRef = useRef(commits); cRef.current = commits;
+  const streamingDraftRef = useRef(null);
   const sendRef = useRef(null);
   const abortRef = useRef<AbortController | null>(null);
   const stop = () => {
@@ -116,7 +119,7 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commits, headId, pending]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commits, headId, pending, streamingDraft?.response]);
 
   // Auto-send from starter cards (use setTimeout to ensure state is settled)
   useEffect(() => {
@@ -148,7 +151,7 @@ export default function App() {
   };
 
   // `convs` state can be a stale closure snapshot inside async flows
-  // (e.g., the second save() in the newFromRef branch runs after await callLLM
+  // (e.g., the second save() in the newFromRef branch runs after the LLM call
   // and doesn't see the first save()'s addition). Fall back to storage so
   // cluster/title/branchTitles from the prior save are preserved.
   const resolveExistingConv = (id) => {
@@ -439,8 +442,203 @@ export default function App() {
   const showGraph = graph || commits.length > 0;
 
   // ─── SEND ───
+  const mkActivityId = () => "a" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 5);
+  const mkActivity = (
+    kind: CommitActivity["kind"],
+    label: string,
+    status: CommitActivity["status"] = "running",
+    source = "app",
+    detail?: string,
+  ): CommitActivity => ({
+    id: mkActivityId(),
+    kind,
+    label,
+    detail,
+    status,
+    source,
+    startedAt: Date.now(),
+    ...(status === "done" || status === "error" ? { endedAt: Date.now(), durationMs: 0 } : {}),
+  });
+  const thoughtLabel = (start: number) => "Thought for " + Math.max(1, Math.round((Date.now() - start) / 1000)) + "s";
+  const titleCase = (word: string) => word.slice(0, 1).toUpperCase() + word.slice(1).toLowerCase();
+  const activityHeadlineFromPrompt = (prompt: string) => {
+    const stop = new Set([
+      "about", "after", "again", "also", "and", "are", "because", "between", "could",
+      "does", "from", "have", "how", "into", "like", "make", "more", "that", "the",
+      "this", "through", "what", "when", "where", "which", "with", "would", "your",
+    ]);
+    const words = (prompt.match(/[A-Za-z][A-Za-z-]{3,}/g) || [])
+      .map(w => w.toLowerCase())
+      .filter(w => !stop.has(w));
+    const unique = Array.from(new Set(words)).slice(0, 6);
+    if (unique.length >= 2) return "Connecting " + titleCase(unique[0]) + " and " + titleCase(unique[1]);
+    if (unique.length === 1) return "Exploring " + titleCase(unique[0]);
+    return "Connecting the key ideas";
+  };
+  const activityDetailFromPrompt = () =>
+    "I've begun exploring how the request's key ideas fit together so the response can stay focused and useful.";
+  const setDraft = (draft) => {
+    streamingDraftRef.current = draft;
+    setStreamingDraft(draft);
+  };
+  const updateDraft = (fn) => {
+    const cur = streamingDraftRef.current;
+    if (!cur) return null;
+    const next = fn(cur);
+    streamingDraftRef.current = next;
+    setStreamingDraft(next);
+    return next;
+  };
+  const addDraftActivity = (
+    kind: CommitActivity["kind"],
+    label: string,
+    status: CommitActivity["status"] = "running",
+    source = "app",
+    detail?: string,
+  ) => {
+    const activity = mkActivity(kind, label, status, source, detail);
+    updateDraft(d => ({ ...d, activities: [...(d.activities || []), activity] }));
+    return activity.id;
+  };
+  const finishDraftActivity = (
+    id: string | null,
+    status: CommitActivity["status"] = "done",
+    label?: string,
+  ) => {
+    if (!id) return;
+    const now = Date.now();
+    updateDraft(d => ({
+      ...d,
+      activities: (d.activities || []).map(a => {
+        if (a.id !== id || a.status === "done" || a.status === "error") return a;
+        return {
+          ...a,
+          status,
+          label: label || a.label,
+          endedAt: now,
+          durationMs: Math.max(0, now - a.startedAt),
+        };
+      }),
+    }));
+  };
+  const appendDraftText = (delta: string) => {
+    if (!delta) return;
+    updateDraft(d => ({ ...d, response: (d.response || "") + delta }));
+  };
+  const closeRunningDraftActivities = (status: CommitActivity["status"] = "done") => {
+    const now = Date.now();
+    return updateDraft(d => ({
+      ...d,
+      activities: (d.activities || []).map(a => {
+        if (a.status !== "running" && a.status !== "pending") return a;
+        return {
+          ...a,
+          status,
+          endedAt: now,
+          durationMs: Math.max(0, now - a.startedAt),
+        };
+      }),
+    }))?.activities || [];
+  };
+  const failStreamingDraft = (message: string) => {
+    closeRunningDraftActivities("error");
+    updateDraft(d => ({ ...d, activities: [...(d.activities || []), mkActivity("error", message, "error")] }));
+    return streamingDraftRef.current?.activities || [];
+  };
+  const activityBeat = () => new Promise<void>((resolve) => window.setTimeout(resolve, 140));
+  const runLLMWithActivity = async (msgs, prompt, atts, useSearch, meta: any = {}) => {
+    const startedAt = Date.now();
+    const streamSignal = abortRef.current?.signal;
+    const headline = activityHeadlineFromPrompt(prompt);
+    const headlineActivity = mkActivity(
+      "planning",
+      headline,
+      "running",
+      "summary",
+      activityDetailFromPrompt(),
+    );
+    setDraft({
+      id: "draft:" + startedAt,
+      prompt,
+      attachments: atts,
+      response: "",
+      parentId: meta.parentId ?? headId,
+      branch: meta.branchName || branch,
+      mergeIds: meta.mergeIds || [],
+      activities: [headlineActivity],
+    });
+
+    const contextId = addDraftActivity("planning", "Reading conversation context", "running");
+    await activityBeat();
+    if (streamSignal?.aborted) throw new DOMException("Aborted", "AbortError");
+    finishDraftActivity(contextId, "done");
+    const planningId = addDraftActivity("planning", "Planning response", "running");
+    await activityBeat();
+    if (streamSignal?.aborted) throw new DOMException("Aborted", "AbortError");
+    finishDraftActivity(planningId, "done");
+    const thinkingId = addDraftActivity("thinking", "Thinking", "running", "model");
+    const sourceId = useSearch ? addDraftActivity("searching", "Checking sources", "running", "provider") : null;
+    let writingId: string | null = null;
+    const ensureWriting = () => {
+      if (!writingId) {
+        const thinking = streamingDraftRef.current?.activities?.find(a => a.id === thinkingId);
+        finishDraftActivity(thinkingId, "done", thinking ? thoughtLabel(thinking.startedAt) : undefined);
+        writingId = addDraftActivity("writing", "Writing response", "running", "model");
+      }
+    };
+
+    try {
+      const resp = await callLLMStream(
+        apiKey,
+        msgs,
+        { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: streamSignal },
+        {
+          onText: (delta) => {
+            ensureWriting();
+            appendDraftText(delta);
+          },
+          onActivity: (activity) => {
+            if (activity.kind === "searching" && sourceId) return;
+            addDraftActivity(
+              activity.kind || "planning",
+              activity.label,
+              activity.status || "running",
+              activity.source || "provider",
+            );
+          },
+        },
+      );
+
+      if (!streamingDraftRef.current?.response && resp.text) {
+        ensureWriting();
+        appendDraftText(resp.text);
+      }
+
+      finishDraftActivity(headlineActivity.id, "done");
+      if (writingId) finishDraftActivity(writingId, "done");
+      else {
+        const thinking = streamingDraftRef.current?.activities?.find(a => a.id === thinkingId);
+        finishDraftActivity(thinkingId, "done", thinking ? thoughtLabel(thinking.startedAt) : undefined);
+      }
+      if (sourceId) finishDraftActivity(sourceId, "done");
+      if (resp.citations?.length) {
+        addDraftActivity("source", "Collected " + resp.citations.length + " source" + (resp.citations.length > 1 ? "s" : ""), "done", "provider");
+      }
+      addDraftActivity("done", "Response ready", "done");
+
+      const draft = streamingDraftRef.current;
+      return {
+        ...resp,
+        text: draft?.response || resp.text,
+        activities: draft?.activities || [],
+      };
+    } catch (e) {
+      (e as any).activities = failStreamingDraft((e as any)?.message || "Response failed");
+      throw e;
+    }
+  };
   const applyCommitResult = (nc, cmId) => {
-    setCommits(nc); cRef.current = nc; setHeadId(cmId); setPending(null);
+    setCommits(nc); cRef.current = nc; setHeadId(cmId); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null;
   };
   const sendNewFromRef = async (msg, atts, useSearch) => {
     const pRef = { convId: newFromRef.convId, commitId: newFromRef.commitId, wasHead: newFromRef.wasHead !== false, convTitle: newFromRef.convTitle, promptSummary: newFromRef.promptSummary, anchorBranch: newFromRef.anchorBranch };
@@ -464,15 +662,15 @@ export default function App() {
     abortRef.current = ac;
     try {
       const msgs = buildMsgs(thread, msg, atts);
-      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
-      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, webSearch: useSearch });
+      const resp = await runLLMWithActivity(msgs, msg, atts, useSearch, { parentId: null, branchName: "main" });
+      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, activities: resp.activities, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
     } catch (e) {
-      if (isAbortError(e)) { setPending(null); return; }
-      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts });
+      if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; setThinking(false); return; }
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts, activities: e.activities });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", pRef, newId);
@@ -491,15 +689,15 @@ export default function App() {
     abortRef.current = ac;
     try {
       const rootMsg = atts?.length ? { role: "user" as const, content: msg, attachments: atts } : { role: "user" as const, content: msg };
-      const resp = await callLLM(apiKey, [rootMsg], { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
-      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, webSearch: useSearch });
+      const resp = await runLLMWithActivity([rootMsg], msg, atts, useSearch, { parentId: null, branchName: "main" });
+      const cm = mkCommit(null, msg, resp.text, "main", null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, activities: resp.activities, webSearch: useSearch });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, "main", null, newId);
     } catch (e) {
-      if (isAbortError(e)) { setPending(null); return; }
-      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts });
+      if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; setThinking(false); return; }
+      const cm = mkCommit(null, msg, "Error: " + e.message, "main", null, null, { attachments: atts, activities: e.activities });
       const nc = [cm];
       applyCommitResult(nc, cm.id);
     } finally { abortRef.current = null; setThinking(false); }
@@ -511,15 +709,15 @@ export default function App() {
     try {
       const th = getThread(cRef.current, pid).map(c => ({ ...c, attachments: hydrateAttachments(c.attachments) }));
       const msgs = buildMsgs(th, msg, atts);
-      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
-      const cm = mkCommit(pid, msg, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, webSearch: useSearch });
+      const resp = await runLLMWithActivity(msgs, msg, atts, useSearch, { parentId: pid, branchName: br });
+      const cm = mkCommit(pid, msg, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, activities: resp.activities, webSearch: useSearch });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
       save(msg.slice(0, 40), nc, cm.id, br);
     } catch (e) {
-      if (isAbortError(e)) { setPending(null); return; }
-      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setThinking(false); return; }
-      const cm = mkCommit(pid, msg, "Error: " + e.message, br, null, null, { attachments: atts });
+      if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; setThinking(false); return; }
+      const cm = mkCommit(pid, msg, "Error: " + e.message, br, null, null, { attachments: atts, activities: e.activities });
       const nc = [...cRef.current, cm];
       applyCommitResult(nc, cm.id);
     } finally { abortRef.current = null; setThinking(false); }
@@ -591,7 +789,7 @@ export default function App() {
     const cm = commits.find(c => c.id === cid);
     if (!cm) return;
     setHeadId(cm.id); setBranch(cm.branch); setScrollTarget(cm.id);
-    setBranchFromId(cid); setEditId(null); setNewFromRef(null); setSelectMode(false); clearSelectRange(); setMm(false); setSel([]); setPending(null);
+    setBranchFromId(cid); setEditId(null); setNewFromRef(null); setSelectMode(false); clearSelectRange(); setMm(false); setSel([]); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null;
     setInput(""); inputRef.current?.focus();
   };
   const retryResponse = async (cid) => {
@@ -608,26 +806,30 @@ export default function App() {
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      const resp = await callLLM(apiKey, msgs, { model: currentModel, thinking: thinkingOn, webSearch: useSearch, signal: ac.signal });
-      const newCm = mkCommit(parentId, cm.prompt, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, webSearch: useSearch });
+      const resp = await runLLMWithActivity(msgs, cm.prompt, atts, useSearch, { parentId, branchName: br });
+      const newCm = mkCommit(parentId, cm.prompt, resp.text, br, null, currentModel, { attachments: atts, citations: resp.citations, responseBlocks: resp.blocks, activities: resp.activities, webSearch: useSearch });
       const nc = [...cRef.current, newCm];
-      setCommits(nc); cRef.current = nc; setHeadId(newCm.id); setScrollTarget(newCm.id);
+      setCommits(nc); cRef.current = nc; setHeadId(newCm.id); setScrollTarget(newCm.id); setStreamingDraft(null); streamingDraftRef.current = null;
       save(null, nc, newCm.id, br);
     } catch (e) {
-      if (isAbortError(e)) { /* cancelled */ }
+      if (isAbortError(e)) { setStreamingDraft(null); streamingDraftRef.current = null; }
+      else if (e.code === "RATE_LIMIT") {
+        setRateLimited(true);
+        setStreamingDraft(null);
+        streamingDraftRef.current = null;
+      }
       else {
-        const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel, { attachments: atts });
+        const newCm = mkCommit(parentId, cm.prompt, "Error: " + e.message, br, null, currentModel, { attachments: atts, activities: e.activities });
         const nc = [...cRef.current, newCm];
-        setCommits(nc); cRef.current = nc; setHeadId(newCm.id);
+        setCommits(nc); cRef.current = nc; setHeadId(newCm.id); setStreamingDraft(null); streamingDraftRef.current = null;
         save(null, nc, newCm.id, br);
-        if (e.code === "RATE_LIMIT") setRateLimited(true);
       }
     } finally {
       abortRef.current = null; setPending(null); setThinking(false);
     }
   };
   const copyToClipboard = (text) => { try { navigator.clipboard.writeText(text || ""); } catch {} };
-  const checkout = (id, b) => { setHeadId(id); setBranch(b); setMm(false); setSel([]); setEditId(null); setBranchFromId(null); setPending(null); setNewFromRef(null); setScrollTarget(id); };
+  const checkout = (id, b) => { setHeadId(id); setBranch(b); setMm(false); setSel([]); setEditId(null); setBranchFromId(null); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; setNewFromRef(null); setScrollTarget(id); };
   const handleSelectNode = cid => {
     const cm = commits.find(c => c.id === cid);
     if (!cm) return;
@@ -822,15 +1024,15 @@ export default function App() {
     try {
       const curTh = getThread(cRef.current, headId).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n");
       const selCtx = sel.map(sid => { const sc = cRef.current.find(c => c.id === sid); if (!sc) return ""; return "[" + sc.branch + "]:\n" + getThread(cRef.current, sid).map(c => "User: " + c.prompt + "\nAI: " + c.response).join("\n\n"); }).join("\n---\n");
-      const resp = await callLLM(apiKey, [{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], { model: currentModel, thinking: thinkingOn, signal: ac.signal });
-      const cm = mkCommit(headId, msg, resp.text, branch, sel, currentModel);
-      const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
+      const resp = await runLLMWithActivity([{ role: "user", content: "Merge:\n\nCurrent (" + branch + "):\n" + curTh + "\n\nSelected:\n" + selCtx + "\n\nInstruction:\n" + msg }], msg, undefined, false, { parentId: headId, branchName: branch, mergeIds: sel });
+      const cm = mkCommit(headId, msg, resp.text, branch, sel, currentModel, { activities: resp.activities });
+      const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null;
       save(null, nc, cm.id, branch);
     } catch (e) {
-      if (isAbortError(e)) { setPending(null); setSel([]); return; }
-      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setSel([]); setThinking(false); return; }
-      const cm = mkCommit(headId, msg, "Merge error: " + e.message, branch);
-      const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null);
+      if (isAbortError(e)) { setPending(null); setSel([]); setStreamingDraft(null); streamingDraftRef.current = null; return; }
+      if (e.code === "RATE_LIMIT") { setRateLimited(true); setPending(null); setSel([]); setStreamingDraft(null); streamingDraftRef.current = null; setThinking(false); return; }
+      const cm = mkCommit(headId, msg, "Merge error: " + e.message, branch, null, currentModel, { activities: e.activities });
+      const nc = [...cRef.current, cm]; setCommits(nc); cRef.current = nc; setHeadId(cm.id); setSel([]); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null;
     } finally { abortRef.current = null; setThinking(false); }
   };
 
@@ -884,7 +1086,7 @@ export default function App() {
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
     webSearchOn, toggleWebSearch,
-    pending, thinking, newFromRef, setNewFromRef,
+    pending, streamingDraft, thinking, newFromRef, setNewFromRef,
     editId, setEditId, startEdit,
     branchFromId, setBranchFromId,
     mm, setMm, sel, setSel,

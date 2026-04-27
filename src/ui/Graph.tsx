@@ -35,6 +35,37 @@ function orderBranchesByTree(commits: any[], names: string[]): string[] {
   return result;
 }
 
+function activityNodeVid(ownerId: string, activityId: string): string {
+  return "activity_" + ownerId + "_" + activityId;
+}
+
+function appendActivityNodes(
+  vnodes: any[],
+  ownerVid: string,
+  ownerId: string,
+  branch: string,
+  activities: any[] = [],
+  ownerCid: string | null = null,
+) {
+  let parentVid = ownerVid;
+  for (const activity of activities) {
+    const vid = activityNodeVid(ownerId, activity.id);
+    vnodes.push({
+      vid,
+      cid: null,
+      type: "activity",
+      branch,
+      label: activity.label,
+      parentVid,
+      mergeVids: [],
+      ownerId,
+      ownerCid,
+      activity,
+    });
+    parentVid = vid;
+  }
+}
+
 type Props = {
   commits: any[];
   headId: string | null;
@@ -66,6 +97,8 @@ type Props = {
   activeTags?: Set<string>;
   onRenameBranch?: (bName: string, newTitle: string) => void;
   onDeleteBranch?: (bName: string) => void;
+  streamingDraft?: any;
+  onSelectActivity?: (ownerId: string, activityId: string) => void;
 };
 
 export default function Graph(props: Props) {
@@ -76,6 +109,8 @@ export default function Graph(props: Props) {
     onGoToChild, hoveredCid, panelW, branchTitles, onEditLabel, onEditTags,
     allTags = [], activeTags,
     onRenameBranch, onDeleteBranch,
+    streamingDraft,
+    onSelectActivity,
   } = props;
   const [ctx, setCtx] = useState<any>(null);
   const [tagPicker, setTagPicker] = useState<any>(null);
@@ -111,12 +146,33 @@ export default function Graph(props: Props) {
       parentVid: cm.parentId || (hasParent ? "ghost" : null),
       mergeVids: cm.mergeIds || [],
     });
+    appendActivityNodes(vnodes, cm.id, cm.id, cm.branch, cm.activities || [], cm.id);
     if (childRefs) {
       childRefs.filter((cr: any) => cr.commitId === cm.id).forEach((cr: any) => {
         vnodes.push({ vid: "child_" + cr.convId, cid: null, type: "child", branch: cm.branch, label: cr.convTitle, parentVid: cm.id, mergeVids: [], childConvId: cr.convId });
       });
     }
   });
+  if (streamingDraft) {
+    vnodes.push({
+      vid: streamingDraft.id,
+      cid: null,
+      type: "draft",
+      branch: streamingDraft.branch || activeBranch,
+      label: streamingDraft.prompt || "Draft response",
+      parentVid: streamingDraft.parentId || (hasParent ? "ghost" : null),
+      mergeVids: streamingDraft.mergeIds || [],
+      draft: streamingDraft,
+    });
+    appendActivityNodes(
+      vnodes,
+      streamingDraft.id,
+      streamingDraft.id,
+      streamingDraft.branch || activeBranch,
+      streamingDraft.activities || [],
+      null,
+    );
+  }
 
   if (!vnodes.length)
     return <div className="p-6 text-center text-base text-muted-foreground">Start a conversation</div>;
@@ -147,7 +203,7 @@ export default function Graph(props: Props) {
   const cidOnPath = (cid: string) => isMainActive || pathCids.has(cid);
   const vidOnPath = (vid: string) => {
     const v = vnodeMap[vid];
-    return !v || v.type === "ghost" || cidOnPath(v.cid);
+    return !v || v.type === "ghost" || v.type === "draft" || (v.type === "activity" && (!v.ownerCid || cidOnPath(v.ownerCid))) || cidOnPath(v.cid);
   };
 
   const lW = 22, rH = 26, pL = 18, nR = 6;
@@ -159,7 +215,8 @@ export default function Graph(props: Props) {
   const pos: Record<string, { x: number; y: number }> = {};
   vnodes.forEach((n, i) => {
     const lane = n.type === "ghost" ? 0 : names.indexOf(n.branch);
-    pos[n.vid] = { x: pL + lane * lW, y: 18 + i * rH };
+    const activityOffset = n.type === "activity" ? 10 : 0;
+    pos[n.vid] = { x: pL + lane * lW + activityOffset, y: 18 + i * rH };
   });
 
   const mutedFg = "var(--muted-foreground)";
@@ -207,7 +264,7 @@ export default function Graph(props: Props) {
 
       <svg width={W} height={H} style={{ display: "block" }}>
         {names.map((b) => {
-          const bv = vnodes.filter((n) => n.branch === b && n.type !== "ghost");
+          const bv = vnodes.filter((n) => n.branch === b && n.type !== "ghost" && n.type !== "activity");
           if (!bv.length) return null;
           const p1 = pos[bv[0].vid];
           const p2 = pos[bv[bv.length - 1].vid];
@@ -223,14 +280,15 @@ export default function Graph(props: Props) {
           return parents.map((pid: string) => {
             const fr = pos[pid];
             if (!fr) return null;
+            const isActivityEdge = n.type === "activity" || vnodeMap[pid]?.type === "activity";
             const isGhostEdge = pid === "ghost" || n.type === "child";
-            const col = isGhostEdge ? mutedFg : bCol(names, n.branch);
+            const col = isGhostEdge || isActivityEdge ? mutedFg : bCol(names, n.branch);
             const isMrg = n.mergeVids?.includes(pid);
-            const dash = isMrg || isGhostEdge ? "4 3" : "none";
-            const baseOp = isMrg || isGhostEdge ? 0.32 : 0.38;
+            const dash = isActivityEdge ? "2 3" : isMrg || isGhostEdge ? "4 3" : "none";
+            const baseOp = isActivityEdge ? 0.24 : isMrg || isGhostEdge ? 0.32 : 0.38;
             const edgeOn = vidOnPath(n.vid) && vidOnPath(pid);
             const op = edgeOn ? baseOp : 0.12;
-            const sw = isMrg || isGhostEdge ? 1.5 : 2;
+            const sw = isActivityEdge || isMrg || isGhostEdge ? 1.5 : 2;
             if (fr.x === to.x)
               return <line key={pid + "-" + n.vid} x1={fr.x} y1={fr.y + nR + 1} x2={to.x} y2={to.y - nR - 1} stroke={col} strokeWidth={sw} opacity={op} strokeDasharray={dash} style={{ transition: "opacity 0.2s" }} />;
             const mY = (fr.y + to.y) / 2;
@@ -261,6 +319,54 @@ export default function Graph(props: Props) {
                 <circle cx={p.x} cy={p.y} r={5} fill="none" stroke={mutedFg} strokeWidth={1.5} strokeDasharray="3 2" />
                 <text x={lX} y={p.y + 4} fontSize={11} fill={mutedFg} fontStyle="italic" style={{ fontFamily: "system-ui" }}>
                   {"↘ " + trunc(n.label, maxChars - 2)}
+                </text>
+              </g>
+            );
+          }
+
+          if (n.type === "activity") {
+            const col = bCol(names, n.branch);
+            const nodeOn = !n.ownerCid || cidOnPath(n.ownerCid);
+            const running = n.activity?.status === "running" || n.activity?.status === "pending";
+            const errored = n.activity?.status === "error";
+            return (
+              <g
+                key={n.vid}
+                style={{ cursor: "pointer", opacity: nodeOn ? 0.9 : 0.14, transition: "opacity 0.2s" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCtx(null);
+                  onSelectActivity?.(n.ownerId, n.activity.id);
+                }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              >
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={4}
+                  fill={running ? bg : errored ? "var(--destructive)" : col}
+                  stroke={errored ? "var(--destructive)" : col}
+                  strokeWidth={1.5}
+                  strokeDasharray={running ? "2 2" : "none"}
+                  opacity={running ? 1 : 0.78}
+                />
+                <text x={lX + 8} y={p.y + 4} fontSize={10.5} fill={errored ? "var(--destructive)" : mutedFg} style={{ fontFamily: "system-ui" }}>
+                  {trunc(n.label || "Thought", maxChars)}
+                </text>
+              </g>
+            );
+          }
+
+          if (n.type === "draft") {
+            const col = bCol(names, n.branch);
+            return (
+              <g key={n.vid} style={{ cursor: "default" }} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+                <circle cx={p.x} cy={p.y} r={6} fill={bg} stroke={col} strokeWidth={2} strokeDasharray="3 2" />
+                <text x={lX} y={p.y + 4} fontSize={11.5} fontWeight={600} fill={col} style={{ fontFamily: "system-ui" }}>
+                  Streaming response
+                </text>
+                <text x={lX} y={p.y + 17} fontSize={9.5} fill={mutedFg} style={{ fontFamily: "system-ui", pointerEvents: "none" }}>
+                  {trunc(n.label, maxChars)}
                 </text>
               </g>
             );

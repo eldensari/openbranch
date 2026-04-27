@@ -1,6 +1,12 @@
 /* LLM API — BYOK + Free mode, with attachments + web search */
 
-import type { Attachment, Citation, ResponseBlock } from "@/types";
+import type {
+  Attachment,
+  Citation,
+  CommitActivityKind,
+  CommitActivityStatus,
+  ResponseBlock,
+} from "@/types";
 
 export type Provider = { id: "anthropic" | "openai" | "gemini"; name: string; color: string };
 export type ChatMessage = {
@@ -34,6 +40,18 @@ export type LLMResponse = {
   text: string;
   citations?: Citation[];
   blocks?: ResponseBlock[];
+};
+
+export type LLMStreamActivity = {
+  kind?: CommitActivityKind;
+  label: string;
+  status?: CommitActivityStatus;
+  source?: string;
+};
+
+export type LLMStreamHandlers = {
+  onText?: (delta: string) => void;
+  onActivity?: (activity: LLMStreamActivity) => void;
 };
 
 class RateLimitError extends Error {
@@ -203,6 +221,187 @@ function extractAnthropicBlocks(d: {
   return anyCitations ? blocks : undefined;
 }
 
+type SseEvent = { event: string; data: string };
+
+async function readSse(res: Response, onEvent: (evt: SseEvent) => void | Promise<void>): Promise<void> {
+  if (!res.body) throw new Error("Streaming is not supported by this browser.");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const chunks = buf.split(/\r?\n\r?\n/);
+    buf = chunks.pop() || "";
+
+    for (const raw of chunks) {
+      const lines = raw.split(/\r?\n/);
+      let event = "message";
+      const data: string[] = [];
+      for (const line of lines) {
+        if (!line || line.startsWith(":")) continue;
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+      }
+      if (data.length) await onEvent({ event, data: data.join("\n") });
+    }
+  }
+
+  const tail = buf.trim();
+  if (tail) {
+    const lines = tail.split(/\r?\n/);
+    let event = "message";
+    const data: string[] = [];
+    for (const line of lines) {
+      if (!line || line.startsWith(":")) continue;
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+    }
+    if (data.length) await onEvent({ event, data: data.join("\n") });
+  }
+}
+
+function citationFromAny(c: any): Citation | null {
+  const url = c?.url || c?.source_url;
+  if (!url) return null;
+  return {
+    url,
+    title: c?.title || c?.document_title || c?.source_title || url,
+    snippet: c?.cited_text || c?.content || c?.snippet,
+  };
+}
+
+function addCitation(out: Citation[], seen: Set<string>, c: any) {
+  const cit = citationFromAny(c);
+  if (!cit || seen.has(cit.url)) return;
+  seen.add(cit.url);
+  out.push(cit);
+}
+
+async function readAnthropicStream(res: Response, handlers: LLMStreamHandlers = {}): Promise<LLMResponse> {
+  const blocks: ResponseBlock[] = [];
+  const citations: Citation[] = [];
+  const seen = new Set<string>();
+  let text = "";
+  let anyBlockCitations = false;
+
+  await readSse(res, ({ data }) => {
+    if (data === "[DONE]") return;
+    let evt: any;
+    try {
+      evt = JSON.parse(data);
+    } catch {
+      return;
+    }
+
+    if (evt.type === "error") {
+      throw new Error(evt.error?.message || "Streaming error");
+    }
+
+    if (evt.type === "content_block_start") {
+      const block = evt.content_block || {};
+      if (block.type === "text") {
+        blocks[evt.index] = { text: block.text || "" };
+        if (block.text) {
+          text += block.text;
+          handlers.onText?.(block.text);
+        }
+      }
+      if (block.name === "web_search" || block.type === "server_tool_use") {
+        handlers.onActivity?.({
+          kind: "searching",
+          label: "Checking sources",
+          status: "running",
+          source: "provider",
+        });
+      }
+      return;
+    }
+
+    if (evt.type !== "content_block_delta") return;
+    const delta = evt.delta || {};
+    const idx = evt.index || 0;
+
+    if (delta.type === "text_delta" && delta.text) {
+      const block = blocks[idx] || { text: "" };
+      block.text += delta.text;
+      blocks[idx] = block;
+      text += delta.text;
+      handlers.onText?.(delta.text);
+      return;
+    }
+
+    if (delta.type === "citations_delta" && delta.citation) {
+      const block = blocks[idx] || { text: "" };
+      const blockCitations = block.citations ? [...block.citations] : [];
+      const before = citations.length;
+      addCitation(citations, seen, delta.citation);
+      const added = citations[citations.length - 1];
+      if (citations.length > before && added) {
+        blockCitations.push(added);
+        block.citations = blockCitations;
+        blocks[idx] = block;
+        anyBlockCitations = true;
+      }
+    }
+  });
+
+  const compactBlocks = blocks.filter(Boolean);
+  return {
+    text,
+    citations,
+    blocks: anyBlockCitations ? compactBlocks : undefined,
+  };
+}
+
+function readOpenAIAnnotations(annotations: any[], citations: Citation[], seen: Set<string>) {
+  for (const a of annotations || []) {
+    addCitation(citations, seen, a?.url_citation || a);
+  }
+}
+
+async function readOpenAICompatibleStream(
+  res: Response,
+  handlers: LLMStreamHandlers = {},
+): Promise<LLMResponse> {
+  let text = "";
+  const citations: Citation[] = [];
+  const seen = new Set<string>();
+
+  await readSse(res, ({ data }) => {
+    if (data === "[DONE]") return;
+    let evt: any;
+    try {
+      evt = JSON.parse(data);
+    } catch {
+      return;
+    }
+
+    if (evt.error) throw new Error(evt.error.message || "Streaming error");
+
+    for (const choice of evt.choices || []) {
+      const delta = choice.delta || choice.message || {};
+      if (typeof delta.content === "string" && delta.content) {
+        text += delta.content;
+        handlers.onText?.(delta.content);
+      } else if (Array.isArray(delta.content)) {
+        for (const part of delta.content) {
+          const partText = part?.text || part?.content || "";
+          if (typeof partText === "string" && partText) {
+            text += partText;
+            handlers.onText?.(partText);
+          }
+        }
+      }
+      readOpenAIAnnotations(delta.annotations || choice.message?.annotations || [], citations, seen);
+    }
+  });
+
+  return { text, citations };
+}
+
 async function callFree(
   messages: ChatMessage[],
   model: string | null,
@@ -238,6 +437,38 @@ async function callFree(
   };
 }
 
+async function callFreeStream(
+  messages: ChatMessage[],
+  model: string | null,
+  webSearch: boolean,
+  userSignal: AbortSignal | undefined,
+  handlers: LLMStreamHandlers = {},
+): Promise<LLMResponse> {
+  const res = await fetch("/.netlify/functions/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: anthropicMessages(messages),
+      model: model || "claude-sonnet-4-20250514",
+      webSearch: !!webSearch,
+      stream: true,
+    }),
+    signal: mergeSignals(userSignal, 120000),
+  });
+
+  if (res.status === 429) {
+    const data = await res.json().catch(() => ({}));
+    throw new RateLimitError(data.message || "Rate limit reached.");
+  }
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Server error " + res.status);
+  }
+
+  return readAnthropicStream(res, handlers);
+}
+
 type AnthropicTool = {
   type: "web_search_20250305";
   name: "web_search";
@@ -250,6 +481,7 @@ type AnthropicBody = {
   messages: ReturnType<typeof anthropicMessages>;
   thinking?: { type: string; budget_tokens: number };
   tools?: AnthropicTool[];
+  stream?: boolean;
 };
 
 async function callBYOK(
@@ -358,6 +590,93 @@ async function callBYOK(
   throw new Error("Unsupported provider.");
 }
 
+async function callBYOKStream(
+  apiKey: string,
+  messages: ChatMessage[],
+  opts: LLMOptions = {},
+  handlers: LLMStreamHandlers = {},
+): Promise<LLMResponse> {
+  const { model = null, thinking = false, webSearch = false, signal } = opts;
+  const key = apiKey.trim().replace(/[^\x20-\x7E]/g, "");
+  const provider = detectProvider(key);
+  if (!provider) throw new Error("Unknown API key format.");
+
+  const pickModel = (fallback: string) =>
+    model && MODEL_CHOICES[provider.id]?.some((m) => m.id === model) ? model : fallback;
+  const modelSupportsThinking = MODEL_CHOICES[provider.id]?.find(
+    (m) => m.id === pickModel(""),
+  )?.thinking;
+
+  if (provider.id === "anthropic") {
+    const body: AnthropicBody = {
+      model: pickModel("claude-sonnet-4-20250514"),
+      max_tokens: 16000,
+      messages: anthropicMessages(messages),
+      stream: true,
+    };
+    if (thinking && modelSupportsThinking)
+      body.thinking = { type: "enabled", budget_tokens: 10000 };
+    if (webSearch) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }];
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify(body),
+      signal: mergeSignals(signal, 180000),
+    });
+    if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
+    return readAnthropicStream(res, handlers);
+  }
+
+  if (provider.id === "openai") {
+    const body: Record<string, unknown> = {
+      model: pickModel("gpt-4o"),
+      max_tokens: 4096,
+      messages: openaiMessages(messages),
+      stream: true,
+    };
+    if (webSearch) body.tools = [{ type: "web_search" }];
+
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+      body: JSON.stringify(body),
+      signal: mergeSignals(signal, 180000),
+    });
+    if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
+    return readOpenAICompatibleStream(res, handlers);
+  }
+
+  if (provider.id === "gemini") {
+    const body: Record<string, unknown> = {
+      model: pickModel("gemini-2.0-flash"),
+      max_tokens: 4096,
+      messages: geminiMessages(messages),
+      stream: true,
+    };
+    if (webSearch) body.tools = [{ google_search: {} }];
+
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+        body: JSON.stringify(body),
+        signal: mergeSignals(signal, 180000),
+      },
+    );
+    if (!res.ok) throw new Error(res.status === 401 ? "Invalid API key." : "API " + res.status);
+    return readOpenAICompatibleStream(res, handlers);
+  }
+
+  throw new Error("Unsupported provider.");
+}
+
 export async function callLLM(
   apiKey: string,
   messages: ChatMessage[],
@@ -367,6 +686,18 @@ export async function callLLM(
     return callBYOK(apiKey, messages, opts);
   }
   return callFree(messages, opts.model || null, !!opts.webSearch, opts.signal);
+}
+
+export async function callLLMStream(
+  apiKey: string,
+  messages: ChatMessage[],
+  opts: LLMOptions = {},
+  handlers: LLMStreamHandlers = {},
+): Promise<LLMResponse> {
+  if (apiKey && apiKey.trim()) {
+    return callBYOKStream(apiKey, messages, opts, handlers);
+  }
+  return callFreeStream(messages, opts.model || null, !!opts.webSearch, opts.signal, handlers);
 }
 
 type ThreadCommit = { prompt: string; response?: string };

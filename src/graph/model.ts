@@ -1,4 +1,4 @@
-import type { Attachment, Citation, Commit, CommitId, ResponseBlock } from "@/types";
+import type { Attachment, Citation, Commit, CommitActivity, CommitId, ResponseBlock } from "@/types";
 
 /* ═══════ DATA ═══════ */
 let cc = 100; // start high to avoid conflicts with demo IDs
@@ -33,6 +33,7 @@ export function mkCommit(
     attachments?: Attachment[];
     citations?: Citation[];
     responseBlocks?: ResponseBlock[];
+    activities?: CommitActivity[];
     webSearch?: boolean;
   },
 ): Commit {
@@ -49,6 +50,7 @@ export function mkCommit(
   if (extras?.attachments?.length) c.attachments = extras.attachments;
   if (extras?.citations?.length) c.citations = extras.citations;
   if (extras?.responseBlocks?.length) c.responseBlocks = extras.responseBlocks;
+  if (extras?.activities?.length) c.activities = extras.activities;
   if (extras?.webSearch) c.webSearch = true;
   return c;
 }

@@ -5,13 +5,14 @@ import {
   readFileAsBase64,
   resizeImageFile,
 } from "@/lib/attachments";
-import { renderMd, renderCitationChips, renderResponseBlocks, SourceCard, ThinkingDots } from "./Markdown";
+import { Favicon, getHost, renderMd, renderCitationChips, renderResponseBlocks, SourceCard, ThinkingDots } from "./Markdown";
 import ModelPicker from "./ModelPicker";
 import Graph from "./Graph";
 import {
   Copy,
   RotateCcw,
   ArrowUp,
+  AlertCircle,
   Paperclip,
   Globe,
   X,
@@ -19,10 +20,14 @@ import {
   Square,
   Plus,
   Check,
+  ChevronRight,
   GitBranch,
   GitMerge,
   Link2,
   ChevronDown,
+  CircleCheck,
+  CircleDot,
+  Clock3,
   MoreHorizontal,
   MousePointerSquareDashed,
   PanelRight,
@@ -30,7 +35,7 @@ import {
   Folder,
   Trash2,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +67,33 @@ type Props = any;
 
 const MAX_ATTACHMENTS = 5;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const RIGHT_PANEL_DEFAULT_PX = 360;
+const RIGHT_PANEL_MIN_PX = 300;
+const RIGHT_PANEL_MAX_PX = 480;
+const RIGHT_PANEL_NARROW_MIN_PX = 240;
+const CHAT_PROTECTED_PX = 680;
+
+function pct(px: number, total: number) {
+  return total > 0 ? (px / total) * 100 : 0;
+}
+
+function getRightPanelSizes(totalWidth: number) {
+  if (!totalWidth) return { defaultSize: 30, minSize: 20, maxSize: 40 };
+
+  const maxForChat = totalWidth - CHAT_PROTECTED_PX;
+  const maxPx = Math.min(
+    RIGHT_PANEL_MAX_PX,
+    Math.max(RIGHT_PANEL_NARROW_MIN_PX, maxForChat),
+  );
+  const minPx = Math.min(RIGHT_PANEL_MIN_PX, maxPx);
+  const defaultPx = Math.min(Math.max(RIGHT_PANEL_DEFAULT_PX, minPx), maxPx);
+
+  return {
+    defaultSize: pct(defaultPx, totalWidth),
+    minSize: pct(minPx, totalWidth),
+    maxSize: pct(maxPx, totalWidth),
+  };
+}
 
 export default function ChatPanel(props: Props) {
   const {
@@ -71,7 +103,7 @@ export default function ChatPanel(props: Props) {
     attachments, setAttachments,
     webSearchOn, toggleWebSearch,
     toast, setToast, showToast,
-    pending, thinking, newFromRef, setNewFromRef,
+    pending, streamingDraft, thinking, newFromRef, setNewFromRef,
     editId, setEditId, startEdit,
     branchFromId, setBranchFromId,
     mm, setMm, sel, setSel,
@@ -94,10 +126,35 @@ export default function ChatPanel(props: Props) {
   } = props;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelGroupRef = useRef<HTMLDivElement>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [sourceCommitId, setSourceCommitId] = useState<string | null>(null);
+  const [panelGroupWidth, setPanelGroupWidth] = useState(0);
   const [renamingChat, setRenamingChat] = useState(false);
   const [movingChat, setMovingChat] = useState(false);
   const [inlineEditId, setInlineEditId] = useState<string | null>(null);
+  const [openThoughtIds, setOpenThoughtIds] = useState<Set<string>>(() => new Set());
+
+  const thoughtKey = (ownerId: string, activityId: string) => ownerId + "::" + activityId;
+  const thoughtElementId = (ownerId: string, activityId: string) =>
+    "thought-" + thoughtKey(ownerId, activityId).replace(/[^a-zA-Z0-9_-]/g, "-");
+  const toggleThought = (ownerId: string, activityId: string) => {
+    const key = thoughtKey(ownerId, activityId);
+    setOpenThoughtIds((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+  const openThought = (ownerId: string, activityId: string) => {
+    const key = thoughtKey(ownerId, activityId);
+    setOpenThoughtIds((prev) => new Set(prev).add(key));
+    window.setTimeout(() => {
+      document
+        .getElementById(thoughtElementId(ownerId, activityId))
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 30);
+  };
 
   const beginInlineEdit = (cm: any) => {
     setInlineEditId(cm.id);
@@ -116,11 +173,28 @@ export default function ChatPanel(props: Props) {
   const currentConv = convs.find((c: any) => c.id === convId);
   const currentTitle = currentConv?.title || "Untitled";
 
+  const getCommitSources = (cm: any) => {
+    const seen = new Set<string>();
+    const out: any[] = [];
+    const add = (c: any) => {
+      if (!c?.url || seen.has(c.url)) return;
+      seen.add(c.url);
+      out.push(c);
+    };
+
+    for (const c of cm?.citations || []) add(c);
+    for (const b of cm?.responseBlocks || []) {
+      for (const c of b?.citations || []) add(c);
+    }
+
+    return out;
+  };
+
   const allSources = (() => {
     const seen = new Set<string>();
     const out: any[] = [];
     for (const cm of thread) {
-      for (const c of cm.citations || []) {
+      for (const c of getCommitSources(cm)) {
         if (!c?.url || seen.has(c.url)) continue;
         seen.add(c.url);
         out.push(c);
@@ -128,6 +202,12 @@ export default function ChatPanel(props: Props) {
     }
     return out;
   })();
+  const sourceCommit = sourceCommitId
+    ? thread.find((cm: any) => cm.id === sourceCommitId)
+    : null;
+  const visibleSources = sourceCommitId
+    ? sourceCommit ? getCommitSources(sourceCommit) : []
+    : allSources;
 
   const onFilesPicked = async (files: FileList | null) => {
     if (!files || !files.length) return;
@@ -432,7 +512,7 @@ export default function ChatPanel(props: Props) {
       </Tooltip>
       <DropdownMenuContent align="end" className="min-w-[14rem] rounded-2xl p-1">
         <DropdownMenuItem
-          onSelect={() => { setGraph(!graph); setSourcesOpen(false); }}
+          onSelect={() => { setGraph(!graph); setSourcesOpen(false); setSourceCommitId(null); }}
           className="gap-3 py-2 text-base"
         >
           <GitBranch className="size-4" />
@@ -440,7 +520,12 @@ export default function ChatPanel(props: Props) {
           {graph && <Check className="ml-auto size-4 text-[color:var(--branch-1)]" />}
         </DropdownMenuItem>
         <DropdownMenuItem
-          onSelect={() => { setSourcesOpen(!sourcesOpen); if (!sourcesOpen) setGraph(false); }}
+          onSelect={() => {
+            const showingAllSources = sourcesOpen && sourceCommitId === null;
+            setSourceCommitId(null);
+            setSourcesOpen(!showingAllSources);
+            if (!showingAllSources) setGraph(false);
+          }}
           disabled={allSources.length === 0}
           className="gap-3 py-2 text-base"
         >
@@ -512,17 +597,18 @@ export default function ChatPanel(props: Props) {
         )}
       >
         {thread.length === 0 && !pending && !newFromRef ? (
-          <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6">
+          <div className="mx-auto flex w-full max-w-[760px] flex-col gap-8 px-6">
             <div className="flex flex-col items-center gap-8">
               <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
-              <div className="w-full max-w-2xl">{composer}</div>
+              <div className="w-full max-w-[760px]">{composer}</div>
             </div>
           </div>
         ) : (
           <div className="flex min-h-full w-full flex-col">
-            <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6">
+            <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-8 px-6">
               {thread.map((cm: any) => {
                 const isMrg = (cm.mergeIds || []).length > 0;
+                const cmSources = getCommitSources(cm);
                 return (
               <div
                 key={cm.id}
@@ -649,6 +735,14 @@ export default function ChatPanel(props: Props) {
                   )}
                 </div>
                 <div className="self-start w-full flex flex-col gap-1.5">
+                  <ThoughtStream
+                    ownerId={cm.id}
+                    activities={cm.activities || []}
+                    openThoughtIds={openThoughtIds}
+                    onToggleThought={toggleThought}
+                    getThoughtKey={thoughtKey}
+                    getThoughtElementId={thoughtElementId}
+                  />
                   <div className="text-[16px] leading-relaxed">
                     {cm.responseBlocks?.length
                       ? renderResponseBlocks(cm.responseBlocks)
@@ -713,6 +807,30 @@ export default function ChatPanel(props: Props) {
                       </TooltipTrigger>
                       <TooltipContent side="bottom">New</TooltipContent>
                     </Tooltip>
+                    {cmSources.length > 0 && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-pressed={sourcesOpen && sourceCommitId === cm.id}
+                            className={cn(
+                              "h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground",
+                              sourcesOpen && sourceCommitId === cm.id && "bg-accent text-foreground",
+                            )}
+                            onClick={() => {
+                              setSourceCommitId(cm.id);
+                              setSourcesOpen(true);
+                              setGraph(false);
+                            }}
+                          >
+                            <SourceIconStack sources={cmSources} />
+                            <span className="text-[13px]">Sources</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Sources</TooltipContent>
+                      </Tooltip>
+                    )}
                   </div>
                 </div>
               </div>
@@ -728,7 +846,22 @@ export default function ChatPanel(props: Props) {
               {pending}
             </div>
           )}
-          {thinking && (
+          {streamingDraft && (
+            <div className="self-start w-full flex flex-col gap-2">
+              <ThoughtStream
+                ownerId={streamingDraft.id}
+                activities={streamingDraft.activities || []}
+                openThoughtIds={openThoughtIds}
+                onToggleThought={toggleThought}
+                getThoughtKey={thoughtKey}
+                getThoughtElementId={thoughtElementId}
+              />
+              <div className="text-[16px] leading-relaxed">
+                {streamingDraft.response ? renderMd(streamingDraft.response) : <ThinkingDots />}
+              </div>
+            </div>
+          )}
+          {thinking && !streamingDraft && (
             <div className="self-start text-[16px] text-muted-foreground">
               <ThinkingDots />
             </div>
@@ -737,7 +870,7 @@ export default function ChatPanel(props: Props) {
             </div>
             {!inlineEditId && (
               <div className="sticky bottom-0 z-10 mt-auto bg-background px-6 pb-5 pt-8">
-                <div className="mx-auto w-full max-w-2xl">{composer}</div>
+                <div className="mx-auto w-full max-w-[760px]">{composer}</div>
               </div>
             )}
           </div>
@@ -745,7 +878,7 @@ export default function ChatPanel(props: Props) {
       </div>
 
       {(branchFromId || editId || newFromRef || (mm && sel.length > 0) || undoAction) && (
-        <div className="mx-auto w-full max-w-2xl px-6">
+        <div className="mx-auto w-full max-w-[760px] px-6">
           {branchFromId && (
             <ModeBanner
               label="Branch from selected point"
@@ -882,7 +1015,11 @@ export default function ChatPanel(props: Props) {
     </div>
   );
 
-  const graphArea = graph && commits.length > 0 && (
+  const graphNames = streamingDraft?.branch && !names.includes(streamingDraft.branch)
+    ? [...names, streamingDraft.branch]
+    : names;
+
+  const graphArea = graph && (commits.length > 0 || streamingDraft) && (
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-graph-bg px-3">
         <span className="text-base font-medium">Graph</span>
@@ -929,7 +1066,8 @@ export default function ChatPanel(props: Props) {
         commits={commits}
         headId={headId}
         activeBranch={branch}
-        names={names}
+        names={graphNames}
+        streamingDraft={streamingDraft}
         onCheckout={checkout}
         onBranch={startBranchFrom}
         onNew={startNew}
@@ -963,11 +1101,12 @@ export default function ChatPanel(props: Props) {
         activeTags={activeTags}
         onRenameBranch={(b: string, newTitle: string) => renameBranch(convId, b, newTitle)}
         onDeleteBranch={(b: string) => requestDeleteBranch(b)}
+        onSelectActivity={openThought}
       />
     </div>
   );
 
-  const sourcesArea = sourcesOpen && allSources.length > 0 && (
+  const sourcesArea = sourcesOpen && visibleSources.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-base font-medium">Sources</span>
@@ -978,7 +1117,7 @@ export default function ChatPanel(props: Props) {
                 variant="ghost"
                 size="icon"
                 className="size-7"
-                onClick={() => setSourcesOpen(false)}
+                onClick={() => { setSourcesOpen(false); setSourceCommitId(null); }}
               >
                 <X className="size-4" />
               </Button>
@@ -990,7 +1129,7 @@ export default function ChatPanel(props: Props) {
         </div>
       </div>
       <div className="flex-1 space-y-1 overflow-y-auto p-2">
-        {allSources.map((c: any, i: number) => (
+        {visibleSources.map((c: any, i: number) => (
           <SourceCard key={i} c={c} />
         ))}
       </div>
@@ -998,16 +1137,44 @@ export default function ChatPanel(props: Props) {
   );
 
   const rightArea = sourcesArea || graphArea;
+  const hasRightArea = Boolean(rightArea);
+
+  useEffect(() => {
+    if (!hasRightArea) {
+      setPanelGroupWidth(0);
+      return;
+    }
+
+    const el = panelGroupRef.current;
+    if (!el) return;
+
+    const updateWidth = () => setPanelGroupWidth(el.getBoundingClientRect().width);
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasRightArea]);
+
   if (!rightArea) return chatArea;
+  const rightPanelSizes = getRightPanelSizes(panelGroupWidth);
 
   return (
-    <ResizablePanelGroup direction="horizontal">
-      <ResizablePanel defaultSize={70} minSize={50}>{chatArea}</ResizablePanel>
-      <ResizableHandle />
-      <ResizablePanel defaultSize={30} minSize={20} maxSize={40}>
-        {rightArea}
-      </ResizablePanel>
-    </ResizablePanelGroup>
+    <div ref={panelGroupRef} className="h-full w-full">
+      <ResizablePanelGroup direction="horizontal">
+        <ResizablePanel minSize={100 - rightPanelSizes.maxSize}>
+          {chatArea}
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel
+          defaultSize={rightPanelSizes.defaultSize}
+          minSize={rightPanelSizes.minSize}
+          maxSize={rightPanelSizes.maxSize}
+        >
+          {rightArea}
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </div>
   );
 }
 
@@ -1023,5 +1190,127 @@ function ModeBanner({ label, tone, onCancel }: { label: string; tone: "user" | "
       <span className="text-base font-medium">{label}</span>
       <Button size="sm" variant="outline" className="h-7" onClick={onCancel}>Cancel</Button>
     </div>
+  );
+}
+
+function formatDuration(ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  const secs = Math.max(1, Math.round(ms / 1000));
+  if (secs < 60) return secs + "s";
+  const mins = Math.floor(secs / 60);
+  const rest = secs % 60;
+  return mins + "m" + (rest ? " " + rest + "s" : "");
+}
+
+function activityDisplayLabel(activity: any, now: number) {
+  if (!activity) return "";
+  if (activity.kind === "thinking" && activity.status === "running") {
+    return "Thinking for " + formatDuration(now - activity.startedAt);
+  }
+  return activity.label;
+}
+
+function activityDetail(activity: any) {
+  if (activity?.detail) return activity.detail;
+  if (activity?.kind === "thinking") return "I spent a moment shaping the direction before writing.";
+  if (activity?.kind === "searching") return "I checked whether sources were needed for this response.";
+  if (activity?.kind === "writing") return "I started turning the plan into the visible answer.";
+  if (activity?.kind === "source") return "I collected source information for the final answer.";
+  if (activity?.kind === "done") return "The response is ready and saved into this conversation.";
+  if (activity?.kind === "error") return "This step ran into a problem before finishing.";
+  return "I used this step to organize the response.";
+}
+
+function ThoughtStatusIcon({ status }: { status: string }) {
+  if (status === "error") return <AlertCircle className="size-3.5 shrink-0 text-destructive" />;
+  if (status === "done") return <CircleCheck className="size-3.5 shrink-0 text-[color:var(--branch-1)]" />;
+  return <CircleDot className="size-3.5 shrink-0 text-muted-foreground" />;
+}
+
+function ThoughtStream({
+  ownerId,
+  activities,
+  openThoughtIds,
+  onToggleThought,
+  getThoughtKey,
+  getThoughtElementId,
+}: {
+  ownerId: string;
+  activities: any[];
+  openThoughtIds: Set<string>;
+  onToggleThought: (ownerId: string, activityId: string) => void;
+  getThoughtKey: (ownerId: string, activityId: string) => string;
+  getThoughtElementId: (ownerId: string, activityId: string) => string;
+}) {
+  const [now, setNow] = useState(Date.now());
+  const hasRunning = (activities || []).some((a) => a.status === "running" || a.status === "pending");
+
+  useEffect(() => {
+    if (!hasRunning) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [hasRunning]);
+
+  if (!activities?.length) return null;
+
+  return (
+    <div className="mt-1 space-y-0.5">
+      {(activities || []).map((activity) => {
+        const open = openThoughtIds.has(getThoughtKey(ownerId, activity.id));
+        const duration = activity.durationMs || (activity.status === "running" ? now - activity.startedAt : 0);
+        return (
+          <div key={activity.id} id={getThoughtElementId(ownerId, activity.id)} className="scroll-mt-24">
+            <button
+              type="button"
+              onClick={() => onToggleThought(ownerId, activity.id)}
+              className={cn(
+                "group inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                open && "text-foreground",
+              )}
+            >
+              <ThoughtStatusIcon status={activity.status} />
+              <span className="truncate">{activityDisplayLabel(activity, now)}</span>
+              {duration > 0 && (
+                <span className="inline-flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground/80">
+                  <Clock3 className="size-3" />
+                  {formatDuration(duration)}
+                </span>
+              )}
+              <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+            </button>
+            {open && (
+              <div className="ml-6 max-w-[44rem] pb-1 text-[13px] leading-relaxed text-muted-foreground">
+                {activityDetail(activity)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SourceIconStack({ sources }: { sources: any[] }) {
+  const hosts = Array.from(
+    new Set(
+      sources
+        .map((s) => getHost(s.url))
+        .filter(Boolean),
+    ),
+  ).slice(0, 2);
+
+  if (!hosts.length) return <Link2 className="size-3.5" />;
+
+  return (
+    <span className="flex items-center -space-x-1">
+      {hosts.map((host) => (
+        <span
+          key={host}
+          className="flex size-4 items-center justify-center rounded-full border border-background bg-muted"
+        >
+          <Favicon host={host} className="size-3 rounded-full" />
+        </span>
+      ))}
+    </span>
   );
 }
