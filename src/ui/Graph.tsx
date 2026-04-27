@@ -244,7 +244,7 @@ export default function Graph(props: Props) {
 
           if (n.type === "ghost") {
             return (
-              <g key={n.vid} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onGoToParent(); }}>
+              <g key={n.vid} style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onGoToParent(); }} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
                 <circle cx={p.x} cy={p.y} r={5} fill="none" stroke={mutedFg} strokeWidth={1.5} strokeDasharray="3 2" />
                 <text x={lX} y={p.y + 4} fontSize={11} fill={mutedFg} fontStyle="italic" style={{ fontFamily: "system-ui" }}>
                   {trunc(n.label, maxChars)}
@@ -257,7 +257,7 @@ export default function Graph(props: Props) {
             const parentCid = n.parentVid?.replace(/_[pr]$/, "");
             const nodeOn = isMainActive || (parentCid && pathCids.has(parentCid));
             return (
-              <g key={n.vid} style={{ cursor: "pointer", opacity: nodeOn ? 1 : 0.12, transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); onGoToChild(n.childConvId); }}>
+              <g key={n.vid} style={{ cursor: "pointer", opacity: nodeOn ? 1 : 0.12, transition: "opacity 0.2s" }} onClick={(e) => { e.stopPropagation(); onGoToChild(n.childConvId); }} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
                 <circle cx={p.x} cy={p.y} r={5} fill="none" stroke={mutedFg} strokeWidth={1.5} strokeDasharray="3 2" />
                 <text x={lX} y={p.y + 4} fontSize={11} fill={mutedFg} fontStyle="italic" style={{ fontFamily: "system-ui" }}>
                   {"↘ " + trunc(n.label, maxChars - 2)}
