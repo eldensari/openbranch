@@ -3,7 +3,7 @@ import storage from "@/lib/storage";
 import { detectProvider } from "@/lib/llm";
 import { buildSidebarLayout } from "@/storage/sidebar";
 import { buildFolderGroups, buildFolderTree, formatClusterTitle } from "@/storage/clusters";
-import { ChevronDown, ChevronRight, CirclePlus, Folder, FolderOpen, FolderPlus, MoreHorizontal, PanelLeft, Pencil, Search, Settings, SquarePen, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, PanelLeft, Pencil, Search, Settings, SquarePen, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -723,7 +723,7 @@ export default function AppSidebar(props: Props) {
                   onClick={() => setCreatingTag(true)}
                   className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-base transition-colors hover:bg-sidebar-accent"
                 >
-                  <CirclePlus className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/50 text-[11px] leading-none text-muted-foreground">+</span>
                   New tag
                 </button>
                 {tagEntries.map(([tg, n]) => {
