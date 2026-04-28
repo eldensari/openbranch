@@ -610,7 +610,7 @@ export default function ChatPanel(props: Props) {
           "flex-1 overflow-y-auto",
           thread.length === 0 && !pending && !newFromRef
             ? "flex items-start pt-[30vh]"
-            : "pt-14",
+            : "pt-2",
         )}
       >
         {thread.length === 0 && !pending && !newFromRef ? (
