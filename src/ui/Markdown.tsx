@@ -113,7 +113,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
     } catch {}
   };
   return (
-    <div className="group relative my-3">
+    <div className="group/copy relative my-3">
       {lang && (
         <div className="absolute top-2 left-3 z-10 font-mono text-[10px] lowercase text-muted-foreground/80">
           {lang}
@@ -125,8 +125,8 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
         aria-label={copied ? "Copied" : "Copy code"}
         className={cn(
           "absolute top-2 right-2 z-10 inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-xs transition-all",
-          "text-white/60 hover:bg-white/10 hover:text-white",
-          "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+          "text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
+          "opacity-0 group-hover/copy:opacity-100 focus-visible:opacity-100",
           copied && "opacity-100 text-[color:var(--branch-0)] hover:bg-transparent",
         )}
       >
