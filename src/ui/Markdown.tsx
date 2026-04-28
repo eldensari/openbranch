@@ -148,7 +148,8 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
       ) : (
         <pre
           className={cn(
-            "overflow-x-auto rounded-lg bg-code-bg text-code-foreground font-mono text-[13px] leading-relaxed m-0",
+            "overflow-x-auto rounded-lg font-mono text-[13px] leading-relaxed m-0",
+            "bg-[#ffffff] text-[#24292e] dark:bg-[#24292e] dark:text-[#e1e4e8]",
             lang ? "pt-6 pb-3 px-3" : "py-3 px-3",
           )}
         >
