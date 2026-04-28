@@ -357,7 +357,7 @@ export default function Graph(props: Props) {
 
   return (
     <div ref={containerRef} className="graph-scroll relative flex-1 overflow-y-auto overflow-x-hidden" onClick={() => { setCtx(null); setChipCtx(null); }}>
-      <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-graph-bg px-3 py-2">
+      <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b bg-background px-3 py-2">
         {orderBranchesByTree(commits, names).map((b) => {
           const c = bCol(names, b);
           const act = b === activeBranch;
