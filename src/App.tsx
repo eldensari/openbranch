@@ -120,11 +120,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const scroll = () => endRef.current?.scrollIntoView({ behavior: "instant", block: "end" });
+    const end = endRef.current;
+    if (!end) return;
+    const scroll = () => end.scrollIntoView({ behavior: "instant", block: "end" });
     scroll();
     const raf = requestAnimationFrame(scroll);
-    const t = window.setTimeout(scroll, 200);
-    return () => { cancelAnimationFrame(raf); window.clearTimeout(t); };
+    const parent = end.parentElement;
+    let obs: ResizeObserver | null = null;
+    if (parent) {
+      obs = new ResizeObserver(scroll);
+      obs.observe(parent);
+    }
+    const stop = window.setTimeout(() => obs?.disconnect(), 1500);
+    return () => {
+      cancelAnimationFrame(raf);
+      obs?.disconnect();
+      window.clearTimeout(stop);
+    };
   }, [commits, headId, pending, streamingDraft?.response]);
 
   // Auto-send from starter cards (use setTimeout to ensure state is settled)

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { codeToHtml } from "shiki";
 import katex from "katex";
-import { Copy } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -142,7 +142,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
         )}
       >
         {copied ? (
-          <span className="px-0.5">Copied</span>
+          <Check className="size-3.5" aria-hidden />
         ) : (
           <Copy className="size-3.5" aria-hidden />
         )}
