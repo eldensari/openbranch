@@ -39,6 +39,79 @@ function activityNodeVid(ownerId: string, activityId: string): string {
   return "activity_" + ownerId + "_" + activityId;
 }
 
+function formatStepDuration(ms: number) {
+  const sec = Math.max(1, Math.round((ms || 0) / 1000));
+  if (sec < 60) return sec + "s";
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return rem ? min + "m " + rem + "s" : min + "m";
+}
+
+function graphRowDuration(row: any, now: number) {
+  if (!row) return 0;
+  if (row.durationMs) return row.durationMs;
+  if (row.startedAt && row.endedAt) return Math.max(0, row.endedAt - row.startedAt);
+  if (row.startedAt && (row.status === "running" || row.status === "pending")) return Math.max(0, now - row.startedAt);
+  return 0;
+}
+
+function graphRowLabel(row: any, now: number) {
+  const duration = graphRowDuration(row, now);
+  if (row.kind === "thinking") return "Thought for " + formatStepDuration(duration || 1000);
+  if (row.kind === "searching" && row.status === "done") return row.label || "Searched the web";
+  if (row.kind === "source") return row.label || "Collected sources";
+  if (row.kind === "done") return row.label || "Response ready";
+  if (row.kind === "error") return row.label || "Response failed";
+  return row.label || "Working";
+}
+
+function sourceCountForCommit(cm: any) {
+  const seen = new Set<string>();
+  const add = (c: any) => {
+    const key = c?.url || c?.title;
+    if (key) seen.add(key);
+  };
+  for (const c of cm?.citations || []) add(c);
+  for (const b of cm?.responseBlocks || []) {
+    for (const c of b?.citations || []) add(c);
+  }
+  return seen.size;
+}
+
+function graphStepRows(ownerId: string, activities: any[] = [], thinking?: any, sourceCount = 0, now = Date.now()) {
+  const rows: any[] = [];
+  if (thinking?.startedAt || thinking?.durationMs || thinking?.text) {
+    const startedAt = thinking.startedAt || (thinking.durationMs ? now - thinking.durationMs : now);
+    rows.push({
+      id: "thinking",
+      kind: "thinking",
+      label: "Thought",
+      status: thinking.finishedAt || thinking.durationMs ? "done" : "running",
+      startedAt,
+      endedAt: thinking.finishedAt,
+      durationMs: thinking.durationMs,
+    });
+  }
+  const hasSourceActivity = (activities || []).some((a) => a.kind === "source");
+  if (sourceCount > 0 && !hasSourceActivity) {
+    rows.push({
+      id: "sources",
+      kind: "source",
+      label: "Collected " + sourceCount + " " + (sourceCount === 1 ? "source" : "sources"),
+      status: "done",
+    });
+  }
+  return [...rows, ...(activities || [])].map((row, index) => {
+    const id = String(row.id || row.kind || "step") + (row.id ? "" : "-" + index);
+    return {
+      ...row,
+      id,
+      ownerId,
+      label: graphRowLabel(row, now),
+    };
+  });
+}
+
 function appendActivityNodes(
   vnodes: any[],
   ownerVid: string,
@@ -119,6 +192,8 @@ export default function Graph(props: Props) {
   const [chipCtx, setChipCtx] = useState<{ x: number; y: number; branch: string } | null>(null);
   const [renamingBranchName, setRenamingBranchName] = useState<string | null>(null);
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
+  const [expandedStepOwners, setExpandedStepOwners] = useState<Set<string>>(() => new Set());
+  const [now, setNow] = useState(Date.now());
   const hasParent = !!parentRef;
   const sorted = [...commits].sort((a: any, b: any) => a.ts - b.ts);
 
@@ -136,6 +211,47 @@ export default function Graph(props: Props) {
     return () => ro.disconnect();
   }, [panelW]);
 
+  const hasRunningDraftSteps =
+    !!streamingDraft &&
+    (
+      streamingDraft.activities?.some((a: any) => a.status === "running" || a.status === "pending") ||
+      (streamingDraft.thinking?.text && !streamingDraft.thinking?.finishedAt && !streamingDraft.thinking?.durationMs)
+    );
+
+  useEffect(() => {
+    if (!hasRunningDraftSteps) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [hasRunningDraftSteps]);
+
+  useEffect(() => {
+    if (!headId) return;
+    setExpandedStepOwners((prev) => {
+      if (prev.has(headId)) return prev;
+      const next = new Set(prev);
+      next.add(headId);
+      return next;
+    });
+  }, [headId]);
+
+  useEffect(() => {
+    if (!streamingDraft?.id) return;
+    setExpandedStepOwners((prev) => {
+      if (prev.has(streamingDraft.id)) return prev;
+      const next = new Set(prev);
+      next.add(streamingDraft.id);
+      return next;
+    });
+  }, [streamingDraft?.id]);
+
+  const toggleSteps = (ownerId: string) => {
+    setExpandedStepOwners((prev) => {
+      const next = new Set(prev);
+      next.has(ownerId) ? next.delete(ownerId) : next.add(ownerId);
+      return next;
+    });
+  };
+
   const vnodes: any[] = [];
   if (hasParent) {
     vnodes.push({ vid: "ghost", cid: null, type: "ghost", branch: "main", label: parentRef.promptSummary || "Parent conversation", parentVid: null, mergeVids: [] });
@@ -146,7 +262,16 @@ export default function Graph(props: Props) {
       parentVid: cm.parentId || (hasParent ? "ghost" : null),
       mergeVids: cm.mergeIds || [],
     });
-    appendActivityNodes(vnodes, cm.id, cm.id, cm.branch, cm.activities || [], cm.id);
+    if (expandedStepOwners.has(cm.id)) {
+      appendActivityNodes(
+        vnodes,
+        cm.id,
+        cm.id,
+        cm.branch,
+        graphStepRows(cm.id, cm.activities || [], cm.thinking, sourceCountForCommit(cm), now),
+        cm.id,
+      );
+    }
     if (childRefs) {
       childRefs.filter((cr: any) => cr.commitId === cm.id).forEach((cr: any) => {
         vnodes.push({ vid: "child_" + cr.convId, cid: null, type: "child", branch: cm.branch, label: cr.convTitle, parentVid: cm.id, mergeVids: [], childConvId: cr.convId });
@@ -169,7 +294,15 @@ export default function Graph(props: Props) {
       streamingDraft.id,
       streamingDraft.id,
       streamingDraft.branch || activeBranch,
-      streamingDraft.activities || [],
+      expandedStepOwners.has(streamingDraft.id)
+        ? graphStepRows(
+            streamingDraft.id,
+            streamingDraft.activities || [],
+            streamingDraft.thinking,
+            sourceCountForCommit(streamingDraft),
+            now,
+          )
+        : [],
       null,
     );
   }
@@ -215,8 +348,7 @@ export default function Graph(props: Props) {
   const pos: Record<string, { x: number; y: number }> = {};
   vnodes.forEach((n, i) => {
     const lane = n.type === "ghost" ? 0 : names.indexOf(n.branch);
-    const activityOffset = n.type === "activity" ? 10 : 0;
-    pos[n.vid] = { x: pL + lane * lW + activityOffset, y: 18 + i * rH };
+    pos[n.vid] = { x: pL + lane * lW, y: 18 + i * rH };
   });
 
   const mutedFg = "var(--muted-foreground)";
@@ -282,13 +414,13 @@ export default function Graph(props: Props) {
             if (!fr) return null;
             const isActivityEdge = n.type === "activity" || vnodeMap[pid]?.type === "activity";
             const isGhostEdge = pid === "ghost" || n.type === "child";
-            const col = isGhostEdge || isActivityEdge ? mutedFg : bCol(names, n.branch);
+            const col = isGhostEdge ? mutedFg : bCol(names, n.branch);
             const isMrg = n.mergeVids?.includes(pid);
-            const dash = isActivityEdge ? "2 3" : isMrg || isGhostEdge ? "4 3" : "none";
-            const baseOp = isActivityEdge ? 0.24 : isMrg || isGhostEdge ? 0.32 : 0.38;
+            const dash = isMrg || isGhostEdge ? "4 3" : "none";
+            const baseOp = isActivityEdge ? 0.2 : isMrg || isGhostEdge ? 0.32 : 0.38;
             const edgeOn = vidOnPath(n.vid) && vidOnPath(pid);
             const op = edgeOn ? baseOp : 0.12;
-            const sw = isActivityEdge || isMrg || isGhostEdge ? 1.5 : 2;
+            const sw = isActivityEdge ? 1.1 : isMrg || isGhostEdge ? 1.5 : 2;
             if (fr.x === to.x)
               return <line key={pid + "-" + n.vid} x1={fr.x} y1={fr.y + nR + 1} x2={to.x} y2={to.y - nR - 1} stroke={col} strokeWidth={sw} opacity={op} strokeDasharray={dash} style={{ transition: "opacity 0.2s" }} />;
             const mY = (fr.y + to.y) / 2;
@@ -343,14 +475,14 @@ export default function Graph(props: Props) {
                 <circle
                   cx={p.x}
                   cy={p.y}
-                  r={4}
+                  r={3.8}
                   fill={running ? bg : errored ? "var(--destructive)" : col}
                   stroke={errored ? "var(--destructive)" : col}
                   strokeWidth={1.5}
-                  strokeDasharray={running ? "2 2" : "none"}
-                  opacity={running ? 1 : 0.78}
+                  strokeDasharray={running ? "2 2" : undefined}
+                  opacity={0.9}
                 />
-                <text x={lX + 8} y={p.y + 4} fontSize={10.5} fill={errored ? "var(--destructive)" : mutedFg} style={{ fontFamily: "system-ui" }}>
+                <text x={lX} y={p.y + 4} fontSize={11} fill={errored ? "var(--destructive)" : mutedFg} style={{ fontFamily: "system-ui" }}>
                   {trunc(n.label || "Thought", maxChars)}
                 </text>
               </g>
@@ -360,12 +492,14 @@ export default function Graph(props: Props) {
           if (n.type === "draft") {
             const col = bCol(names, n.branch);
             return (
-              <g key={n.vid} style={{ cursor: "default" }} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-                <circle cx={p.x} cy={p.y} r={6} fill={bg} stroke={col} strokeWidth={2} strokeDasharray="3 2" />
+              <g
+                key={n.vid}
+                style={{ cursor: "pointer" }}
+                onClick={(e) => { e.stopPropagation(); setCtx(null); toggleSteps(n.vid); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              >
+                <circle cx={p.x} cy={p.y} r={6} fill={bg} stroke={col} strokeWidth={2.4} />
                 <text x={lX} y={p.y + 4} fontSize={11.5} fontWeight={600} fill={col} style={{ fontFamily: "system-ui" }}>
-                  Streaming response
-                </text>
-                <text x={lX} y={p.y + 17} fontSize={9.5} fill={mutedFg} style={{ fontFamily: "system-ui", pointerEvents: "none" }}>
                   {trunc(n.label, maxChars)}
                 </text>
               </g>
@@ -399,7 +533,10 @@ export default function Graph(props: Props) {
                 setCtx(null);
                 if (selectMode) { onSelectNode(n.cid); return; }
                 if (mergeMode) { onToggleSel(n.cid); return; }
-                if (cm) onCheckout(cm.id, cm.branch);
+                if (cm) {
+                  onCheckout(cm.id, cm.branch);
+                  toggleSteps(cm.id);
+                }
               }}
               onContextMenu={(e) => {
                 e.preventDefault();

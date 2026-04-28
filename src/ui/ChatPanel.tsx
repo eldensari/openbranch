@@ -30,6 +30,7 @@ import {
   Pencil,
   Folder,
   Trash2,
+  Tag as TagIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -128,29 +129,43 @@ export default function ChatPanel(props: Props) {
   const [panelGroupWidth, setPanelGroupWidth] = useState(0);
   const [renamingChat, setRenamingChat] = useState(false);
   const [movingChat, setMovingChat] = useState(false);
+  const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
+  const [tagPicker, setTagPicker] = useState<any>(null);
+  const [tagInput, setTagInput] = useState("");
+  const [chatMenuPoint, setChatMenuPoint] = useState<{ x: number; y: number } | null>(null);
   const [inlineEditId, setInlineEditId] = useState<string | null>(null);
-  const [openThoughtIds, setOpenThoughtIds] = useState<Set<string>>(() => new Set());
+  const [openWorkSummaryIds, setOpenWorkSummaryIds] = useState<Set<string>>(() => new Set());
+  const [highlightedActivityKey, setHighlightedActivityKey] = useState<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
 
   const thoughtKey = (ownerId: string, activityId: string) => ownerId + "::" + activityId;
   const thoughtElementId = (ownerId: string, activityId: string) =>
     "thought-" + thoughtKey(ownerId, activityId).replace(/[^a-zA-Z0-9_-]/g, "-");
-  const toggleThought = (ownerId: string, activityId: string) => {
-    const key = thoughtKey(ownerId, activityId);
-    setOpenThoughtIds((prev) => {
+  const toggleWorkSummary = (ownerId: string) => {
+    setOpenWorkSummaryIds((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      next.has(ownerId) ? next.delete(ownerId) : next.add(ownerId);
       return next;
     });
   };
-  const openThought = (ownerId: string, activityId: string) => {
+  const openActivityFromGraph = (ownerId: string, activityId: string) => {
     const key = thoughtKey(ownerId, activityId);
-    setOpenThoughtIds((prev) => new Set(prev).add(key));
+    setOpenWorkSummaryIds((prev) => new Set(prev).add(ownerId));
+    setHighlightedActivityKey(key);
+    if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = window.setTimeout(() => setHighlightedActivityKey(null), 2400);
     window.setTimeout(() => {
       document
         .getElementById(thoughtElementId(ownerId, activityId))
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 30);
   };
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
 
   const beginInlineEdit = (cm: any) => {
     setInlineEditId(cm.id);
@@ -243,6 +258,8 @@ export default function ChatPanel(props: Props) {
   };
 
   const hasContent = (input && input.trim().length > 0) || (attachments && attachments.length > 0);
+  const primaryActionLabel = branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : "Send";
+  const primaryActionDisabled = !hasContent || (mm && !sel.length);
 
   const attachmentChipRow = attachments && attachments.length > 0 && (
     <div className="flex flex-wrap gap-2 border-b border-border/50 px-3 pt-3 pb-3">
@@ -395,25 +412,29 @@ export default function ChatPanel(props: Props) {
           {thinking ? (
             <Button
               onClick={stop}
-              size="sm"
-              variant="destructive"
-              className="h-8 gap-1.5"
+              size="icon"
+              variant="ghost"
+              className="size-9 rounded-full bg-foreground text-background shadow-none hover:bg-foreground/90 hover:text-background"
               title="Stop generation"
+              aria-label="Stop generation"
             >
-              <Square className="size-3 fill-current" /> Stop
+              <Square className="size-3.5 fill-current" />
             </Button>
           ) : (
             <Button
               onClick={() => (mm && sel.length ? merge() : send())}
-              disabled={!hasContent || (mm && !sel.length)}
-              size="sm"
-              className="h-8 gap-1.5"
-            >
-              {branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : newFromRef ? "Send" : (
-                <>
-                  Send <ArrowUp className="size-3.5" />
-                </>
+              disabled={primaryActionDisabled}
+              size="icon"
+              className={cn(
+                "size-9 rounded-full shadow-none disabled:opacity-100",
+                primaryActionDisabled
+                  ? "bg-muted text-muted-foreground hover:bg-muted"
+                  : "bg-foreground text-background hover:bg-foreground/90",
               )}
+              title={primaryActionLabel}
+              aria-label={primaryActionLabel}
+            >
+              <ArrowUp className="size-4" />
             </Button>
           )}
         </div>
@@ -656,6 +677,7 @@ export default function ChatPanel(props: Props) {
                                 ? "border-l-[3px] border-[color:var(--branch-5)] bg-merge-bubble text-merge-foreground"
                                 : "bg-user-bubble text-user-foreground",
                             )}
+                            onContextMenu={(e) => setChatMenuPoint({ x: e.clientX, y: e.clientY })}
                           >
                             {isMrg && (
                               <div className="mb-1 text-[11px] font-semibold text-[color:var(--branch-5)]">MERGE</div>
@@ -664,14 +686,6 @@ export default function ChatPanel(props: Props) {
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="min-w-[12rem] rounded-2xl p-1">
-                          <ContextMenuItem onSelect={() => copyToClipboard(cm.prompt)} className="gap-3 py-2">
-                            <Copy className="size-4" />
-                            Copy
-                          </ContextMenuItem>
-                          <ContextMenuItem onSelect={() => beginInlineEdit(cm)} className="gap-3 py-2">
-                            <Pencil className="size-4" />
-                            Edit
-                          </ContextMenuItem>
                           <ContextMenuItem onSelect={() => startBranchFrom(cm.id)} className="gap-3 py-2">
                             <GitBranch className="size-4" />
                             Branch
@@ -679,6 +693,21 @@ export default function ChatPanel(props: Props) {
                           <ContextMenuItem onSelect={() => startNew(cm.id)} className="gap-3 py-2">
                             <Plus className="size-4" />
                             New
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => setRenamingNodeId(cm.id)} className="gap-3 py-2">
+                            <Pencil className="size-4" />
+                            Rename
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() => {
+                              const p = chatMenuPoint || { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+                              setTagInput("");
+                              setTagPicker({ cid: cm.id, x: p.x, y: p.y });
+                            }}
+                            className="gap-3 py-2"
+                          >
+                            <TagIcon className="size-4" />
+                            Tag
                           </ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem
@@ -731,12 +760,15 @@ export default function ChatPanel(props: Props) {
                   )}
                 </div>
                 <div className="self-start w-full flex flex-col gap-1">
-                  <ThinkingPanel thinking={cm.thinking} isStreaming={false} />
-                  <ThoughtStream
+                  <WorkSummary
                     ownerId={cm.id}
                     activities={cm.activities || []}
-                    openThoughtIds={openThoughtIds}
-                    onToggleThought={toggleThought}
+                    thinking={cm.thinking}
+                    sourceCount={cmSources.length}
+                    isStreaming={false}
+                    openSummaryIds={openWorkSummaryIds}
+                    highlightedActivityKey={highlightedActivityKey}
+                    onToggleSummary={toggleWorkSummary}
                     getThoughtKey={thoughtKey}
                     getThoughtElementId={thoughtElementId}
                   />
@@ -845,12 +877,15 @@ export default function ChatPanel(props: Props) {
           )}
           {streamingDraft && (
             <div className="self-start w-full flex flex-col gap-1">
-              <ThinkingPanel thinking={streamingDraft.thinking} isStreaming={true} />
-              <ThoughtStream
+              <WorkSummary
                 ownerId={streamingDraft.id}
                 activities={streamingDraft.activities || []}
-                openThoughtIds={openThoughtIds}
-                onToggleThought={toggleThought}
+                thinking={streamingDraft.thinking}
+                sourceCount={0}
+                isStreaming={true}
+                openSummaryIds={openWorkSummaryIds}
+                highlightedActivityKey={highlightedActivityKey}
+                onToggleSummary={toggleWorkSummary}
                 getThoughtKey={thoughtKey}
                 getThoughtElementId={thoughtElementId}
               />
@@ -999,6 +1034,79 @@ export default function ChatPanel(props: Props) {
         </div>
       )}
 
+      {tagPicker && (() => {
+        const cm = commits.find((c: any) => c.id === tagPicker.cid);
+        const current = new Set<string>(cm?.tags || []);
+        const allCommitTags = convs.flatMap((cv: any) => (cv.commits || []).flatMap((c: any) => c.tags || []));
+        const pool = Array.from(new Set([...(tagPool || []), ...allCommitTags, ...current])).sort();
+        const toggle = (tg: string) => {
+          const next = new Set(current);
+          next.has(tg) ? next.delete(tg) : next.add(tg);
+          editCommitTags?.(tagPicker.cid, [...next].join(","));
+        };
+        const addNew = () => {
+          const tg = tagInput.trim().replace(/^#+/, "");
+          if (!tg) return;
+          const next = new Set(current);
+          next.add(tg);
+          editCommitTags?.(tagPicker.cid, [...next].join(","));
+          setTagInput("");
+        };
+        return (
+          <div className="fixed inset-0 z-[99]" onClick={() => setTagPicker(null)}>
+            <div
+              className="fixed z-[100] min-w-[220px] max-w-[300px] rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg"
+              style={{ left: tagPicker.x, top: tagPicker.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-2 text-xs font-semibold text-muted-foreground">Tags</div>
+              {pool.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {pool.map((tg) => {
+                    const on = current.has(tg);
+                    return (
+                      <span
+                        key={tg}
+                        onClick={() => toggle(tg)}
+                        className={cn(
+                          "cursor-pointer rounded-full px-2.5 py-0.5 text-xs font-medium select-none",
+                          on ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-accent",
+                        )}
+                      >
+                        #{tg}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <input
+                autoFocus
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addNew();
+                  if (e.key === "Escape") setTagPicker(null);
+                }}
+                placeholder="+ new tag, Enter"
+                className="w-full rounded-md border bg-background px-2.5 py-1.5 text-base text-foreground outline-none focus:ring-2 focus:ring-ring/50"
+              />
+            </div>
+          </div>
+        );
+      })()}
+
+      <RenameDialog
+        open={!!renamingNodeId}
+        onOpenChange={(o) => { if (!o) setRenamingNodeId(null); }}
+        title="Rename commit"
+        initialValue={(() => {
+          if (!renamingNodeId) return "";
+          const cm = commits.find((c: any) => c.id === renamingNodeId);
+          return cm?.displayLabel || (cm?.prompt || "").replace(/\s+/g, " ").trim();
+        })()}
+        onSave={(v) => { if (renamingNodeId) editNodeLabel?.(renamingNodeId, v); setRenamingNodeId(null); }}
+      />
+
       <RenameDialog
         open={renamingChat}
         onOpenChange={setRenamingChat}
@@ -1103,7 +1211,7 @@ export default function ChatPanel(props: Props) {
         activeTags={activeTags}
         onRenameBranch={(b: string, newTitle: string) => renameBranch(convId, b, newTitle)}
         onDeleteBranch={(b: string) => requestDeleteBranch(b)}
-        onSelectActivity={openThought}
+        onSelectActivity={openActivityFromGraph}
       />
     </div>
   );
@@ -1204,6 +1312,162 @@ function formatDuration(ms: number) {
   return mins + "m" + (rest ? " " + rest + "s" : "");
 }
 
+function RunningDots() {
+  const [dots, setDots] = useState("");
+  useEffect(() => {
+    const interval = setInterval(() => setDots((d) => (d.length >= 3 ? "" : d + ".")), 400);
+    return () => clearInterval(interval);
+  }, []);
+  return (
+    <span aria-hidden className="inline-block w-[1ch] align-baseline">
+      {dots}
+    </span>
+  );
+}
+
+function draftStartedAt(ownerId: string) {
+  const match = /^draft:(\d+)$/.exec(ownerId || "");
+  return match ? Number(match[1]) : 0;
+}
+
+function workRows(activities: any[] = [], thinking?: any, sourceCount = 0) {
+  const rows: any[] = [];
+  if (thinking?.startedAt || thinking?.durationMs || thinking?.text) {
+    const startedAt = thinking.startedAt || Date.now();
+    rows.push({
+      id: "thinking",
+      kind: "thinking",
+      label: "Thought",
+      status: thinking.finishedAt || thinking.durationMs ? "done" : "running",
+      startedAt,
+      endedAt: thinking.finishedAt,
+      durationMs: thinking.durationMs,
+    });
+  }
+  const hasSourceActivity = (activities || []).some((a) => a.kind === "source");
+  if (sourceCount > 0 && !hasSourceActivity) {
+    rows.push({
+      id: "sources",
+      kind: "source",
+      label: "Collected " + sourceCount + " " + (sourceCount === 1 ? "source" : "sources"),
+      status: "done",
+    });
+  }
+  return [...rows, ...(activities || [])];
+}
+
+function rowDuration(row: any, now: number) {
+  if (!row) return 0;
+  if (row.durationMs) return row.durationMs;
+  if (row.startedAt && row.endedAt) return Math.max(0, row.endedAt - row.startedAt);
+  if (row.startedAt && (row.status === "running" || row.status === "pending")) return Math.max(0, now - row.startedAt);
+  return 0;
+}
+
+function rowLabel(row: any, now: number) {
+  const duration = rowDuration(row, now);
+  if (row.kind === "thinking") return "Thought for " + formatDuration(duration || 1000);
+  if (row.kind === "searching" && row.status === "done") return row.label || "Searched the web";
+  if (row.kind === "source") return row.label || "Collected sources";
+  if (row.kind === "done") return row.label || "Response ready";
+  if (row.kind === "error") return row.label || "Response failed";
+  return row.label || "Working";
+}
+
+function summaryDuration(ownerId: string, rows: any[], now: number, isStreaming?: boolean) {
+  const starts = rows.map((r) => r.startedAt).filter(Boolean);
+  const fallbackStart = draftStartedAt(ownerId);
+  const start = starts.length ? Math.min(...starts) : fallbackStart;
+  if (!start) return 0;
+
+  if (isStreaming) return Math.max(0, now - start);
+
+  const ends = rows
+    .map((r) => r.endedAt || (r.startedAt && r.durationMs ? r.startedAt + r.durationMs : 0))
+    .filter(Boolean);
+  const end = ends.length ? Math.max(...ends) : now;
+  return Math.max(0, end - start);
+}
+
+function WorkSummary({
+  ownerId,
+  activities,
+  thinking,
+  sourceCount,
+  isStreaming,
+  openSummaryIds,
+  highlightedActivityKey,
+  onToggleSummary,
+  getThoughtKey,
+  getThoughtElementId,
+}: {
+  ownerId: string;
+  activities: any[];
+  thinking?: any;
+  sourceCount?: number;
+  isStreaming?: boolean;
+  openSummaryIds: Set<string>;
+  highlightedActivityKey: string | null;
+  onToggleSummary: (ownerId: string) => void;
+  getThoughtKey: (ownerId: string, activityId: string) => string;
+  getThoughtElementId: (ownerId: string, activityId: string) => string;
+}) {
+  const [now, setNow] = useState(Date.now());
+  const rows = workRows(activities, thinking, sourceCount);
+  const hasRunning = isStreaming || rows.some((a) => a.status === "running" || a.status === "pending");
+
+  useEffect(() => {
+    if (!hasRunning) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [hasRunning]);
+
+  if (!rows.length && !isStreaming) return null;
+
+  const open = openSummaryIds.has(ownerId);
+  const duration = summaryDuration(ownerId, rows, now, isStreaming);
+  const summaryText = (isStreaming ? "Working for " : "Worked for ") + formatDuration(duration || 1000);
+
+  return (
+    <div className="my-2">
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={() => onToggleSummary(ownerId)}
+          className="inline-flex shrink-0 items-center gap-1 text-[16px] leading-relaxed text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <span>{summaryText}</span>
+          <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+        </button>
+      </div>
+      {open && rows.length > 0 && (
+        <div className="mt-1.5 flex flex-col gap-0.5 border-l border-border/70 pl-3">
+          {rows.map((row) => {
+            const key = getThoughtKey(ownerId, row.id);
+            const highlighted = highlightedActivityKey === key;
+            const isRunning = row.status === "running" || row.status === "pending";
+            const isError = row.status === "error";
+            return (
+              <div
+                key={row.id}
+                id={getThoughtElementId(ownerId, row.id)}
+                data-highlighted={highlighted ? "true" : undefined}
+                className={cn(
+                  "scroll-mt-24 rounded-md px-1.5 py-0.5 text-[16px] leading-relaxed transition-colors",
+                  isError ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                <span>{rowLabel(row, now)}</span>
+                {isRunning && row.kind !== "thinking" && <RunningDots />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function activityDisplayLabel(activity: any, now: number) {
   if (!activity) return "";
   if (activity.kind === "thinking" && activity.status === "running") {
@@ -1221,66 +1485,6 @@ function activityDetail(activity: any) {
   if (activity?.kind === "done") return "The response is ready and saved into this conversation.";
   if (activity?.kind === "error") return "This step ran into a problem before finishing.";
   return "I used this step to organize the response.";
-}
-
-function RunningDots() {
-  const [dots, setDots] = useState("");
-  useEffect(() => {
-    const interval = setInterval(() => setDots((d) => (d.length >= 3 ? "" : d + ".")), 400);
-    return () => clearInterval(interval);
-  }, []);
-  return (
-    <span aria-hidden className="inline-block w-[1ch] align-baseline">
-      {dots}
-    </span>
-  );
-}
-
-function ThinkingPanel({ thinking, isStreaming }: { thinking?: any; isStreaming?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [now, setNow] = useState(Date.now());
-  const live = isStreaming && !thinking?.finishedAt;
-  const hasText = !!thinking?.text;
-
-  useEffect(() => {
-    if (!live) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [live]);
-
-  if (!hasText && !live) return null;
-
-  const startedAt = thinking?.startedAt;
-  const elapsedMs = thinking?.durationMs
-    ?? (startedAt ? Math.max(0, now - startedAt) : 0);
-  const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
-
-  return (
-    <div className="my-1">
-      <button
-        type="button"
-        onClick={() => hasText && setOpen((o) => !o)}
-        disabled={!hasText}
-        className={cn(
-          "inline-flex items-center gap-1 text-[13px] italic text-muted-foreground/80",
-          hasText && "hover:text-foreground/70 cursor-pointer",
-          !hasText && "cursor-default",
-        )}
-      >
-        <ChevronRight className={cn("size-3.5 transition-transform", open && hasText && "rotate-90")} />
-        {live ? (
-          <span>Thinking<RunningDots /></span>
-        ) : (
-          <span>Thought for {elapsedSec}s</span>
-        )}
-      </button>
-      {open && hasText && (
-        <div className="mt-1 ml-1.5 pl-3 border-l border-border/50 text-[13px] italic leading-relaxed text-muted-foreground/70 whitespace-pre-wrap">
-          {thinking.text}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function ThoughtStream({
