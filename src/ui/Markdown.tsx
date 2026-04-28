@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { codeToHtml } from "shiki";
 import katex from "katex";
+import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -89,20 +90,31 @@ function makeCiteToken(idx: number): string {
   return CITE_OPEN + idx + CITE_CLOSE;
 }
 
+const shikiCache = new Map<string, string>();
+
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const cacheKey = (lang || "text") + ":::" + code;
   const [copied, setCopied] = useState(false);
-  const [html, setHtml] = useState<string | null>(null);
+  const [html, setHtml] = useState<string | null>(() => shikiCache.get(cacheKey) ?? null);
 
   useEffect(() => {
+    const cached = shikiCache.get(cacheKey);
+    if (cached) {
+      setHtml(cached);
+      return;
+    }
     let cancelled = false;
     codeToHtml(code, {
       lang: lang || "text",
       themes: { light: "github-light", dark: "github-dark" },
     })
-      .then((out) => { if (!cancelled) setHtml(out); })
+      .then((out) => {
+        shikiCache.set(cacheKey, out);
+        if (!cancelled) setHtml(out);
+      })
       .catch(() => { if (!cancelled) setHtml(null); });
     return () => { cancelled = true; };
-  }, [code, lang]);
+  }, [cacheKey, code, lang]);
 
   const doCopy = () => {
     try {
@@ -112,7 +124,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
     } catch {}
   };
   return (
-    <div className="relative my-3">
+    <div className="group/copy relative my-3">
       {lang && (
         <div className="absolute top-2 left-3 z-10 font-mono text-[10px] lowercase text-muted-foreground/80">
           {lang}
@@ -121,13 +133,19 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
       <button
         onClick={doCopy}
         title={copied ? "Copied" : "Copy"}
+        aria-label={copied ? "Copied" : "Copy code"}
         className={cn(
-          "absolute top-1.5 right-1.5 z-10 rounded-md border px-2 py-1 font-mono text-[10px] transition-colors",
-          "border-white/15 bg-black/20 text-white/70 hover:bg-black/40 hover:text-white",
-          copied && "text-[color:var(--branch-0)]",
+          "absolute top-2 right-2 z-10 inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-xs transition-all",
+          "text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
+          "opacity-0 group-hover/copy:opacity-100 focus-visible:opacity-100",
+          copied && "opacity-100 text-foreground hover:bg-transparent",
         )}
       >
-        {copied ? "✓" : "copy"}
+        {copied ? (
+          <Check className="size-3.5" aria-hidden />
+        ) : (
+          <Copy className="size-3.5" aria-hidden />
+        )}
       </button>
       {html ? (
         <div
@@ -141,7 +159,8 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
       ) : (
         <pre
           className={cn(
-            "overflow-x-auto rounded-lg bg-code-bg text-code-foreground font-mono text-[13px] leading-relaxed m-0",
+            "overflow-x-auto rounded-lg font-mono text-[13px] leading-relaxed m-0",
+            "bg-[#ffffff] text-[#24292e] dark:bg-[#24292e] dark:text-[#e1e4e8]",
             lang ? "pt-6 pb-3 px-3" : "py-3 px-3",
           )}
         >

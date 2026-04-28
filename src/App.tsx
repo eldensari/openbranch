@@ -119,7 +119,29 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commits, headId, pending, streamingDraft?.response]);
+  useEffect(() => {
+    const end = endRef.current;
+    if (!end) return;
+    let scrollEl: HTMLElement | null = end.parentElement;
+    while (scrollEl) {
+      const style = window.getComputedStyle(scrollEl);
+      if (style.overflowY === "auto" || style.overflowY === "scroll") break;
+      scrollEl = scrollEl.parentElement;
+    }
+    if (!scrollEl) return;
+    const scroll = () => { scrollEl!.scrollTop = scrollEl!.scrollHeight; };
+    scroll();
+    const raf = requestAnimationFrame(scroll);
+    const obs = new ResizeObserver(scroll);
+    obs.observe(scrollEl);
+    obs.observe(end.parentElement!);
+    const stop = window.setTimeout(() => obs.disconnect(), 1500);
+    return () => {
+      cancelAnimationFrame(raf);
+      obs.disconnect();
+      window.clearTimeout(stop);
+    };
+  }, [commits, headId, pending, streamingDraft?.response]);
 
   // Auto-send from starter cards (use setTimeout to ensure state is settled)
   useEffect(() => {

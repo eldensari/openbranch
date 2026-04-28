@@ -1130,8 +1130,8 @@ export default function ChatPanel(props: Props) {
     : names;
 
   const graphArea = graph && (commits.length > 0 || streamingDraft) && (
-    <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
-      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-graph-bg px-3">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-background px-3">
         <span className="text-base font-medium">Graph</span>
         <div className="flex items-center gap-1.5">
           {mm && (
@@ -1217,7 +1217,7 @@ export default function ChatPanel(props: Props) {
   );
 
   const sourcesArea = sourcesOpen && visibleSources.length > 0 && (
-    <div className="flex h-full flex-col overflow-hidden bg-graph-bg">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-base font-medium">Sources</span>
         <div className="flex items-center gap-1.5">
