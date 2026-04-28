@@ -610,7 +610,7 @@ export default function ChatPanel(props: Props) {
           "flex-1 overflow-y-auto",
           thread.length === 0 && !pending && !newFromRef
             ? "flex items-start pt-[30vh]"
-            : "pt-14",
+            : "pt-2",
         )}
       >
         {thread.length === 0 && !pending && !newFromRef ? (
@@ -906,7 +906,7 @@ export default function ChatPanel(props: Props) {
           <div ref={endRef} />
             </div>
             {!inlineEditId && (
-              <div className="sticky bottom-0 z-10 mt-auto bg-background px-6 pb-5 pt-8">
+              <div className="sticky bottom-0 z-10 mt-auto bg-background px-6 pb-5 pt-2">
                 <div className="mx-auto w-full max-w-[760px]">{composer}</div>
               </div>
             )}
