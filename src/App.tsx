@@ -122,19 +122,23 @@ export default function App() {
   useEffect(() => {
     const end = endRef.current;
     if (!end) return;
-    const scroll = () => end.scrollIntoView({ behavior: "instant", block: "end" });
+    let scrollEl: HTMLElement | null = end.parentElement;
+    while (scrollEl) {
+      const style = window.getComputedStyle(scrollEl);
+      if (style.overflowY === "auto" || style.overflowY === "scroll") break;
+      scrollEl = scrollEl.parentElement;
+    }
+    if (!scrollEl) return;
+    const scroll = () => { scrollEl!.scrollTop = scrollEl!.scrollHeight; };
     scroll();
     const raf = requestAnimationFrame(scroll);
-    const parent = end.parentElement;
-    let obs: ResizeObserver | null = null;
-    if (parent) {
-      obs = new ResizeObserver(scroll);
-      obs.observe(parent);
-    }
-    const stop = window.setTimeout(() => obs?.disconnect(), 1500);
+    const obs = new ResizeObserver(scroll);
+    obs.observe(scrollEl);
+    obs.observe(end.parentElement!);
+    const stop = window.setTimeout(() => obs.disconnect(), 1500);
     return () => {
       cancelAnimationFrame(raf);
-      obs?.disconnect();
+      obs.disconnect();
       window.clearTimeout(stop);
     };
   }, [commits, headId, pending, streamingDraft?.response]);
