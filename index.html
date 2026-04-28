@@ -3,23 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#252525" media="(prefers-color-scheme: dark)" />
-    <script>
-      try {
-        var v = localStorage.getItem("ob:theme");
-        var dark = v === "dark" || (!v && window.matchMedia("(prefers-color-scheme: dark)").matches);
-        if (dark) document.documentElement.classList.add("dark");
-      } catch (e) {}
-    </script>
-    <style>
-      html, body, #root { height: 100%; background: #ffffff; }
-      html { color-scheme: light; }
-      html.dark, html.dark body, html.dark #root { background: #252525; }
-      html.dark { color-scheme: dark; }
-      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
-    </style>
     <title>OpenBranch</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="description" content="Expand your chat. Merge your ideas. A nonlinear chat app for LLM conversations." />
@@ -28,6 +11,19 @@
     <meta property="og:url" content="https://openbranch.app" />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="/logo.png" />
+    <style>
+      html, body { height: 100%; }
+      html { background: oklch(1 0 0); color-scheme: light; }
+      html.dark { background: oklch(0.145 0 0); color-scheme: dark; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+    </style>
+    <script>
+      try {
+        var v = localStorage.getItem("ob:theme");
+        var dark = v === "dark" || (!v && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
