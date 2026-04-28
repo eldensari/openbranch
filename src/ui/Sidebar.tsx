@@ -680,7 +680,7 @@ export default function AppSidebar(props: Props) {
 
   return (
     <>
-      <SidebarHeader className="gap-0.5 px-2 pt-0 pb-1">
+      <SidebarHeader className="gap-1 px-2 pt-0 pb-2">
         <div className="flex h-12 items-center justify-between">
           <div className="flex items-center gap-2 px-2">
             <img src="/favicon.svg" alt="" className="size-5" />
@@ -700,6 +700,7 @@ export default function AppSidebar(props: Props) {
             <TooltipContent side="bottom">Collapse sidebar</TooltipContent>
           </Tooltip>
         </div>
+        <div className="h-1" />
         <Button
           variant="ghost"
           onClick={newConv}
@@ -718,9 +719,9 @@ export default function AppSidebar(props: Props) {
         </Button>
       </SidebarHeader>
 
-      <SidebarContent className="gap-0">
+      <SidebarContent>
         {!collapsed && (
-          <SidebarGroup className="px-2 py-1">
+          <SidebarGroup>
             <button
               type="button"
               onClick={() => setTagsOpen((v) => !v)}
@@ -807,7 +808,7 @@ export default function AppSidebar(props: Props) {
         )}
 
         {!collapsed && (
-          <SidebarGroup className="px-2 py-1">
+          <SidebarGroup>
             <button
               type="button"
               onClick={() => setProjectsOpen((v) => !v)}
@@ -839,7 +840,7 @@ export default function AppSidebar(props: Props) {
         )}
 
         {!collapsed && (
-          <SidebarGroup className="px-2 py-1">
+          <SidebarGroup>
             <button
               type="button"
               onClick={() => setChatsOpen((v) => !v)}
