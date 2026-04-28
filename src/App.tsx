@@ -119,7 +119,13 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [commits, headId, pending, streamingDraft?.response]);
+  useEffect(() => {
+    const scroll = () => endRef.current?.scrollIntoView({ behavior: "instant", block: "end" });
+    scroll();
+    const raf = requestAnimationFrame(scroll);
+    const t = window.setTimeout(scroll, 200);
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(t); };
+  }, [commits, headId, pending, streamingDraft?.response]);
 
   // Auto-send from starter cards (use setTimeout to ensure state is settled)
   useEffect(() => {
