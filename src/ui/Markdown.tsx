@@ -127,11 +127,11 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
           "absolute top-2 right-2 z-10 inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-xs transition-all",
           "text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
           "opacity-0 group-hover/copy:opacity-100 focus-visible:opacity-100",
-          copied && "opacity-100 text-[color:var(--branch-0)] hover:bg-transparent",
+          copied && "opacity-100 text-foreground hover:bg-transparent",
         )}
       >
         {copied ? (
-          <span className="px-0.5 font-medium">Copied!</span>
+          <span className="px-0.5">Copied</span>
         ) : (
           <Copy className="size-3.5" aria-hidden />
         )}
