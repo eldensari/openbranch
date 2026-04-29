@@ -35,7 +35,7 @@ Built by [Elden Sari](https://github.com/eldensari) — reach out at eldensari@p
 
 ## License
 
-MIT
+Apache-2.0
 
 ---
 
