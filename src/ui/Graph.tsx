@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { GitBranch, Plus, Tag as TagIcon, Trash2, Pencil } from "lucide-react";
 import { bCol } from "@/lib/branch-colors";
+import { roleColor } from "@/components/RoleBadge";
 import { bHead, shortModelName } from "@/graph/model";
 import { getBranchLabel } from "@/graph/branches";
 import { cn } from "@/lib/utils";
@@ -506,8 +507,8 @@ export default function Graph(props: Props) {
             );
           }
 
-          const col = bCol(names, n.branch);
           const cm = commits.find((c: any) => c.id === n.cid);
+          const col = roleColor(cm?.role) || bCol(names, n.branch);
           const cur = cm?.id === headId;
           const isMrg = (cm?.mergeIds || []).length > 0;
           const mergeSel = selected?.includes(n.cid);
@@ -525,6 +526,7 @@ export default function Graph(props: Props) {
           return (
             <g
               key={n.vid}
+              className={cm?.role ? "team-pop-svg" : undefined}
               style={{ cursor: "pointer", opacity: nodeOpacity, transition: "opacity 0.2s" }}
               onMouseEnter={() => setHoverNodeId(n.cid)}
               onMouseLeave={() => setHoverNodeId((p) => (p === n.cid ? null : p))}

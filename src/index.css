@@ -192,3 +192,24 @@ html.dark .shiki span {
   font-weight: var(--shiki-dark-font-weight) !important;
   text-decoration: var(--shiki-dark-text-decoration) !important;
 }
+
+
+/* -- AI Team Validation: fade/scale-in for new role-tagged nodes -- */
+@keyframes ob-team-pop {
+  0%   { opacity: 0; transform: translateY(4px) scale(0.92); }
+  60%  { opacity: 1; transform: translateY(0)   scale(1.02); }
+  100% { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.team-pop {
+  animation: ob-team-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes ob-team-pop-svg {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+.team-pop-svg {
+  animation: ob-team-pop-svg 0.5s ease-out both;
+  transform-box: fill-box;
+  transform-origin: center;
+}

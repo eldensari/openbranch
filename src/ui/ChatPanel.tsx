@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/context-menu";
 import RenameDialog from "./RenameDialog";
 import MoveToFolderDialog from "./MoveToFolderDialog";
+import RoleBadge from "@/components/RoleBadge";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -760,6 +761,11 @@ export default function ChatPanel(props: Props) {
                   )}
                 </div>
                 <div className="self-start w-full flex flex-col gap-1">
+                  {cm.role && (
+                    <div className="mb-1 team-pop">
+                      <RoleBadge role={cm.role} model={cm.model} />
+                    </div>
+                  )}
                   <WorkSummary
                     ownerId={cm.id}
                     activities={cm.activities || []}
