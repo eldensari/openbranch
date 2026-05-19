@@ -785,9 +785,59 @@ export default function App() {
       setStreamingDraft(null); streamingDraftRef.current = null;
       save(msg.slice(0, 40), ncExec, execCm.id, execBranch);
 
-      // Keep head on Master so the user's main-chat view shows Master, not the branch
+      // Phase 3: Master intermediate update — head back to main
       setHeadId(masterCm.id); setBranch(br);
-      // (S3 will add: Master intermediate message, Validator + Critic branches, then S4 final synthesis)
+      updateCommitResponse(masterCm.id, MASTER_DELEGATION_TEXT + "\n\n" + MASTER_INTERMEDIATE_TEXT);
+
+      // Phase 4: Validator branch (sequential — runs first)
+      const valBranch = nextBranchName(cRef.current);
+      const valContent = ROLE_SYSTEM_PROMPTS.validator + "\n\n" + buildValidatorPrompt(msg, execResp.text);
+      const valMsgs = [{ role: "user" as const, content: valContent }];
+      const valResp = await runLLMWithActivity(valMsgs, msg, undefined, useSearch, {
+        parentId: masterCm.id,
+        branchName: valBranch,
+      });
+      const valCm = mkCommit(masterCm.id, "Validator: verify Executor", valResp.text, valBranch, null, roles.validator.model, {
+        citations: valResp.citations,
+        responseBlocks: valResp.blocks,
+        activities: valResp.activities,
+        webSearch: useSearch,
+        thinking: valResp.thinking,
+      });
+      valCm.role = "validator";
+      valCm.provider = roles.validator.provider;
+      const ncVal = [...cRef.current, valCm];
+      setCommits(ncVal); cRef.current = ncVal;
+      setStreamingDraft(null); streamingDraftRef.current = null;
+      save(msg.slice(0, 40), ncVal, valCm.id, valBranch);
+      // Head back to Master after validator branch
+      setHeadId(masterCm.id); setBranch(br);
+
+      // Phase 5: Critic branch (sequential after Validator)
+      const critBranch = nextBranchName(cRef.current);
+      const critContent = ROLE_SYSTEM_PROMPTS.critic + "\n\n" + buildCriticPrompt(msg, execResp.text);
+      const critMsgs = [{ role: "user" as const, content: critContent }];
+      const critResp = await runLLMWithActivity(critMsgs, msg, undefined, useSearch, {
+        parentId: masterCm.id,
+        branchName: critBranch,
+      });
+      const critCm = mkCommit(masterCm.id, "Critic: weaknesses of Executor", critResp.text, critBranch, null, roles.critic.model, {
+        citations: critResp.citations,
+        responseBlocks: critResp.blocks,
+        activities: critResp.activities,
+        webSearch: useSearch,
+        thinking: critResp.thinking,
+      });
+      critCm.role = "critic";
+      critCm.provider = roles.critic.provider;
+      const ncCrit = [...cRef.current, critCm];
+      setCommits(ncCrit); cRef.current = ncCrit;
+      setStreamingDraft(null); streamingDraftRef.current = null;
+      save(msg.slice(0, 40), ncCrit, critCm.id, critBranch);
+
+      // Head back to Master
+      setHeadId(masterCm.id); setBranch(br);
+      // (S4 will replace the Master response with the final Korean synthesis report)
     } catch (e) {
       if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
       if ((e as any).code === "RATE_LIMIT") {
