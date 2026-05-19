@@ -1253,8 +1253,19 @@ export default function App() {
     });
   };
 
+  const tryDemo = () => {
+    const DEMO_PROMPT =
+      "Write a Python async function using the `asyncpg-listen` library to subscribe to a PostgreSQL channel and process notifications with automatic reconnection.";
+    // Reset state to ensure team flow runs cleanly
+    setEditId(null); setBranchFromId(null); setNewFromRef(null); setMm(false); setSel([]);
+    setAttachments([]);
+    sendRef.current = DEMO_PROMPT;
+    setInput(DEMO_PROMPT);
+  };
+
   const chatProps = {
     commits, headId, branch, names, parentRef, thread,
+    tryDemo,
     convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,
     attachments, setAttachments,

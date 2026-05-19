@@ -619,6 +619,24 @@ export default function ChatPanel(props: Props) {
             <div className="flex flex-col items-center gap-8">
               <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
               <div className="w-full max-w-[760px]">{composer}</div>
+              {props.tryDemo && (
+                <button
+                  type="button"
+                  onClick={() => props.tryDemo()}
+                  className="group rounded-2xl border border-dashed border-[color:var(--branch-1)]/60 bg-card px-5 py-4 text-left transition-all hover:border-[color:var(--branch-1)] hover:shadow-md max-w-[760px] w-full"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-semibold tracking-wide text-[color:var(--branch-1)]">▶ TRY THE DEMO</span>
+                    <span className="text-[10px] text-muted-foreground">Multi-agent hallucination catch</span>
+                  </div>
+                  <div className="text-sm text-foreground/90 leading-relaxed">
+                    “Write a Python async function using the <code className="font-mono text-[12px] bg-[color:var(--inline-code)] px-1 rounded">asyncpg-listen</code> library to subscribe to a PostgreSQL channel and process notifications with automatic reconnection.”
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-muted-foreground">
+                    👀 Watch the team catch the phantom library (the package doesn't exist on PyPI).
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         ) : (
