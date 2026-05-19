@@ -1,5 +1,7 @@
 export type CommitId = string;
 
+export type AgentRole = "master" | "executor" | "validator" | "critic";
+
 export type Attachment = {
   type: "image" | "pdf";
   mediaType: string;
@@ -117,6 +119,9 @@ export type Commit = {
   activities?: CommitActivity[];
   events?: CommitEvent[];
   webSearch?: boolean;
+  role?: AgentRole;
+  provider?: string;
+  verdict?: string;
 };
 
 export type Conversation = {
