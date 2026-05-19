@@ -39,9 +39,9 @@ import {
 import {
   saveSessionToNeo4j,
   neo4jConfigured,
-  neo4jBrowserUrl,
   type AgentRunRecord,
 } from "./lib/neo4j";
+import Neo4jBadge from "./components/Neo4jBadge";
 
 /* ═══════ MAIN ═══════ */
 export default function App() {
@@ -1455,6 +1455,12 @@ export default function App() {
           })()}
         </AlertDialogContent>
       </AlertDialog>
+      <Neo4jBadge
+        status={neo4jStatus}
+        onConfigChange={() =>
+          setNeo4jStatus({ state: neo4jConfigured() ? "idle" : "disabled" })
+        }
+      />
     </SidebarProvider>
   );
 }
