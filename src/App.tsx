@@ -27,6 +27,15 @@ import {
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
 import type { CommitActivity } from "./types";
+import {
+  assignRoles,
+  ROLE_SYSTEM_PROMPTS,
+  MASTER_DELEGATION_TEXT,
+  MASTER_INTERMEDIATE_TEXT,
+  buildValidatorPrompt,
+  buildCriticPrompt,
+  buildSynthesisPrompt,
+} from "./lib/orchestrateTeam";
 
 /* ═══════ MAIN ═══════ */
 export default function App() {
@@ -727,6 +736,71 @@ export default function App() {
       applyCommitResult(nc, cm.id);
     } finally { abortRef.current = null; setThinking(false); }
   };
+
+  const updateCommitResponse = (cid, response) => {
+    setCommits(prev => {
+      const next = prev.map(c => c.id === cid ? { ...c, response } : c);
+      cRef.current = next;
+      return next;
+    });
+  };
+
+  const sendTeam = async (pid, br, msg, atts, useSearch) => {
+    setPending(msg); setThinking(true);
+    const ac = new AbortController();
+    abortRef.current = ac;
+    try {
+      const roles = assignRoles(apiKey, [], currentModel);
+
+      // Phase 1: Master delegation commit on main thread
+      const masterCm = mkCommit(pid, msg, MASTER_DELEGATION_TEXT, br, null, roles.master.model, {
+        attachments: atts,
+      });
+      masterCm.role = "master";
+      masterCm.provider = roles.master.provider;
+      const ncMaster = [...cRef.current, masterCm];
+      setCommits(ncMaster); cRef.current = ncMaster; setHeadId(masterCm.id);
+      save(msg.slice(0, 40), ncMaster, masterCm.id, br);
+
+      // Phase 2: Spawn Executor branch
+      const execBranch = nextBranchName(cRef.current);
+      const execContent = ROLE_SYSTEM_PROMPTS.executor + "\n\nTask from user:\n" + msg;
+      const execMsgs = [{ role: "user" as const, content: execContent, attachments: atts }];
+      const execResp = await runLLMWithActivity(execMsgs, msg, atts, useSearch, {
+        parentId: masterCm.id,
+        branchName: execBranch,
+      });
+      const execCm = mkCommit(masterCm.id, "Executor task: " + msg.slice(0, 60), execResp.text, execBranch, null, roles.executor.model, {
+        attachments: atts,
+        citations: execResp.citations,
+        responseBlocks: execResp.blocks,
+        activities: execResp.activities,
+        webSearch: useSearch,
+        thinking: execResp.thinking,
+      });
+      execCm.role = "executor";
+      execCm.provider = roles.executor.provider;
+      const ncExec = [...cRef.current, execCm];
+      setCommits(ncExec); cRef.current = ncExec;
+      setStreamingDraft(null); streamingDraftRef.current = null;
+      save(msg.slice(0, 40), ncExec, execCm.id, execBranch);
+
+      // Keep head on Master so the user's main-chat view shows Master, not the branch
+      setHeadId(masterCm.id); setBranch(br);
+      // (S3 will add: Master intermediate message, Validator + Critic branches, then S4 final synthesis)
+    } catch (e) {
+      if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
+      if ((e as any).code === "RATE_LIMIT") {
+        setRateLimited(true); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; setThinking(false); return;
+      }
+      const errCm = mkCommit(pid, msg, "Team error: " + (e as Error).message, br, null, null, { attachments: atts, activities: (e as any).activities });
+      errCm.role = "master";
+      const nc = [...cRef.current, errCm];
+      setCommits(nc); cRef.current = nc; setHeadId(errCm.id);
+    } finally {
+      abortRef.current = null; setPending(null); setThinking(false);
+    }
+  };
   const send = async (forkBranch = false) => {
     if ((!input.trim() && !attachments.length) || thinking) return;
     const msg = input.trim();
@@ -744,6 +818,7 @@ export default function App() {
     setInput("");
     setAttachments([]);
     let pid = headId, br = branch;
+    const isTeamRun = !editId && !branchFromId && !forkBranch && !newFromRef;
 
     // Auto-show graph on first message
     if (!graph && commits.length === 0) setGraph(true);
@@ -775,7 +850,11 @@ export default function App() {
       setBranch(br);
     }
 
-    await sendNormal(pid, br, msg, atts, useSearch);
+    if (isTeamRun) {
+      await sendTeam(pid, br, msg, atts, useSearch);
+    } else {
+      await sendNormal(pid, br, msg, atts, useSearch);
+    }
   };
 
   // ─── HANDLERS ───
