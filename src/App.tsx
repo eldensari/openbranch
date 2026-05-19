@@ -36,6 +36,12 @@ import {
   buildCriticPrompt,
   buildSynthesisPrompt,
 } from "./lib/orchestrateTeam";
+import {
+  saveSessionToNeo4j,
+  neo4jConfigured,
+  neo4jBrowserUrl,
+  type AgentRunRecord,
+} from "./lib/neo4j";
 
 /* ═══════ MAIN ═══════ */
 export default function App() {
@@ -99,6 +105,11 @@ export default function App() {
   const [openSidebarItems, setOpenSidebarItems] = useState(() => new Set());
   const [closedSidebarItems, setClosedSidebarItems] = useState(() => new Set());
   const [renameVal, setRenameVal] = useState("");
+  const [neo4jStatus, setNeo4jStatus] = useState<{
+    state: "idle" | "saving" | "saved" | "failed" | "disabled";
+    error?: string;
+    lastSessionId?: string;
+  }>(() => ({ state: neo4jConfigured() ? "idle" : "disabled" }));
   const dragging = useRef(false);
   const endRef = useRef(null);
   const inputRef = useRef(null);
@@ -749,10 +760,13 @@ export default function App() {
     setPending(msg); setThinking(true);
     const ac = new AbortController();
     abortRef.current = ac;
+    const sessionStartedAt = Date.now();
+    const runRecords: AgentRunRecord[] = [];
     try {
       const roles = assignRoles(apiKey, [], currentModel);
 
       // Phase 1: Master delegation commit on main thread
+      const masterStartedAt = Date.now();
       const masterCm = mkCommit(pid, msg, MASTER_DELEGATION_TEXT, br, null, roles.master.model, {
         attachments: atts,
       });
@@ -763,6 +777,7 @@ export default function App() {
       save(msg.slice(0, 40), ncMaster, masterCm.id, br);
 
       // Phase 2: Spawn Executor branch
+      const execStartedAt = Date.now();
       const execBranch = nextBranchName(cRef.current);
       const execContent = ROLE_SYSTEM_PROMPTS.executor + "\n\nTask from user:\n" + msg;
       const execMsgs = [{ role: "user" as const, content: execContent, attachments: atts }];
@@ -770,6 +785,7 @@ export default function App() {
         parentId: masterCm.id,
         branchName: execBranch,
       });
+      const execCompletedAt = Date.now();
       const execCm = mkCommit(masterCm.id, "Executor task: " + msg.slice(0, 60), execResp.text, execBranch, null, roles.executor.model, {
         attachments: atts,
         citations: execResp.citations,
@@ -790,6 +806,7 @@ export default function App() {
       updateCommitResponse(masterCm.id, MASTER_DELEGATION_TEXT + "\n\n" + MASTER_INTERMEDIATE_TEXT);
 
       // Phase 4: Validator branch (sequential — runs first)
+      const valStartedAt = Date.now();
       const valBranch = nextBranchName(cRef.current);
       const valContent = ROLE_SYSTEM_PROMPTS.validator + "\n\n" + buildValidatorPrompt(msg, execResp.text);
       const valMsgs = [{ role: "user" as const, content: valContent }];
@@ -797,6 +814,7 @@ export default function App() {
         parentId: masterCm.id,
         branchName: valBranch,
       });
+      const valCompletedAt = Date.now();
       const valCm = mkCommit(masterCm.id, "Validator: verify Executor", valResp.text, valBranch, null, roles.validator.model, {
         citations: valResp.citations,
         responseBlocks: valResp.blocks,
@@ -814,6 +832,7 @@ export default function App() {
       setHeadId(masterCm.id); setBranch(br);
 
       // Phase 5: Critic branch (sequential after Validator)
+      const critStartedAt = Date.now();
       const critBranch = nextBranchName(cRef.current);
       const critContent = ROLE_SYSTEM_PROMPTS.critic + "\n\n" + buildCriticPrompt(msg, execResp.text);
       const critMsgs = [{ role: "user" as const, content: critContent }];
@@ -821,6 +840,7 @@ export default function App() {
         parentId: masterCm.id,
         branchName: critBranch,
       });
+      const critCompletedAt = Date.now();
       const critCm = mkCommit(masterCm.id, "Critic: weaknesses of Executor", critResp.text, critBranch, null, roles.critic.model, {
         citations: critResp.citations,
         responseBlocks: critResp.blocks,
@@ -877,6 +897,88 @@ export default function App() {
       }
       // Persist final master commit content
       save(msg.slice(0, 40), cRef.current, masterCm.id, br);
+
+      const masterCompletedAt = Date.now();
+      const sessionCompletedAt = masterCompletedAt;
+      const finalMasterResponse = prefix + (synthText || "");
+
+      // Heuristic final verdict for the session
+      const detect = (t: string, ...words: string[]) =>
+        t && words.some((w) => t.toUpperCase().includes(w));
+      const finalVerdict: "approved" | "rejected" | "warning" =
+        detect(critResp.text, "REJECT") || detect(valResp.text, "UNVERIFIED")
+          ? "rejected"
+          : detect(critResp.text, "WARN") || detect(valResp.text, "PARTIAL")
+            ? "warning"
+            : "approved";
+
+      runRecords.push({
+        id: masterCm.id,
+        role: "master",
+        provider: roles.master.provider,
+        model: roles.master.model,
+        startedAt: masterStartedAt,
+        completedAt: masterCompletedAt,
+        durationMs: masterCompletedAt - masterStartedAt,
+        content: finalMasterResponse,
+        verdict: null,
+      });
+      runRecords.push({
+        id: execCm.id,
+        role: "executor",
+        provider: roles.executor.provider,
+        model: roles.executor.model,
+        startedAt: execStartedAt,
+        completedAt: execCompletedAt,
+        durationMs: execCompletedAt - execStartedAt,
+        content: execResp.text,
+        verdict: null,
+      });
+      const valVerdict = /^\s*(VERIFIED|UNVERIFIED|PARTIAL)/i.exec(valResp.text || "")?.[1] || null;
+      runRecords.push({
+        id: valCm.id,
+        role: "validator",
+        provider: roles.validator.provider,
+        model: roles.validator.model,
+        startedAt: valStartedAt,
+        completedAt: valCompletedAt,
+        durationMs: valCompletedAt - valStartedAt,
+        content: valResp.text,
+        verdict: valVerdict ? valVerdict.toUpperCase() : null,
+      });
+      const critVerdict = /^\s*(APPROVE|REJECT|WARN)/i.exec(critResp.text || "")?.[1] || null;
+      runRecords.push({
+        id: critCm.id,
+        role: "critic",
+        provider: roles.critic.provider,
+        model: roles.critic.model,
+        startedAt: critStartedAt,
+        completedAt: critCompletedAt,
+        durationMs: critCompletedAt - critStartedAt,
+        content: critResp.text,
+        verdict: critVerdict ? critVerdict.toUpperCase() : null,
+      });
+
+      // Fire-and-forget Neo4j save — never block the demo
+      if (neo4jConfigured()) {
+        setNeo4jStatus({ state: "saving" });
+        const sessionId = "session_" + masterCm.id;
+        saveSessionToNeo4j({
+          id: sessionId,
+          user_prompt: msg,
+          started_at: sessionStartedAt,
+          completed_at: sessionCompletedAt,
+          total_duration_ms: sessionCompletedAt - sessionStartedAt,
+          final_verdict: finalVerdict,
+          runs: runRecords,
+        }).then((res) => {
+          if (res.ok) {
+            setNeo4jStatus({ state: "saved", lastSessionId: sessionId });
+          } else {
+            setNeo4jStatus({ state: "failed", error: res.error });
+          }
+        });
+      }
     } catch (e) {
       if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
       if ((e as any).code === "RATE_LIMIT") {
