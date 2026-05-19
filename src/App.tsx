@@ -837,7 +837,46 @@ export default function App() {
 
       // Head back to Master
       setHeadId(masterCm.id); setBranch(br);
-      // (S4 will replace the Master response with the final Korean synthesis report)
+
+      // Phase 6: Final Master synthesis — streams INTO the Master commit's response
+      const synthPrompt = buildSynthesisPrompt({
+        userQuestion: msg,
+        executorAnswer: execResp.text,
+        executorModel: roles.executor.model,
+        validatorAnswer: valResp.text,
+        validatorModel: roles.validator.model,
+        criticAnswer: critResp.text,
+        criticModel: roles.critic.model,
+      });
+      const prefix = MASTER_DELEGATION_TEXT + "\n\n" + MASTER_INTERMEDIATE_TEXT + "\n\n";
+      updateCommitResponse(masterCm.id, prefix);
+      let synthText = "";
+      try {
+        const synthResp = await callLLMStream(
+          apiKey,
+          [{ role: "user", content: synthPrompt }],
+          { model: roles.master.model || currentModel, signal: abortRef.current?.signal },
+          {
+            onText: (delta) => {
+              synthText += delta;
+              updateCommitResponse(masterCm.id, prefix + synthText);
+            },
+          },
+        );
+        if (!synthText && synthResp.text) {
+          synthText = synthResp.text;
+          updateCommitResponse(masterCm.id, prefix + synthText);
+        }
+      } catch (synthErr) {
+        if (!isAbortError(synthErr)) {
+          updateCommitResponse(
+            masterCm.id,
+            prefix + "(Master synthesis 실패: " + (synthErr as Error).message + ")",
+          );
+        }
+      }
+      // Persist final master commit content
+      save(msg.slice(0, 40), cRef.current, masterCm.id, br);
     } catch (e) {
       if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
       if ((e as any).code === "RATE_LIMIT") {
