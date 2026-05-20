@@ -161,15 +161,25 @@ export async function saveSessionToNeo4j(
   try {
     const driver = getDriver(cfg);
     sess = driver.session();
+    // Neo4j cypher datetime({epochMillis: ...}) requires Long/Integer, not Double.
+    // JS numbers serialize to Float by default — wrap every epoch-millis value
+    // with neo4j.int() so the driver sends them as Integer.
+    const toInt = (n: number) => neo4j.int(Math.trunc(n));
+    const runsForCypher = session.runs.map((r) => ({
+      ...r,
+      startedAt: toInt(r.startedAt),
+      completedAt: toInt(r.completedAt),
+      durationMs: toInt(r.durationMs),
+    }));
     await sess.executeWrite((tx) =>
       tx.run(SAVE_QUERY, {
         session_id: session.id,
         user_prompt: session.user_prompt,
-        started_at: session.started_at,
-        completed_at: session.completed_at,
-        total_duration_ms: session.total_duration_ms,
+        started_at: toInt(session.started_at),
+        completed_at: toInt(session.completed_at),
+        total_duration_ms: toInt(session.total_duration_ms),
         final_verdict: session.final_verdict,
-        runs: session.runs,
+        runs: runsForCypher,
       }),
     );
     return { ok: true };
