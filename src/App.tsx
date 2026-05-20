@@ -1502,7 +1502,101 @@ export default function App() {
       });
       setHeadId(masterCm.id);
 
-      // (S5 chains Validator R2 + Critic R2; S6 Master R2 synthesis)
+      // ── Phase 3: Validator R2 (parent = Executor Task) ──
+      const valR2StartedAt = Date.now();
+      const valR2Branch = nextBranchName(cRef.current);
+      const valR2Prompt = buildValidatorR2Prompt(userMsg, taskResp.text, r1Validator.response);
+      const valR2Resp = await runLLMWithActivity(
+        [{ role: "user" as const, content: valR2Prompt }],
+        "Validator R2",
+        undefined,
+        false,
+        { parentId: taskCm.id, branchName: valR2Branch },
+      );
+      const valR2CompletedAt = Date.now();
+      const valR2Cm = mkCommit(
+        taskCm.id,
+        "Validator R2: verify fix",
+        valR2Resp.text,
+        valR2Branch,
+        null,
+        roles.validator.model,
+        {
+          activities: valR2Resp.activities,
+          thinking: valR2Resp.thinking,
+        },
+      );
+      valR2Cm.role = "validator";
+      valR2Cm.provider = roles.validator.provider;
+      valR2Cm.iteration = 2;
+      valR2Cm.refinesId = r1Validator.id;
+      const ncValR2 = [...cRef.current, valR2Cm];
+      setCommits(ncValR2); cRef.current = ncValR2;
+      setStreamingDraft(null); streamingDraftRef.current = null;
+      save(masterCm.prompt?.slice(0, 40) || null, ncValR2, valR2Cm.id, valR2Branch);
+
+      const valR2Verdict = /^\s*(VERIFIED|UNVERIFIED|PARTIAL)/i.exec(valR2Resp.text || "")?.[1] || null;
+      r2RunRecords.push({
+        id: valR2Cm.id,
+        role: "validator",
+        provider: roles.validator.provider,
+        model: roles.validator.model,
+        startedAt: valR2StartedAt,
+        completedAt: valR2CompletedAt,
+        durationMs: valR2CompletedAt - valR2StartedAt,
+        content: valR2Resp.text,
+        verdict: valR2Verdict ? valR2Verdict.toUpperCase() : null,
+      });
+      setHeadId(masterCm.id);
+
+      // ── Phase 4: Critic R2 (parent = Executor Task) ──
+      const critR2StartedAt = Date.now();
+      const critR2Branch = nextBranchName(cRef.current);
+      const critR2Prompt = buildCriticR2Prompt(userMsg, taskResp.text, r1Critic.response);
+      const critR2Resp = await runLLMWithActivity(
+        [{ role: "user" as const, content: critR2Prompt }],
+        "Critic R2",
+        undefined,
+        false,
+        { parentId: taskCm.id, branchName: critR2Branch },
+      );
+      const critR2CompletedAt = Date.now();
+      const critR2Cm = mkCommit(
+        taskCm.id,
+        "Critic R2: weaknesses of fix",
+        critR2Resp.text,
+        critR2Branch,
+        null,
+        roles.critic.model,
+        {
+          activities: critR2Resp.activities,
+          thinking: critR2Resp.thinking,
+        },
+      );
+      critR2Cm.role = "critic";
+      critR2Cm.provider = roles.critic.provider;
+      critR2Cm.iteration = 2;
+      critR2Cm.refinesId = r1Critic.id;
+      const ncCritR2 = [...cRef.current, critR2Cm];
+      setCommits(ncCritR2); cRef.current = ncCritR2;
+      setStreamingDraft(null); streamingDraftRef.current = null;
+      save(masterCm.prompt?.slice(0, 40) || null, ncCritR2, critR2Cm.id, critR2Branch);
+
+      const critR2Verdict = /^\s*(APPROVE|REJECT|WARN)/i.exec(critR2Resp.text || "")?.[1] || null;
+      r2RunRecords.push({
+        id: critR2Cm.id,
+        role: "critic",
+        provider: roles.critic.provider,
+        model: roles.critic.model,
+        startedAt: critR2StartedAt,
+        completedAt: critR2CompletedAt,
+        durationMs: critR2CompletedAt - critR2StartedAt,
+        content: critR2Resp.text,
+        verdict: critR2Verdict ? critR2Verdict.toUpperCase() : null,
+      });
+      setHeadId(masterCm.id);
+
+      // (S6 will append a Master R2 synthesis commit on main with the Korean comparison)
       void r2StartedAt;
     } catch (e) {
       if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
