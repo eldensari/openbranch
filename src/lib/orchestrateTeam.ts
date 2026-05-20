@@ -130,6 +130,124 @@ export type SynthesisInput = {
   criticModel: string;
 };
 
+export const EXECUTOR_REVIEW_SYSTEM =
+  "You are the Executor on an AI validation team. You just produced an answer that the team flagged. " +
+  "Read the team's feedback carefully and PLAN a fix in 3-5 concise bullet points. " +
+  "Do NOT rewrite code yet. Just the plan. End with a one-line decision: 'Plan: <strategy summary>'.";
+
+export const EXECUTOR_TASK_SYSTEM =
+  "You are the Executor on an AI validation team. You have a verified fix plan from your prior review step. " +
+  "Now produce the CORRECTED version of the answer to the original user request. " +
+  "Follow the plan strictly. If the plan said to use a different API/library, USE THAT — do not regress to the original mistake.";
+
+export const VALIDATOR_R2_SYSTEM =
+  "You are the Validator on an AI validation team, ROUND 2. You will be shown the Executor's NEW (corrected) output, " +
+  "alongside the specific concern YOU raised in round 1. Your job: verify whether your round-1 concern is fully addressed. " +
+  "Output exactly one line of verdict at the top: VERIFIED, UNVERIFIED, or PARTIAL — followed by a short comparison (R1→R2).";
+
+export const CRITIC_R2_SYSTEM =
+  "You are the Critic on an AI validation team, ROUND 2. You will be shown the Executor's NEW (corrected) output, " +
+  "alongside the specific weakness YOU raised in round 1. Your job: verify whether your round-1 critique is addressed. " +
+  "Output exactly one line of verdict at the top: APPROVE, REJECT, or WARN — followed by a short comparison (R1→R2).";
+
+export function buildExecutorReviewPrompt(
+  executorAnswer: string,
+  validatorVerdict: string,
+  criticVerdict: string,
+): string {
+  return (
+    EXECUTOR_REVIEW_SYSTEM +
+    "\n\n--- Your round-1 answer ---\n" +
+    executorAnswer +
+    "\n\n--- Team feedback ---\n" +
+    "Validator: " +
+    validatorVerdict +
+    "\n\nCritic: " +
+    criticVerdict +
+    "\n\n--- Now: write your fix plan in 3-5 bullets. No code yet. ---"
+  );
+}
+
+export function buildExecutorTaskPrompt(userPrompt: string, reviewPlan: string): string {
+  return (
+    EXECUTOR_TASK_SYSTEM +
+    "\n\n--- Original user request ---\n" +
+    userPrompt +
+    "\n\n--- Your verified fix plan ---\n" +
+    reviewPlan +
+    "\n\n--- Now: produce the CORRECTED version. Follow the plan strictly. ---"
+  );
+}
+
+export function buildValidatorR2Prompt(
+  userPrompt: string,
+  newOutput: string,
+  r1ValidatorVerdict: string,
+): string {
+  return (
+    VALIDATOR_R2_SYSTEM +
+    "\n\n--- Original user request ---\n" +
+    userPrompt +
+    "\n\n--- Executor's NEW (round-2) output ---\n" +
+    newOutput +
+    "\n\n--- Your round-1 concern (what you flagged) ---\n" +
+    r1ValidatorVerdict +
+    "\n\n--- Verdict line + R1→R2 comparison ---"
+  );
+}
+
+export function buildCriticR2Prompt(
+  userPrompt: string,
+  newOutput: string,
+  r1CriticVerdict: string,
+): string {
+  return (
+    CRITIC_R2_SYSTEM +
+    "\n\n--- Original user request ---\n" +
+    userPrompt +
+    "\n\n--- Executor's NEW (round-2) output ---\n" +
+    newOutput +
+    "\n\n--- Your round-1 critique (what you flagged) ---\n" +
+    r1CriticVerdict +
+    "\n\n--- Verdict line + R1→R2 comparison ---"
+  );
+}
+
+export type SynthesisR2Input = {
+  userQuestion: string;
+  r1ExecutorAnswer: string;
+  r2ExecutorAnswer: string;
+  r1ValidatorVerdict: string;
+  r2ValidatorVerdict: string;
+  r1CriticVerdict: string;
+  r2CriticVerdict: string;
+  executorModel: string;
+  validatorModel: string;
+  criticModel: string;
+};
+
+export function buildSynthesisR2Prompt(s: SynthesisR2Input): string {
+  return (
+    "You are the Master coordinator. The team just ran ROUND 2 to fix the issues from round 1. " +
+    "Write a SHORT round-2 report in plain Korean comparing R1 vs R2. The user did NOT see the sub-agent branches.\n\n" +
+    "User's original question:\n" + s.userQuestion +
+    "\n\n--- Round 1 Executor (" + s.executorModel + ") ---\n" + s.r1ExecutorAnswer +
+    "\n\n--- Round 1 Validator (" + s.validatorModel + ") ---\n" + s.r1ValidatorVerdict +
+    "\n\n--- Round 1 Critic (" + s.criticModel + ") ---\n" + s.r1CriticVerdict +
+    "\n\n--- Round 2 Executor (" + s.executorModel + ", corrected) ---\n" + s.r2ExecutorAnswer +
+    "\n\n--- Round 2 Validator (" + s.validatorModel + ") ---\n" + s.r2ValidatorVerdict +
+    "\n\n--- Round 2 Critic (" + s.criticModel + ") ---\n" + s.r2CriticVerdict +
+    "\n\n--- Write the round-2 report in Korean using EXACTLY this format ---\n\n" +
+    "✅ 2차 검증 완료\n" +
+    "- Round 1 → Round 2 비교: <무엇이 수정됨, 한 줄>\n" +
+    "- Validator R2: <verdict + 한 줄 R1→R2 비교>\n" +
+    "- Critic R2: <verdict + 한 줄 R1→R2 비교>\n" +
+    "→ 최종: <검증된 최종 답 또는 여전히 미해결 시 그 이유; 코드면 한 블록만>\n\n" +
+    "If BOTH Validator R2 and Critic R2 approve (VERIFIED + APPROVE), include this line at the end:\n" +
+    "🎯 메모리 기반 학습 입증 — 1차 환각 → 2차 수정 성공."
+  );
+}
+
 export function buildSynthesisPrompt(s: SynthesisInput): string {
   return (
     "You are the Master coordinator. Synthesize the team's findings into a SHORT report in plain Korean for the user. " +

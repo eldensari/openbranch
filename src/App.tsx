@@ -35,6 +35,11 @@ import {
   buildValidatorPrompt,
   buildCriticPrompt,
   buildSynthesisPrompt,
+  buildExecutorReviewPrompt,
+  buildExecutorTaskPrompt,
+  buildValidatorR2Prompt,
+  buildCriticR2Prompt,
+  buildSynthesisR2Prompt,
 } from "./lib/orchestrateTeam";
 import {
   saveSessionToNeo4j,
@@ -1361,9 +1366,106 @@ export default function App() {
   };
 
   const startRound2 = async (masterCmId: string) => {
-    // S3+ will wire the actual orchestration. S2 ships the trigger button only.
-    console.log("[R2] start round 2 from master commit:", masterCmId);
-    showToast("Round 2 wired in S3 — coming next.", "info" as any);
+    if (thinking) return;
+    const allCommits = cRef.current;
+    const masterCm = allCommits.find((c) => c.id === masterCmId);
+    if (!masterCm || masterCm.role !== "master" || masterCm.iteration !== 1) {
+      showToast("Round 2 unavailable — Master R1 commit not found.");
+      return;
+    }
+    // Find R1 siblings — each is a direct child of masterCm with iteration=1
+    const r1Executor = allCommits.find(
+      (c) => c.parentId === masterCm.id && c.role === "executor" && c.iteration === 1,
+    );
+    const r1Validator = allCommits.find(
+      (c) => c.parentId === masterCm.id && c.role === "validator" && c.iteration === 1,
+    );
+    const r1Critic = allCommits.find(
+      (c) => c.parentId === masterCm.id && c.role === "critic" && c.iteration === 1,
+    );
+    if (!r1Executor || !r1Validator || !r1Critic) {
+      showToast("Round 2 unavailable — R1 team commits incomplete.");
+      return;
+    }
+    // Guard: at most one R2 chain per Master
+    if (allCommits.some((c) => c.iteration === 2 && c.refinesId === masterCm.id)) {
+      showToast("Round 2 already ran for this conversation.");
+      return;
+    }
+
+    setThinking(true);
+    setPending("Round 2: " + (masterCm.prompt || "").slice(0, 40));
+    const ac = new AbortController();
+    abortRef.current = ac;
+    const r2StartedAt = Date.now();
+    const r2RunRecords: AgentRunRecord[] = [];
+    try {
+      const roles = assignRoles(apiKey, [], currentModel);
+      const userMsg = masterCm.prompt || "";
+
+      // ── Phase 1: Executor Review (parent = R1 Executor) ──
+      const reviewStartedAt = Date.now();
+      const reviewBranch = nextBranchName(cRef.current);
+      const reviewPrompt = buildExecutorReviewPrompt(
+        r1Executor.response,
+        r1Validator.response,
+        r1Critic.response,
+      );
+      const reviewResp = await runLLMWithActivity(
+        [{ role: "user" as const, content: reviewPrompt }],
+        "Executor Review (R2)",
+        undefined,
+        false,
+        { parentId: r1Executor.id, branchName: reviewBranch },
+      );
+      const reviewCompletedAt = Date.now();
+      const reviewCm = mkCommit(
+        r1Executor.id,
+        "Executor Review (R2 plan)",
+        reviewResp.text,
+        reviewBranch,
+        null,
+        roles.executor.model,
+        {
+          activities: reviewResp.activities,
+          thinking: reviewResp.thinking,
+        },
+      );
+      reviewCm.role = "executor";
+      reviewCm.provider = roles.executor.provider;
+      reviewCm.iteration = 2;
+      reviewCm.executorPhase = "review";
+      reviewCm.refinesId = r1Executor.id;
+      const ncReview = [...cRef.current, reviewCm];
+      setCommits(ncReview); cRef.current = ncReview;
+      setStreamingDraft(null); streamingDraftRef.current = null;
+      save(masterCm.prompt?.slice(0, 40) || null, ncReview, reviewCm.id, reviewBranch);
+
+      r2RunRecords.push({
+        id: reviewCm.id,
+        role: "executor",
+        provider: roles.executor.provider,
+        model: roles.executor.model,
+        startedAt: reviewStartedAt,
+        completedAt: reviewCompletedAt,
+        durationMs: reviewCompletedAt - reviewStartedAt,
+        content: reviewResp.text,
+        verdict: "REVIEW_PLAN",
+      });
+      // Keep head on Master so the user's main chat focus stays put
+      setHeadId(masterCm.id);
+
+      // (S4 chains Executor Task, S5 chains Validator R2 + Critic R2, S6 appends Master R2 synthesis)
+      void r2StartedAt; void r2RunRecords; void userMsg;
+    } catch (e) {
+      if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
+      if ((e as any).code === "RATE_LIMIT") {
+        setRateLimited(true); setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; setThinking(false); return;
+      }
+      showToast("Round 2 failed: " + ((e as Error)?.message || "unknown"));
+    } finally {
+      abortRef.current = null; setPending(null); setThinking(false);
+    }
   };
 
   const tryDemo = () => {
