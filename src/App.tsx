@@ -1596,8 +1596,125 @@ export default function App() {
       });
       setHeadId(masterCm.id);
 
-      // (S6 will append a Master R2 synthesis commit on main with the Korean comparison)
-      void r2StartedAt;
+      // ── Phase 5: Master R2 synthesis (new commit on main, parent = R1 Master) ──
+      const masterR2StartedAt = Date.now();
+      const masterR2Prompt = buildSynthesisR2Prompt({
+        userQuestion: userMsg,
+        r1ExecutorAnswer: r1Executor.response,
+        r2ExecutorAnswer: taskResp.text,
+        r1ValidatorVerdict: r1Validator.response,
+        r2ValidatorVerdict: valR2Resp.text,
+        r1CriticVerdict: r1Critic.response,
+        r2CriticVerdict: critR2Resp.text,
+        executorModel: roles.executor.model,
+        validatorModel: roles.validator.model,
+        criticModel: roles.critic.model,
+      });
+
+      // Create the Master R2 commit on the same branch as the R1 master (typically "main")
+      const masterR2Cm = mkCommit(
+        masterCm.id,
+        "팀 라운드 2 합성",
+        "🟣 라운드 2 호출됨. 팀 의견 통합 중...\n\n",
+        masterCm.branch,
+        null,
+        roles.master.model,
+        {},
+      );
+      masterR2Cm.role = "master";
+      masterR2Cm.provider = roles.master.provider;
+      masterR2Cm.iteration = 2;
+      masterR2Cm.refinesId = masterCm.id;
+      const ncMasterR2 = [...cRef.current, masterR2Cm];
+      setCommits(ncMasterR2); cRef.current = ncMasterR2;
+      setHeadId(masterR2Cm.id);
+      save(masterCm.prompt?.slice(0, 40) || null, ncMasterR2, masterR2Cm.id, masterCm.branch);
+
+      // Stream synthesis into masterR2Cm.response
+      const r2Prefix = "🟣 라운드 2 호출됨. 팀 의견 통합 중...\n\n";
+      let masterR2Text = "";
+      try {
+        const masterR2Resp = await callLLMStream(
+          apiKey,
+          [{ role: "user", content: masterR2Prompt }],
+          { model: roles.master.model || currentModel, signal: abortRef.current?.signal },
+          {
+            onText: (delta) => {
+              masterR2Text += delta;
+              updateCommitResponse(masterR2Cm.id, r2Prefix + masterR2Text);
+            },
+          },
+        );
+        if (!masterR2Text && masterR2Resp.text) {
+          masterR2Text = masterR2Resp.text;
+          updateCommitResponse(masterR2Cm.id, r2Prefix + masterR2Text);
+        }
+      } catch (synthErr) {
+        if (!isAbortError(synthErr)) {
+          updateCommitResponse(
+            masterR2Cm.id,
+            r2Prefix + "(Master R2 synthesis 실패: " + (synthErr as Error).message + ")",
+          );
+        }
+      }
+      const masterR2CompletedAt = Date.now();
+      save(masterCm.prompt?.slice(0, 40) || null, cRef.current, masterR2Cm.id, masterCm.branch);
+
+      r2RunRecords.push({
+        id: masterR2Cm.id,
+        role: "master",
+        provider: roles.master.provider,
+        model: roles.master.model,
+        startedAt: masterR2StartedAt,
+        completedAt: masterR2CompletedAt,
+        durationMs: masterR2CompletedAt - masterR2StartedAt,
+        content: r2Prefix + masterR2Text,
+        verdict: null,
+        iteration: 2,
+        refinesId: masterCm.id,
+      });
+
+      // Tag the executor + V + C R2 runs with iteration/refines for the saver
+      // (already set on commits; we add the metadata to runs here to mirror)
+      for (const rec of r2RunRecords) {
+        if (rec.role === "executor" && rec.id === reviewCm.id) {
+          rec.iteration = 2; rec.executorPhase = "review"; rec.refinesId = r1Executor.id;
+        } else if (rec.role === "executor" && rec.id === taskCm.id) {
+          rec.iteration = 2; rec.executorPhase = "task"; rec.refinesId = r1Executor.id;
+        } else if (rec.role === "validator" && rec.id === valR2Cm.id) {
+          rec.iteration = 2; rec.refinesId = r1Validator.id;
+        } else if (rec.role === "critic" && rec.id === critR2Cm.id) {
+          rec.iteration = 2; rec.refinesId = r1Critic.id;
+        }
+      }
+
+      // Final verdict for R2 session
+      const r2FinalVerdict: "approved" | "rejected" | "warning" =
+        /REJECT/i.test(critR2Resp.text || "") || /UNVERIFIED/i.test(valR2Resp.text || "")
+          ? "rejected"
+          : /WARN/i.test(critR2Resp.text || "") || /PARTIAL/i.test(valR2Resp.text || "")
+            ? "warning"
+            : "approved";
+
+      if (neo4jConfigured()) {
+        setNeo4jStatus({ state: "saving" });
+        const r2SessionId = "session_" + masterCm.id + "_r2";
+        saveSessionToNeo4j({
+          id: r2SessionId,
+          user_prompt: userMsg,
+          started_at: r2StartedAt,
+          completed_at: masterR2CompletedAt,
+          total_duration_ms: masterR2CompletedAt - r2StartedAt,
+          final_verdict: r2FinalVerdict,
+          runs: r2RunRecords,
+        }).then((res) => {
+          if (res.ok) {
+            setNeo4jStatus({ state: "saved", lastSessionId: r2SessionId });
+          } else {
+            setNeo4jStatus({ state: "failed", error: res.error });
+          }
+        });
+      }
     } catch (e) {
       if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
       if ((e as any).code === "RATE_LIMIT") {

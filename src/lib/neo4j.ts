@@ -24,6 +24,9 @@ export type AgentRunRecord = {
   durationMs: number;
   content: string;
   verdict?: string | null;
+  iteration?: number;
+  executorPhase?: "draft" | "review" | "task";
+  refinesId?: string | null;
 };
 
 export type SessionRecord = {
@@ -89,23 +92,34 @@ SET s.user_prompt      = $user_prompt,
 WITH s
 UNWIND $runs AS run
 MERGE (r:AgentRun { id: run.id })
-SET r.role         = run.role,
-    r.provider     = run.provider,
-    r.model        = run.model,
-    r.started_at   = datetime({ epochMillis: run.startedAt }),
-    r.completed_at = datetime({ epochMillis: run.completedAt }),
-    r.duration_ms  = run.durationMs,
-    r.content      = run.content,
-    r.verdict      = run.verdict
+SET r.role           = run.role,
+    r.provider       = run.provider,
+    r.model          = run.model,
+    r.started_at     = datetime({ epochMillis: run.startedAt }),
+    r.completed_at   = datetime({ epochMillis: run.completedAt }),
+    r.duration_ms    = run.durationMs,
+    r.content        = run.content,
+    r.verdict        = run.verdict,
+    r.iteration      = run.iteration,
+    r.executor_phase = run.executorPhase
 MERGE (s)-[:CONTAINS]->(r)
+WITH s, r, run
+FOREACH (_ IN CASE WHEN run.refinesId IS NOT NULL THEN [1] ELSE [] END |
+  MERGE (parent:AgentRun { id: run.refinesId })
+  MERGE (r)-[:REFINES]->(parent)
+)
 WITH s
-MATCH (s)-[:CONTAINS]->(master:AgentRun { role: 'master' })
-SET s.master_id = master.id
-WITH s
-OPTIONAL MATCH (s)-[:CONTAINS]->(exec:AgentRun { role: 'executor' })
-OPTIONAL MATCH (s)-[:CONTAINS]->(val:AgentRun { role: 'validator' })
-OPTIONAL MATCH (s)-[:CONTAINS]->(crit:AgentRun { role: 'critic' })
-OPTIONAL MATCH (s)-[:CONTAINS]->(mast:AgentRun { role: 'master' })
+OPTIONAL MATCH (s)-[:CONTAINS]->(mast:AgentRun { role: 'master', iteration: 1 })
+WITH s, mast
+OPTIONAL MATCH (s)-[:CONTAINS]->(exec:AgentRun { role: 'executor', iteration: 1 })
+WITH s, mast, exec
+OPTIONAL MATCH (s)-[:CONTAINS]->(val:AgentRun { role: 'validator', iteration: 1 })
+WITH s, mast, exec, val
+OPTIONAL MATCH (s)-[:CONTAINS]->(crit:AgentRun { role: 'critic', iteration: 1 })
+WITH s, mast, exec, val, crit
+FOREACH (_ IN CASE WHEN mast IS NOT NULL THEN [1] ELSE [] END |
+  SET s.master_id = mast.id
+)
 FOREACH (_ IN CASE WHEN exec IS NOT NULL THEN [1] ELSE [] END |
   MERGE (exec)-[:WROTE_FOR]->(s)
 )
