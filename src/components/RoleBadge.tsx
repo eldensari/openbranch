@@ -44,10 +44,14 @@ type Props = {
   model?: string | null;
   className?: string;
   compact?: boolean;
+  iteration?: number;
+  phase?: "draft" | "review" | "task";
 };
 
-export default function RoleBadge({ role, model, className, compact }: Props) {
+export default function RoleBadge({ role, model, className, compact, iteration, phase }: Props) {
   const meta = ROLE_META[role];
+  const r2 = iteration && iteration >= 2;
+  const phaseLabel = phase === "review" ? " · Review" : phase === "task" ? " · Task" : "";
   return (
     <span
       className={className}
@@ -61,13 +65,32 @@ export default function RoleBadge({ role, model, className, compact }: Props) {
         borderRadius: 999,
         background: meta.bg,
         color: meta.fg,
-        border: `1px solid ${meta.border}`,
+        border: `1px ${r2 ? "dashed" : "solid"} ${meta.border}`,
         lineHeight: 1.4,
         whiteSpace: "nowrap",
       }}
     >
       <span style={{ fontSize: compact ? 9 : 10 }}>{meta.emoji}</span>
       <span>{meta.label}</span>
+      {iteration ? (
+        <span
+          style={{
+            fontSize: compact ? 9 : 10,
+            fontWeight: 700,
+            background: r2 ? meta.border : "transparent",
+            color: r2 ? "#fff" : meta.fg,
+            border: r2 ? "none" : `1px solid ${meta.border}`,
+            borderRadius: 4,
+            padding: "0 4px",
+            marginLeft: 2,
+          }}
+        >
+          R{iteration}
+        </span>
+      ) : null}
+      {phaseLabel ? (
+        <span style={{ opacity: 0.85, fontWeight: 500 }}>{phaseLabel}</span>
+      ) : null}
       {model ? (
         <span style={{ opacity: 0.7, fontWeight: 500 }}>· {model}</span>
       ) : null}

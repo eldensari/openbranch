@@ -772,6 +772,7 @@ export default function App() {
       });
       masterCm.role = "master";
       masterCm.provider = roles.master.provider;
+      masterCm.iteration = 1;
       const ncMaster = [...cRef.current, masterCm];
       setCommits(ncMaster); cRef.current = ncMaster; setHeadId(masterCm.id);
       save(msg.slice(0, 40), ncMaster, masterCm.id, br);
@@ -796,6 +797,8 @@ export default function App() {
       });
       execCm.role = "executor";
       execCm.provider = roles.executor.provider;
+      execCm.iteration = 1;
+      execCm.executorPhase = "draft";
       const ncExec = [...cRef.current, execCm];
       setCommits(ncExec); cRef.current = ncExec;
       setStreamingDraft(null); streamingDraftRef.current = null;
@@ -824,6 +827,7 @@ export default function App() {
       });
       valCm.role = "validator";
       valCm.provider = roles.validator.provider;
+      valCm.iteration = 1;
       const ncVal = [...cRef.current, valCm];
       setCommits(ncVal); cRef.current = ncVal;
       setStreamingDraft(null); streamingDraftRef.current = null;
@@ -850,6 +854,7 @@ export default function App() {
       });
       critCm.role = "critic";
       critCm.provider = roles.critic.provider;
+      critCm.iteration = 1;
       const ncCrit = [...cRef.current, critCm];
       setCommits(ncCrit); cRef.current = ncCrit;
       setStreamingDraft(null); streamingDraftRef.current = null;

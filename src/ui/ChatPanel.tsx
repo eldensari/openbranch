@@ -781,7 +781,12 @@ export default function ChatPanel(props: Props) {
                 <div className="self-start w-full flex flex-col gap-1">
                   {cm.role && (
                     <div className="mb-1 team-pop">
-                      <RoleBadge role={cm.role} model={cm.model} />
+                      <RoleBadge
+                        role={cm.role}
+                        model={cm.model}
+                        iteration={cm.iteration}
+                        phase={cm.executorPhase}
+                      />
                     </div>
                   )}
                   <WorkSummary

@@ -122,6 +122,11 @@ export type Commit = {
   role?: AgentRole;
   provider?: string;
   verdict?: string;
+  iteration?: number;
+  // Round 2 sub-roles for executor (kept on the same `role: "executor"` so badges color the same)
+  executorPhase?: "draft" | "review" | "task";
+  // For tracking which R1 commit a R2 commit refines (so graph can show lineage)
+  refinesId?: string;
 };
 
 export type Conversation = {
