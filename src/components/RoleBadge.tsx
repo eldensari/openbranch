@@ -51,7 +51,12 @@ type Props = {
 export default function RoleBadge({ role, model, className, compact, iteration, phase }: Props) {
   const meta = ROLE_META[role];
   const r2 = iteration && iteration >= 2;
-  const phaseLabel = phase === "review" ? " · Review" : phase === "task" ? " · Task" : "";
+  const phaseLabel =
+    phase === "review"
+      ? r2 ? " · Review" : " · Review"
+      : phase === "task"
+        ? r2 ? " · Execute" : " · Task"
+        : "";
   return (
     <span
       className={className}
