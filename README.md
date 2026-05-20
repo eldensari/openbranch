@@ -17,49 +17,45 @@ A nonlinear chat app for LLM conversations.
 
 ## Multi-Agent Team Validation
 
-OpenBranch runs every message through an AI team. A **Master** agent in the main
-chat delegates to **Executor**, **Validator**, and **Critic** agents in separate
-branches. The team catches hallucinations a single agent would confidently
-produce. The Master reports the final verdict in plain Korean for non-technical
-end users.
+> **Branch+merge IS the multi-agent primitive — made literal here.**
+>
+> OpenBranch already has git-style branches and merge commits. The AI team
+> doesn't bolt orchestration on top — it *uses* the existing primitives. Three
+> persistent worker branches (🟢 Executor, 🟡 Validator, 🔴 Critic) sprout from
+> the user's message and live across rounds. Master's synthesis on the main
+> thread is literally a multi-parent **merge commit** that pulls the three
+> worker outputs together. Each round adds another merge.
 
 ```
-main:    [user msg] → 🟣 Master delegates → 🟣 Master synthesizes (Korean report)
-              ↘ 🟢 Executor branch — generates the answer
-              ↘ 🟡 Validator branch — fact-checks Executor (UNVERIFIED / VERIFIED / PARTIAL)
-              ↘ 🔴 Critic   branch — finds weaknesses (REJECT / APPROVE / WARN)
+Master:  [User]──[R1 MasterMerge◆]──[R2 MasterMerge◆]──→
+            ↓↓↓        ↑                  ↑
+            │││        │ merges 3         │ merges 3
+            │││        │                  │
+🟢 Exec: ────→[R1]──→[R2 Review◆]──→[R2 Execute]──→
+🟡 Val:  ────→[R1]──→[R2 Review◆]──→[R2 Execute]──→
+🔴 Crit: ────→[R1]──→[R2 Review◆]──→[R2 Execute]──→
+
+◆ = multi-parent merge node (diamond in the graph)
 ```
 
-The flow auto-triggers on every send — no extra button. Run **"Try the demo"**
-on the welcome screen for the canonical `asyncpg-listen` phantom-library test:
-the Executor confidently writes code for a package that doesn't exist on PyPI,
-and the team catches it.
+**Context discipline:** every node sees ONLY its declared parents — no global
+thread state. Lineage IS the prompt:
+
+- R1 Executor: original prompt
+- R1 Validator/Critic: prompt + R1 Executor
+- R1 MasterMerge: the 3 R1 outs → Korean synthesis
+- R2 Review (each worker): own R1 + R1 MasterMerge → strategy plan
+- R2 Execute (each worker): own R2 Review + original prompt → new output
+- R2 MasterMerge: the 3 R2 Executes → Korean comparison report
+
+The first message auto-triggers Round 1. When R1 Master synthesis contains a
+REJECT, a **🔄 Re-run with team feedback** button appears on the diamond.
+Clicking it adds **7 new nodes** (3 Review merges + 3 Execute children +
+1 R2 MasterMerge) — capped at R2, no R3+.
 
 Inspired by AWS Strands' `Swarm` orchestration (Module 3 of the AWS
-"Stop AI Agent Hallucinations" workshop). What AWS does in Python code,
-OpenBranch does as a live visual graph.
-
-### Iteration Loop (Round 2)
-
-When the round-1 team rejects the Executor's answer, a **🔄 Re-run with team
-feedback** button appears under Master's R1 report. Clicking it triggers a
-round-2 chain that uses memory-by-structure rather than chat history to learn:
-
-1. **Executor Review** (parent: R1 Executor) — reads R1 validator + critic
-   verdicts, plans a fix in 3–5 bullets, no code yet.
-2. **Executor Task** (parent: Review) — applies the plan, rewrites the answer.
-3. **Validator R2** (parent: Task) — checks whether R1 concern is addressed.
-4. **Critic R2** (parent: Task) — same with R1 critique context.
-5. **Master R2** synthesis on the main thread — Korean report comparing
-   R1 → R2, declares the final verified answer.
-
-Each branch sees ONLY its declared parent context (no global thread leak).
-That's the invariant: **branching is the memory**. R2 is capped — there is no
-R3+.
-
-When Neo4j Aura is configured, R2 AgentRuns persist with
-`(R2)-[:REFINES]->(R1)` edges per role, enabling queries like "which models
-self-correct most often on round 2?".
+"Stop AI Agent Hallucinations" workshop). Strands does this with Python state
+in code; OpenBranch does it with branching + merging as the literal primitive.
 
 ## Neo4j Graph Storage
 
@@ -74,13 +70,22 @@ Schema:
 
 ```
 (:Session {id, user_prompt, started_at, completed_at, total_duration_ms, final_verdict})
-  -[:CONTAINS]-> (:AgentRun {id, role, provider, model, started_at, completed_at, duration_ms, content, verdict})
+  -[:CONTAINS]-> (:AgentRun {
+      id, role, provider, model, started_at, completed_at,
+      duration_ms, content, verdict, iteration, executor_phase
+  })
 
-(:AgentRun {role:'executor'})  -[:WROTE_FOR]-> (:Session)
-(:AgentRun {role:'validator'}) -[:VERIFIED]->  (:AgentRun {role:'executor'})
-(:AgentRun {role:'critic'})    -[:CRITIQUED]-> (:AgentRun {role:'executor'})
-(:AgentRun {role:'master'})    -[:SYNTHESIZED]-> (:AgentRun {role:'validator'})
-(:AgentRun {role:'master'})    -[:SYNTHESIZED]-> (:AgentRun {role:'critic'})
+// R1 worker lineage
+(:AgentRun {role:'executor'})  -[:WROTE_FOR]->  (:Session)
+(:AgentRun {role:'validator'}) -[:VERIFIED]->   (:AgentRun {role:'executor'})
+(:AgentRun {role:'critic'})    -[:CRITIQUED]->  (:AgentRun {role:'executor'})
+
+// Synthesis merges — multi-parent diamond nodes
+(:AgentRun:SynthesisMerge {round})
+  -[:MERGES]-> (:AgentRun)  // 3 edges per merge: exec + val + crit
+
+// R2 refinement lineage
+(:AgentRun {iteration:2}) -[:REFINES]-> (:AgentRun {iteration:1})
 ```
 
 Future analysis queries:
