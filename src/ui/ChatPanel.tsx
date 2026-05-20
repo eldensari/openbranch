@@ -811,6 +811,18 @@ export default function ChatPanel(props: Props) {
                         </>
                       )}
                   </div>
+                  {cm.role === "master" && cm.iteration === 1 && /(?:REJECT|🛑)/.test(cm.response || "") && !commits.some((x: any) => x.iteration === 2 && x.refinesId === cm.id) && (
+                    <button
+                      type="button"
+                      onClick={() => props.startRound2?.(cm.id)}
+                      disabled={thinking}
+                      className="team-pop mt-3 self-start inline-flex items-center gap-2 rounded-full border border-dashed border-[color:var(--branch-2)] bg-[color:var(--branch-2)]/10 px-4 py-2 text-sm font-medium text-[color:var(--branch-2)] hover:bg-[color:var(--branch-2)]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <span>🔄</span>
+                      <span>Re-run with team feedback</span>
+                      <span className="text-[10px] opacity-70">(Round 2)</span>
+                    </button>
+                  )}
                   <div className="-ml-2 mt-1 flex gap-0.5">
                     <Tooltip>
                       <TooltipTrigger asChild>

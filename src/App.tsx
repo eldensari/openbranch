@@ -1360,6 +1360,12 @@ export default function App() {
     });
   };
 
+  const startRound2 = async (masterCmId: string) => {
+    // S3+ will wire the actual orchestration. S2 ships the trigger button only.
+    console.log("[R2] start round 2 from master commit:", masterCmId);
+    showToast("Round 2 wired in S3 — coming next.", "info" as any);
+  };
+
   const tryDemo = () => {
     const DEMO_PROMPT =
       "Write a Python async function using the `asyncpg-listen` library to subscribe to a PostgreSQL channel and process notifications with automatic reconnection.";
@@ -1373,6 +1379,7 @@ export default function App() {
   const chatProps = {
     commits, headId, branch, names, parentRef, thread,
     tryDemo,
+    startRound2,
     convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
