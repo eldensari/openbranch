@@ -39,6 +39,28 @@ Inspired by AWS Strands' `Swarm` orchestration (Module 3 of the AWS
 "Stop AI Agent Hallucinations" workshop). What AWS does in Python code,
 OpenBranch does as a live visual graph.
 
+### Iteration Loop (Round 2)
+
+When the round-1 team rejects the Executor's answer, a **🔄 Re-run with team
+feedback** button appears under Master's R1 report. Clicking it triggers a
+round-2 chain that uses memory-by-structure rather than chat history to learn:
+
+1. **Executor Review** (parent: R1 Executor) — reads R1 validator + critic
+   verdicts, plans a fix in 3–5 bullets, no code yet.
+2. **Executor Task** (parent: Review) — applies the plan, rewrites the answer.
+3. **Validator R2** (parent: Task) — checks whether R1 concern is addressed.
+4. **Critic R2** (parent: Task) — same with R1 critique context.
+5. **Master R2** synthesis on the main thread — Korean report comparing
+   R1 → R2, declares the final verified answer.
+
+Each branch sees ONLY its declared parent context (no global thread leak).
+That's the invariant: **branching is the memory**. R2 is capped — there is no
+R3+.
+
+When Neo4j Aura is configured, R2 AgentRuns persist with
+`(R2)-[:REFINES]->(R1)` edges per role, enabling queries like "which models
+self-correct most often on round 2?".
+
 ## Neo4j Graph Storage
 
 Every validation session is stored as a queryable graph in **Neo4j Aura** — the
