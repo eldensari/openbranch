@@ -130,6 +130,94 @@ export type SynthesisInput = {
   criticModel: string;
 };
 
+// ── R3: Branch+Merge Architecture — per-worker Review (merge) + Execute prompts ──
+
+const WORKER_R2_REVIEW_FORMAT =
+  "Output: 3-5 bullets capturing what you understood from R1, and your strategy for round 2. Do NOT produce the final answer yet — only the plan.";
+
+export function buildWorkerR2ReviewPrompt(
+  role: AgentRole,
+  r1OwnOutput: string,
+  r1TeamSynthesis: string,
+): string {
+  const roleNote =
+    role === "executor"
+      ? "Your job in R2: replace your R1 answer with one that satisfies the team's R1 concerns."
+      : role === "validator"
+        ? "Your job in R2: re-assess what you flagged in R1, given the team has now produced a consensus on the fix direction."
+        : "Your job in R2: re-assess what you flagged in R1, given the team has now produced a consensus on the fix direction.";
+  return (
+    "You are the " +
+    ROLE_LABELS[role] +
+    " on an AI validation team, ROUND 2 PLANNING phase. " +
+    "You are seeing TWO inputs and nothing else.\n\n" +
+    "--- Input A: your own ROUND 1 output ---\n" +
+    r1OwnOutput +
+    "\n\n--- Input B: the team's ROUND 1 synthesis (Master merge of all 3 workers) ---\n" +
+    r1TeamSynthesis +
+    "\n\n--- Task ---\n" +
+    roleNote +
+    "\n" +
+    WORKER_R2_REVIEW_FORMAT
+  );
+}
+
+export function buildWorkerR2ExecutePrompt(
+  role: AgentRole,
+  userPrompt: string,
+  ownR2ReviewText: string,
+): string {
+  const roleAction =
+    role === "executor"
+      ? "Produce the CORRECTED answer that follows your plan. Working code or a complete answer, no caveats."
+      : role === "validator"
+        ? "Produce your ROUND 2 verdict line (VERIFIED, UNVERIFIED, or PARTIAL) followed by 1-3 sentences of reasoning. Compare R1 → R2."
+        : "Produce your ROUND 2 verdict line (APPROVE, REJECT, or WARN) followed by 1-3 sentences of reasoning. Compare R1 → R2.";
+  return (
+    "You are the " +
+    ROLE_LABELS[role] +
+    " on an AI validation team, ROUND 2 EXECUTE phase. " +
+    "You are seeing TWO inputs and nothing else.\n\n" +
+    "--- Input A: original user request ---\n" +
+    userPrompt +
+    "\n\n--- Input B: your own R2 review plan ---\n" +
+    ownR2ReviewText +
+    "\n\n--- Task ---\n" +
+    roleAction
+  );
+}
+
+export type R2SynthesisInput = {
+  userQuestion: string;
+  r2ExecutorOutput: string;
+  r2ValidatorOutput: string;
+  r2CriticOutput: string;
+  r1Synthesis: string;
+  executorModel: string;
+  validatorModel: string;
+  criticModel: string;
+};
+
+export function buildR2MergeSynthesisPrompt(s: R2SynthesisInput): string {
+  return (
+    "You are the Master coordinator. The team just finished ROUND 2. " +
+    "Write a SHORT round-2 report in plain Korean comparing R1 vs R2. The user did NOT see the sub-agent branches.\n\n" +
+    "--- Original user request ---\n" + s.userQuestion +
+    "\n\n--- Round 1 team synthesis (what you reported before) ---\n" + s.r1Synthesis +
+    "\n\n--- Round 2 Executor (" + s.executorModel + ") corrected answer ---\n" + s.r2ExecutorOutput +
+    "\n\n--- Round 2 Validator (" + s.validatorModel + ") verdict ---\n" + s.r2ValidatorOutput +
+    "\n\n--- Round 2 Critic (" + s.criticModel + ") verdict ---\n" + s.r2CriticOutput +
+    "\n\n--- Write the round-2 report in Korean using EXACTLY this format ---\n\n" +
+    "✅ 2차 검증 완료\n" +
+    "- 변경점: <Round 1 → Round 2 무엇이 수정됨, 한 줄>\n" +
+    "- Validator R2: <verdict + 한 줄 비교>\n" +
+    "- Critic R2: <verdict + 한 줄 비교>\n" +
+    "→ 최종: <검증된 최종 답; 코드면 한 블록만; 여전히 미해결이면 그 이유>\n\n" +
+    "If BOTH Validator R2 (VERIFIED) AND Critic R2 (APPROVE), include this line at the end:\n" +
+    "🎯 1차 환각 → 2차 수정 입증. 브랜치+머지가 메모리입니다."
+  );
+}
+
 export const EXECUTOR_REVIEW_SYSTEM =
   "You are the Executor on an AI validation team. You just produced an answer that the team flagged. " +
   "Read the team's feedback carefully and PLAN a fix in 3-5 concise bullet points. " +

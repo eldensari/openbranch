@@ -35,11 +35,9 @@ import {
   buildValidatorPrompt,
   buildCriticPrompt,
   buildSynthesisPrompt,
-  buildExecutorReviewPrompt,
-  buildExecutorTaskPrompt,
-  buildValidatorR2Prompt,
-  buildCriticR2Prompt,
-  buildSynthesisR2Prompt,
+  buildWorkerR2ReviewPrompt,
+  buildWorkerR2ExecutePrompt,
+  buildR2MergeSynthesisPrompt,
 } from "./lib/orchestrateTeam";
 import {
   saveSessionToNeo4j,
@@ -1402,15 +1400,18 @@ export default function App() {
   const startRound2 = async (masterMergeCmId: string) => {
     if (thinking) return;
     const allCommits = cRef.current;
-    const masterMergeCm = allCommits.find((c) => c.id === masterMergeCmId);
-    if (!masterMergeCm || masterMergeCm.role !== "master" || masterMergeCm.iteration !== 1 || !(masterMergeCm.mergeIds || []).length) {
+    const r1MergeCm = allCommits.find((c) => c.id === masterMergeCmId);
+    if (!r1MergeCm || r1MergeCm.role !== "master" || r1MergeCm.iteration !== 1 || !(r1MergeCm.mergeIds || []).length) {
       showToast("Round 2 unavailable — R1 MasterMerge not found.");
       return;
     }
-    // Anchor for R2 chain bookkeeping = the MasterMerge commit
-    const masterCm = masterMergeCm;
-    const r1ParentIds = masterMergeCm.mergeIds || [];
-    // Each merged parent is one of the 3 worker R1 outs — identify by role
+    const masterDelegationCm = allCommits.find((c) => c.id === r1MergeCm.parentId);
+    const userMsg = masterDelegationCm?.prompt || "";
+    if (!userMsg) {
+      showToast("Round 2 unavailable — original user prompt missing.");
+      return;
+    }
+    const r1ParentIds = r1MergeCm.mergeIds || [];
     const r1Executor = allCommits.find((c) => r1ParentIds.includes(c.id) && c.role === "executor" && c.iteration === 1);
     const r1Validator = allCommits.find((c) => r1ParentIds.includes(c.id) && c.role === "validator" && c.iteration === 1);
     const r1Critic = allCommits.find((c) => r1ParentIds.includes(c.id) && c.role === "critic" && c.iteration === 1);
@@ -1418,318 +1419,229 @@ export default function App() {
       showToast("Round 2 unavailable — R1 worker commits incomplete.");
       return;
     }
-    // Guard: at most one R2 chain per MasterMerge
-    if (allCommits.some((c) => c.iteration === 2 && c.refinesId === masterCm.id)) {
+    // Guard: at most one R2 chain per R1 MasterMerge
+    if (allCommits.some((c) => c.iteration === 2 && c.refinesId === r1MergeCm.id)) {
       showToast("Round 2 already ran for this conversation.");
       return;
     }
 
     setThinking(true);
-    setPending("Round 2: " + (masterCm.prompt || "").slice(0, 40));
+    setPending("Round 2: " + userMsg.slice(0, 40));
     const ac = new AbortController();
     abortRef.current = ac;
     const r2StartedAt = Date.now();
     const r2RunRecords: AgentRunRecord[] = [];
     try {
       const roles = assignRoles(apiKey, [], currentModel);
-      const userMsg = masterCm.prompt || "";
 
-      // ── Phase 1: Executor Review (parent = R1 Executor) ──
-      const reviewStartedAt = Date.now();
-      const reviewBranch = nextBranchName(cRef.current);
-      const reviewPrompt = buildExecutorReviewPrompt(
-        r1Executor.response,
-        r1Validator.response,
-        r1Critic.response,
-      );
-      const reviewResp = await runLLMWithActivity(
-        [{ role: "user" as const, content: reviewPrompt }],
-        "Executor Review (R2)",
-        undefined,
-        false,
-        { parentId: r1Executor.id, branchName: reviewBranch },
-      );
-      const reviewCompletedAt = Date.now();
-      const reviewCm = mkCommit(
-        r1Executor.id,
-        "Executor Review (R2 plan)",
-        reviewResp.text,
-        reviewBranch,
-        null,
-        roles.executor.model,
-        {
-          activities: reviewResp.activities,
-          thinking: reviewResp.thinking,
-        },
-      );
-      reviewCm.role = "executor";
-      reviewCm.provider = roles.executor.provider;
-      reviewCm.iteration = 2;
-      reviewCm.executorPhase = "review";
-      reviewCm.refinesId = r1Executor.id;
-      const ncReview = [...cRef.current, reviewCm];
-      setCommits(ncReview); cRef.current = ncReview;
-      setStreamingDraft(null); streamingDraftRef.current = null;
-      save(masterCm.prompt?.slice(0, 40) || null, ncReview, reviewCm.id, reviewBranch);
+      // Helper to run one worker's Review (merge node) + Execute (child)
+      const runWorker = async (
+        role: "executor" | "validator" | "critic",
+        r1Own: { id: string; response: string; branch: string },
+        modelInfo: { model: string; provider: string },
+      ) => {
+        // ── Review = MERGE of own R1 + R1 MasterMerge (2 parents) ──
+        const reviewStartedAt = Date.now();
+        const reviewPrompt = buildWorkerR2ReviewPrompt(role, r1Own.response, r1MergeCm.response);
+        const reviewResp = await runLLMWithActivity(
+          [{ role: "user" as const, content: reviewPrompt }],
+          role + " Review (R2)",
+          undefined,
+          false,
+          { parentId: r1Own.id, branchName: r1Own.branch },
+        );
+        const reviewCompletedAt = Date.now();
+        const reviewCm = mkCommit(
+          r1Own.id,
+          "",
+          reviewResp.text,
+          r1Own.branch,
+          [r1MergeCm.id],
+          modelInfo.model,
+          {
+            activities: reviewResp.activities,
+            thinking: reviewResp.thinking,
+          },
+        );
+        reviewCm.role = role;
+        reviewCm.provider = modelInfo.provider;
+        reviewCm.iteration = 2;
+        reviewCm.executorPhase = "review";
+        reviewCm.refinesId = r1Own.id;
+        const ncReview = [...cRef.current, reviewCm];
+        setCommits(ncReview); cRef.current = ncReview;
+        setStreamingDraft(null); streamingDraftRef.current = null;
+        save(userMsg.slice(0, 40), ncReview, reviewCm.id, r1Own.branch);
+        r2RunRecords.push({
+          id: reviewCm.id,
+          role,
+          provider: modelInfo.provider,
+          model: modelInfo.model,
+          startedAt: reviewStartedAt,
+          completedAt: reviewCompletedAt,
+          durationMs: reviewCompletedAt - reviewStartedAt,
+          content: reviewResp.text,
+          verdict: "R2_REVIEW",
+          iteration: 2,
+          executorPhase: "review",
+          refinesId: r1Own.id,
+        });
+        setHeadId(r1MergeCm.id);
 
-      r2RunRecords.push({
-        id: reviewCm.id,
-        role: "executor",
-        provider: roles.executor.provider,
-        model: roles.executor.model,
-        startedAt: reviewStartedAt,
-        completedAt: reviewCompletedAt,
-        durationMs: reviewCompletedAt - reviewStartedAt,
-        content: reviewResp.text,
-        verdict: "REVIEW_PLAN",
-      });
-      // Keep head on Master so the user's main chat focus stays put
-      setHeadId(masterCm.id);
+        // ── Execute = child of Review (single parent) ──
+        const execStartedAt = Date.now();
+        const execPrompt = buildWorkerR2ExecutePrompt(role, userMsg, reviewResp.text);
+        const execResp = await runLLMWithActivity(
+          [{ role: "user" as const, content: execPrompt }],
+          role + " Execute (R2)",
+          undefined,
+          false,
+          { parentId: reviewCm.id, branchName: r1Own.branch },
+        );
+        const execCompletedAt = Date.now();
+        const execCm = mkCommit(
+          reviewCm.id,
+          "",
+          execResp.text,
+          r1Own.branch,
+          null,
+          modelInfo.model,
+          {
+            activities: execResp.activities,
+            thinking: execResp.thinking,
+          },
+        );
+        execCm.role = role;
+        execCm.provider = modelInfo.provider;
+        execCm.iteration = 2;
+        execCm.executorPhase = "task";
+        execCm.refinesId = r1Own.id;
+        const ncExec = [...cRef.current, execCm];
+        setCommits(ncExec); cRef.current = ncExec;
+        setStreamingDraft(null); streamingDraftRef.current = null;
+        save(userMsg.slice(0, 40), ncExec, execCm.id, r1Own.branch);
+        const verdictMatch =
+          role === "executor"
+            ? null
+            : role === "validator"
+              ? /^\s*(VERIFIED|UNVERIFIED|PARTIAL)/i.exec(execResp.text || "")?.[1]
+              : /^\s*(APPROVE|REJECT|WARN)/i.exec(execResp.text || "")?.[1];
+        r2RunRecords.push({
+          id: execCm.id,
+          role,
+          provider: modelInfo.provider,
+          model: modelInfo.model,
+          startedAt: execStartedAt,
+          completedAt: execCompletedAt,
+          durationMs: execCompletedAt - execStartedAt,
+          content: execResp.text,
+          verdict: verdictMatch ? verdictMatch.toUpperCase() : "R2_EXECUTE",
+          iteration: 2,
+          executorPhase: "task",
+          refinesId: r1Own.id,
+        });
+        setHeadId(r1MergeCm.id);
+        return { reviewCm, execCm, execResp };
+      };
 
-      // ── Phase 2: Executor Task (parent = Review) ──
-      const taskStartedAt = Date.now();
-      const taskBranch = nextBranchName(cRef.current);
-      const taskPrompt = buildExecutorTaskPrompt(userMsg, reviewResp.text);
-      const taskResp = await runLLMWithActivity(
-        [{ role: "user" as const, content: taskPrompt }],
-        "Executor Task (R2)",
-        undefined,
-        false,
-        { parentId: reviewCm.id, branchName: taskBranch },
+      // Run the 3 workers sequentially (more dramatic, easier to follow)
+      const execRun = await runWorker(
+        "executor",
+        { id: r1Executor.id, response: r1Executor.response, branch: r1Executor.branch },
+        { model: roles.executor.model, provider: roles.executor.provider },
       );
-      const taskCompletedAt = Date.now();
-      const taskCm = mkCommit(
-        reviewCm.id,
-        "Executor Task (R2 fix)",
-        taskResp.text,
-        taskBranch,
-        null,
-        roles.executor.model,
-        {
-          activities: taskResp.activities,
-          thinking: taskResp.thinking,
-        },
+      const valRun = await runWorker(
+        "validator",
+        { id: r1Validator.id, response: r1Validator.response, branch: r1Validator.branch },
+        { model: roles.validator.model, provider: roles.validator.provider },
       );
-      taskCm.role = "executor";
-      taskCm.provider = roles.executor.provider;
-      taskCm.iteration = 2;
-      taskCm.executorPhase = "task";
-      taskCm.refinesId = r1Executor.id;
-      const ncTask = [...cRef.current, taskCm];
-      setCommits(ncTask); cRef.current = ncTask;
-      setStreamingDraft(null); streamingDraftRef.current = null;
-      save(masterCm.prompt?.slice(0, 40) || null, ncTask, taskCm.id, taskBranch);
-
-      r2RunRecords.push({
-        id: taskCm.id,
-        role: "executor",
-        provider: roles.executor.provider,
-        model: roles.executor.model,
-        startedAt: taskStartedAt,
-        completedAt: taskCompletedAt,
-        durationMs: taskCompletedAt - taskStartedAt,
-        content: taskResp.text,
-        verdict: "CORRECTED",
-      });
-      setHeadId(masterCm.id);
-
-      // ── Phase 3: Validator R2 (parent = Executor Task) ──
-      const valR2StartedAt = Date.now();
-      const valR2Branch = nextBranchName(cRef.current);
-      const valR2Prompt = buildValidatorR2Prompt(userMsg, taskResp.text, r1Validator.response);
-      const valR2Resp = await runLLMWithActivity(
-        [{ role: "user" as const, content: valR2Prompt }],
-        "Validator R2",
-        undefined,
-        false,
-        { parentId: taskCm.id, branchName: valR2Branch },
+      const critRun = await runWorker(
+        "critic",
+        { id: r1Critic.id, response: r1Critic.response, branch: r1Critic.branch },
+        { model: roles.critic.model, provider: roles.critic.provider },
       );
-      const valR2CompletedAt = Date.now();
-      const valR2Cm = mkCommit(
-        taskCm.id,
-        "Validator R2: verify fix",
-        valR2Resp.text,
-        valR2Branch,
-        null,
-        roles.validator.model,
-        {
-          activities: valR2Resp.activities,
-          thinking: valR2Resp.thinking,
-        },
-      );
-      valR2Cm.role = "validator";
-      valR2Cm.provider = roles.validator.provider;
-      valR2Cm.iteration = 2;
-      valR2Cm.refinesId = r1Validator.id;
-      const ncValR2 = [...cRef.current, valR2Cm];
-      setCommits(ncValR2); cRef.current = ncValR2;
-      setStreamingDraft(null); streamingDraftRef.current = null;
-      save(masterCm.prompt?.slice(0, 40) || null, ncValR2, valR2Cm.id, valR2Branch);
 
-      const valR2Verdict = /^\s*(VERIFIED|UNVERIFIED|PARTIAL)/i.exec(valR2Resp.text || "")?.[1] || null;
-      r2RunRecords.push({
-        id: valR2Cm.id,
-        role: "validator",
-        provider: roles.validator.provider,
-        model: roles.validator.model,
-        startedAt: valR2StartedAt,
-        completedAt: valR2CompletedAt,
-        durationMs: valR2CompletedAt - valR2StartedAt,
-        content: valR2Resp.text,
-        verdict: valR2Verdict ? valR2Verdict.toUpperCase() : null,
-      });
-      setHeadId(masterCm.id);
-
-      // ── Phase 4: Critic R2 (parent = Executor Task) ──
-      const critR2StartedAt = Date.now();
-      const critR2Branch = nextBranchName(cRef.current);
-      const critR2Prompt = buildCriticR2Prompt(userMsg, taskResp.text, r1Critic.response);
-      const critR2Resp = await runLLMWithActivity(
-        [{ role: "user" as const, content: critR2Prompt }],
-        "Critic R2",
-        undefined,
-        false,
-        { parentId: taskCm.id, branchName: critR2Branch },
-      );
-      const critR2CompletedAt = Date.now();
-      const critR2Cm = mkCommit(
-        taskCm.id,
-        "Critic R2: weaknesses of fix",
-        critR2Resp.text,
-        critR2Branch,
-        null,
-        roles.critic.model,
-        {
-          activities: critR2Resp.activities,
-          thinking: critR2Resp.thinking,
-        },
-      );
-      critR2Cm.role = "critic";
-      critR2Cm.provider = roles.critic.provider;
-      critR2Cm.iteration = 2;
-      critR2Cm.refinesId = r1Critic.id;
-      const ncCritR2 = [...cRef.current, critR2Cm];
-      setCommits(ncCritR2); cRef.current = ncCritR2;
-      setStreamingDraft(null); streamingDraftRef.current = null;
-      save(masterCm.prompt?.slice(0, 40) || null, ncCritR2, critR2Cm.id, critR2Branch);
-
-      const critR2Verdict = /^\s*(APPROVE|REJECT|WARN)/i.exec(critR2Resp.text || "")?.[1] || null;
-      r2RunRecords.push({
-        id: critR2Cm.id,
-        role: "critic",
-        provider: roles.critic.provider,
-        model: roles.critic.model,
-        startedAt: critR2StartedAt,
-        completedAt: critR2CompletedAt,
-        durationMs: critR2CompletedAt - critR2StartedAt,
-        content: critR2Resp.text,
-        verdict: critR2Verdict ? critR2Verdict.toUpperCase() : null,
-      });
-      setHeadId(masterCm.id);
-
-      // ── Phase 5: Master R2 synthesis (new commit on main, parent = R1 Master) ──
+      // ── Phase 7: R2 MasterMerge — multi-parent diamond on main, mergeIds = [3 R2 Executes] ──
       const masterR2StartedAt = Date.now();
-      const masterR2Prompt = buildSynthesisR2Prompt({
+      const r2MergePrompt = buildR2MergeSynthesisPrompt({
         userQuestion: userMsg,
-        r1ExecutorAnswer: r1Executor.response,
-        r2ExecutorAnswer: taskResp.text,
-        r1ValidatorVerdict: r1Validator.response,
-        r2ValidatorVerdict: valR2Resp.text,
-        r1CriticVerdict: r1Critic.response,
-        r2CriticVerdict: critR2Resp.text,
+        r2ExecutorOutput: execRun.execResp.text,
+        r2ValidatorOutput: valRun.execResp.text,
+        r2CriticOutput: critRun.execResp.text,
+        r1Synthesis: r1MergeCm.response,
         executorModel: roles.executor.model,
         validatorModel: roles.validator.model,
         criticModel: roles.critic.model,
       });
-
-      // Create the Master R2 commit on the same branch as the R1 master (typically "main")
-      const masterR2Cm = mkCommit(
-        masterCm.id,
-        "팀 라운드 2 합성",
-        "🟣 라운드 2 호출됨. 팀 의견 통합 중...\n\n",
-        masterCm.branch,
-        null,
+      const r2MergeCm = mkCommit(
+        r1MergeCm.id,
+        "",
+        "",
+        r1MergeCm.branch,
+        [execRun.execCm.id, valRun.execCm.id, critRun.execCm.id],
         roles.master.model,
         {},
       );
-      masterR2Cm.role = "master";
-      masterR2Cm.provider = roles.master.provider;
-      masterR2Cm.iteration = 2;
-      masterR2Cm.refinesId = masterCm.id;
-      const ncMasterR2 = [...cRef.current, masterR2Cm];
-      setCommits(ncMasterR2); cRef.current = ncMasterR2;
-      setHeadId(masterR2Cm.id);
-      save(masterCm.prompt?.slice(0, 40) || null, ncMasterR2, masterR2Cm.id, masterCm.branch);
+      r2MergeCm.role = "master";
+      r2MergeCm.provider = roles.master.provider;
+      r2MergeCm.iteration = 2;
+      r2MergeCm.refinesId = r1MergeCm.id;
+      const ncR2Merge = [...cRef.current, r2MergeCm];
+      setCommits(ncR2Merge); cRef.current = ncR2Merge; setHeadId(r2MergeCm.id);
+      save(userMsg.slice(0, 40), ncR2Merge, r2MergeCm.id, r1MergeCm.branch);
 
-      // Stream synthesis into masterR2Cm.response
-      const r2Prefix = "🟣 라운드 2 호출됨. 팀 의견 통합 중...\n\n";
       let masterR2Text = "";
       try {
         const masterR2Resp = await callLLMStream(
           apiKey,
-          [{ role: "user", content: masterR2Prompt }],
+          [{ role: "user", content: r2MergePrompt }],
           { model: roles.master.model || currentModel, signal: abortRef.current?.signal },
           {
             onText: (delta) => {
               masterR2Text += delta;
-              updateCommitResponse(masterR2Cm.id, r2Prefix + masterR2Text);
+              updateCommitResponse(r2MergeCm.id, masterR2Text);
             },
           },
         );
         if (!masterR2Text && masterR2Resp.text) {
           masterR2Text = masterR2Resp.text;
-          updateCommitResponse(masterR2Cm.id, r2Prefix + masterR2Text);
+          updateCommitResponse(r2MergeCm.id, masterR2Text);
         }
       } catch (synthErr) {
         if (!isAbortError(synthErr)) {
           updateCommitResponse(
-            masterR2Cm.id,
-            r2Prefix + "(Master R2 synthesis 실패: " + (synthErr as Error).message + ")",
+            r2MergeCm.id,
+            "(Master R2 synthesis 실패: " + (synthErr as Error).message + ")",
           );
         }
       }
       const masterR2CompletedAt = Date.now();
-      save(masterCm.prompt?.slice(0, 40) || null, cRef.current, masterR2Cm.id, masterCm.branch);
+      save(userMsg.slice(0, 40), cRef.current, r2MergeCm.id, r1MergeCm.branch);
 
       r2RunRecords.push({
-        id: masterR2Cm.id,
+        id: r2MergeCm.id,
         role: "master",
         provider: roles.master.provider,
         model: roles.master.model,
         startedAt: masterR2StartedAt,
         completedAt: masterR2CompletedAt,
         durationMs: masterR2CompletedAt - masterR2StartedAt,
-        content: r2Prefix + masterR2Text,
+        content: masterR2Text,
         verdict: null,
         iteration: 2,
-        refinesId: masterCm.id,
+        refinesId: r1MergeCm.id,
       });
 
-      // Tag the executor + V + C R2 runs with iteration/refines for the saver
-      // (already set on commits; we add the metadata to runs here to mirror)
-      for (const rec of r2RunRecords) {
-        if (rec.role === "executor" && rec.id === reviewCm.id) {
-          rec.iteration = 2; rec.executorPhase = "review"; rec.refinesId = r1Executor.id;
-        } else if (rec.role === "executor" && rec.id === taskCm.id) {
-          rec.iteration = 2; rec.executorPhase = "task"; rec.refinesId = r1Executor.id;
-        } else if (rec.role === "validator" && rec.id === valR2Cm.id) {
-          rec.iteration = 2; rec.refinesId = r1Validator.id;
-        } else if (rec.role === "critic" && rec.id === critR2Cm.id) {
-          rec.iteration = 2; rec.refinesId = r1Critic.id;
-        }
-      }
-
-      // Final verdict for R2 session
       const r2FinalVerdict: "approved" | "rejected" | "warning" =
-        /REJECT/i.test(critR2Resp.text || "") || /UNVERIFIED/i.test(valR2Resp.text || "")
+        /REJECT/i.test(critRun.execResp.text || "") || /UNVERIFIED/i.test(valRun.execResp.text || "")
           ? "rejected"
-          : /WARN/i.test(critR2Resp.text || "") || /PARTIAL/i.test(valR2Resp.text || "")
+          : /WARN/i.test(critRun.execResp.text || "") || /PARTIAL/i.test(valRun.execResp.text || "")
             ? "warning"
             : "approved";
 
       if (neo4jConfigured()) {
         setNeo4jStatus({ state: "saving" });
-        const r2SessionId = "session_" + masterCm.id + "_r2";
+        const r2SessionId = "session_" + r1MergeCm.id + "_r2";
         saveSessionToNeo4j({
           id: r2SessionId,
           user_prompt: userMsg,
