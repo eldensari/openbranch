@@ -548,9 +548,19 @@ export default function Graph(props: Props) {
                 setCtx({ x: e.clientX, y: e.clientY, cid: n.cid, range: selectMode && rangeSel && selectedRangeIds?.length > 0 });
               }}
             >
-              {(cur || sel || hov) && <circle cx={p.x} cy={p.y} r={hov ? 12 : 10} fill={rangeSel ? "var(--branch-1)" : mergeSel ? "var(--branch-5)" : col} opacity={hov ? 0.22 : 0.15} />}
+              {(cur || sel || hov) && <circle cx={p.x} cy={p.y} r={hov ? 13 : 11} fill={rangeSel ? "var(--branch-1)" : mergeSel ? "var(--branch-5)" : col} opacity={hov ? 0.22 : 0.15} />}
               {isMrg ? (
-                <rect x={p.x - r} y={p.y - r} width={r * 2} height={r * 2} rx={2} fill={col} stroke={col} strokeWidth={1.5} />
+                // Rotated square = diamond, with stroke-only style to match the circle nodes
+                <rect
+                  x={p.x - r * 1.05}
+                  y={p.y - r * 1.05}
+                  width={r * 2.1}
+                  height={r * 2.1}
+                  fill={bg}
+                  stroke={rangeSel ? "var(--branch-1)" : mergeSel ? "var(--branch-5)" : col}
+                  strokeWidth={cur || rangeSel ? 2.6 : hov ? 2.4 : 2}
+                  transform={`rotate(45 ${p.x} ${p.y})`}
+                />
               ) : (
                 <circle cx={p.x} cy={p.y} r={r} fill={bg} stroke={rangeSel ? "var(--branch-1)" : mergeSel ? "var(--branch-5)" : col} strokeWidth={cur || rangeSel ? 2.6 : hov ? 2.4 : 1.7} />
               )}

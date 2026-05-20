@@ -653,6 +653,7 @@ export default function ChatPanel(props: Props) {
                 onMouseEnter={() => setHoveredCid(cm.id)}
                 onMouseLeave={() => setHoveredCid(null)}
               >
+                {(cm.prompt || inlineEditId === cm.id) && (
                 <div
                   className={cn(
                     "flex flex-col items-end",
@@ -778,6 +779,7 @@ export default function ChatPanel(props: Props) {
                     </>
                   )}
                 </div>
+                )}
                 <div className="self-start w-full flex flex-col gap-1">
                   {cm.role && (
                     <div className="mb-1 team-pop">
