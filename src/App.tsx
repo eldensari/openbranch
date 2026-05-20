@@ -1455,8 +1455,55 @@ export default function App() {
       // Keep head on Master so the user's main chat focus stays put
       setHeadId(masterCm.id);
 
-      // (S4 chains Executor Task, S5 chains Validator R2 + Critic R2, S6 appends Master R2 synthesis)
-      void r2StartedAt; void r2RunRecords; void userMsg;
+      // ── Phase 2: Executor Task (parent = Review) ──
+      const taskStartedAt = Date.now();
+      const taskBranch = nextBranchName(cRef.current);
+      const taskPrompt = buildExecutorTaskPrompt(userMsg, reviewResp.text);
+      const taskResp = await runLLMWithActivity(
+        [{ role: "user" as const, content: taskPrompt }],
+        "Executor Task (R2)",
+        undefined,
+        false,
+        { parentId: reviewCm.id, branchName: taskBranch },
+      );
+      const taskCompletedAt = Date.now();
+      const taskCm = mkCommit(
+        reviewCm.id,
+        "Executor Task (R2 fix)",
+        taskResp.text,
+        taskBranch,
+        null,
+        roles.executor.model,
+        {
+          activities: taskResp.activities,
+          thinking: taskResp.thinking,
+        },
+      );
+      taskCm.role = "executor";
+      taskCm.provider = roles.executor.provider;
+      taskCm.iteration = 2;
+      taskCm.executorPhase = "task";
+      taskCm.refinesId = r1Executor.id;
+      const ncTask = [...cRef.current, taskCm];
+      setCommits(ncTask); cRef.current = ncTask;
+      setStreamingDraft(null); streamingDraftRef.current = null;
+      save(masterCm.prompt?.slice(0, 40) || null, ncTask, taskCm.id, taskBranch);
+
+      r2RunRecords.push({
+        id: taskCm.id,
+        role: "executor",
+        provider: roles.executor.provider,
+        model: roles.executor.model,
+        startedAt: taskStartedAt,
+        completedAt: taskCompletedAt,
+        durationMs: taskCompletedAt - taskStartedAt,
+        content: taskResp.text,
+        verdict: "CORRECTED",
+      });
+      setHeadId(masterCm.id);
+
+      // (S5 chains Validator R2 + Critic R2; S6 Master R2 synthesis)
+      void r2StartedAt;
     } catch (e) {
       if (isAbortError(e)) { setPending(null); setStreamingDraft(null); streamingDraftRef.current = null; return; }
       if ((e as any).code === "RATE_LIMIT") {
