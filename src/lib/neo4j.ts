@@ -27,6 +27,9 @@ export type AgentRunRecord = {
   iteration?: number;
   executorPhase?: "draft" | "review" | "task";
   refinesId?: string | null;
+  /** If set, this run is also a :SynthesisMerge — multi-parent merge of these AgentRun ids */
+  mergesIds?: string[];
+  round?: number;
 };
 
 export type SessionRecord = {
@@ -108,6 +111,16 @@ FOREACH (_ IN CASE WHEN run.refinesId IS NOT NULL THEN [1] ELSE [] END |
   MERGE (parent:AgentRun { id: run.refinesId })
   MERGE (r)-[:REFINES]->(parent)
 )
+FOREACH (_ IN CASE WHEN run.mergesIds IS NOT NULL AND size(run.mergesIds) > 0 THEN [1] ELSE [] END |
+  SET r:SynthesisMerge,
+      r.round = run.round,
+      r.merge_size = size(run.mergesIds)
+)
+WITH s, r, run
+UNWIND coalesce(run.mergesIds, []) AS mergedId
+MERGE (mergedRun:AgentRun { id: mergedId })
+MERGE (r)-[:MERGES]->(mergedRun)
+WITH s, r, run
 WITH s
 OPTIONAL MATCH (s)-[:CONTAINS]->(mast:AgentRun { role: 'master', iteration: 1 })
 WITH s, mast

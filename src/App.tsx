@@ -983,6 +983,8 @@ export default function App() {
         verdict: null,
         iteration: 1,
         refinesId: masterCm.id,
+        mergesIds: [execCm.id, valCm.id, critCm.id],
+        round: 1,
       });
       runRecords.push({
         id: execCm.id,
@@ -1649,6 +1651,8 @@ export default function App() {
         verdict: null,
         iteration: 2,
         refinesId: r1MergeCm.id,
+        mergesIds: [execRun.execCm.id, valRun.execCm.id, critRun.execCm.id],
+        round: 2,
       });
 
       const r2FinalVerdict: "approved" | "rejected" | "warning" =
