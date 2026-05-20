@@ -765,6 +765,21 @@ export default function App() {
     abortRef.current = ac;
     const sessionStartedAt = Date.now();
     const runRecords: AgentRunRecord[] = [];
+    // Pin a stable conv id for the whole team flow so branchTitles updates can find the conv
+    const activeConvId = convId || "conv:" + Date.now();
+    const renameBr = (branchName: string, title: string) => {
+      const stored = storage.get(activeConvId);
+      if (!stored?.value) return;
+      try {
+        const cv = JSON.parse(stored.value);
+        cv.branchTitles = { ...(cv.branchTitles || {}), [branchName]: title };
+        cv.u = new Date().toISOString();
+        storage.set(activeConvId, JSON.stringify(cv));
+        setConvs((p) => p.map((c) => (c.id === activeConvId ? cv : c)));
+      } catch {
+        /* ignore */
+      }
+    };
     try {
       const roles = assignRoles(apiKey, [], currentModel);
 
@@ -778,7 +793,7 @@ export default function App() {
       masterCm.iteration = 1;
       const ncMaster = [...cRef.current, masterCm];
       setCommits(ncMaster); cRef.current = ncMaster; setHeadId(masterCm.id);
-      save(msg.slice(0, 40), ncMaster, masterCm.id, br);
+      save(msg.slice(0, 40), ncMaster, masterCm.id, br, null, activeConvId);
 
       // Phase 2: Spawn Executor branch
       const execStartedAt = Date.now();
@@ -802,10 +817,12 @@ export default function App() {
       execCm.provider = roles.executor.provider;
       execCm.iteration = 1;
       execCm.executorPhase = "draft";
+      // Persistent semantic branch label
+      renameBr(execBranch, "Executor");
       const ncExec = [...cRef.current, execCm];
       setCommits(ncExec); cRef.current = ncExec;
       setStreamingDraft(null); streamingDraftRef.current = null;
-      save(msg.slice(0, 40), ncExec, execCm.id, execBranch);
+      save(msg.slice(0, 40), ncExec, execCm.id, execBranch, null, activeConvId);
 
       // Phase 3: Master intermediate update — head back to main
       setHeadId(masterCm.id); setBranch(br);
@@ -831,10 +848,11 @@ export default function App() {
       valCm.role = "validator";
       valCm.provider = roles.validator.provider;
       valCm.iteration = 1;
+      renameBr(valBranch, "Validator");
       const ncVal = [...cRef.current, valCm];
       setCommits(ncVal); cRef.current = ncVal;
       setStreamingDraft(null); streamingDraftRef.current = null;
-      save(msg.slice(0, 40), ncVal, valCm.id, valBranch);
+      save(msg.slice(0, 40), ncVal, valCm.id, valBranch, null, activeConvId);
       // Head back to Master after validator branch
       setHeadId(masterCm.id); setBranch(br);
 
@@ -858,10 +876,11 @@ export default function App() {
       critCm.role = "critic";
       critCm.provider = roles.critic.provider;
       critCm.iteration = 1;
+      renameBr(critBranch, "Critic");
       const ncCrit = [...cRef.current, critCm];
       setCommits(ncCrit); cRef.current = ncCrit;
       setStreamingDraft(null); streamingDraftRef.current = null;
-      save(msg.slice(0, 40), ncCrit, critCm.id, critBranch);
+      save(msg.slice(0, 40), ncCrit, critCm.id, critBranch, null, activeConvId);
 
       // Head back to Master
       setHeadId(masterCm.id); setBranch(br);
@@ -894,7 +913,7 @@ export default function App() {
       r1MergeCm.iteration = 1;
       const ncMerge = [...cRef.current, r1MergeCm];
       setCommits(ncMerge); cRef.current = ncMerge; setHeadId(r1MergeCm.id);
-      save(msg.slice(0, 40), ncMerge, r1MergeCm.id, br);
+      save(msg.slice(0, 40), ncMerge, r1MergeCm.id, br, null, activeConvId);
 
       let synthText = "";
       try {
@@ -922,7 +941,7 @@ export default function App() {
         }
       }
       // Persist final merge commit content
-      save(msg.slice(0, 40), cRef.current, r1MergeCm.id, br);
+      save(msg.slice(0, 40), cRef.current, r1MergeCm.id, br, null, activeConvId);
 
       const masterCompletedAt = Date.now();
       const sessionCompletedAt = masterCompletedAt;
