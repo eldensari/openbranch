@@ -868,7 +868,10 @@ export default function App() {
       // Head back to Master
       setHeadId(masterCm.id); setBranch(br);
 
-      // Phase 6: Final Master synthesis — streams INTO the Master commit's response
+      // Update master delegation text to its final pre-merge state
+      updateCommitResponse(masterCm.id, MASTER_DELEGATION_TEXT + "\n\n" + MASTER_INTERMEDIATE_TEXT);
+
+      // Phase 6: R1 MasterMerge — multi-parent diamond on main merging the 3 worker outs
       const synthPrompt = buildSynthesisPrompt({
         userQuestion: msg,
         executorAnswer: execResp.text,
@@ -878,8 +881,23 @@ export default function App() {
         criticAnswer: critResp.text,
         criticModel: roles.critic.model,
       });
-      const prefix = MASTER_DELEGATION_TEXT + "\n\n" + MASTER_INTERMEDIATE_TEXT + "\n\n";
-      updateCommitResponse(masterCm.id, prefix);
+
+      const r1MergeCm = mkCommit(
+        masterCm.id,
+        "",
+        "",
+        br,
+        [execCm.id, valCm.id, critCm.id],
+        roles.master.model,
+        {},
+      );
+      r1MergeCm.role = "master";
+      r1MergeCm.provider = roles.master.provider;
+      r1MergeCm.iteration = 1;
+      const ncMerge = [...cRef.current, r1MergeCm];
+      setCommits(ncMerge); cRef.current = ncMerge; setHeadId(r1MergeCm.id);
+      save(msg.slice(0, 40), ncMerge, r1MergeCm.id, br);
+
       let synthText = "";
       try {
         const synthResp = await callLLMStream(
@@ -889,28 +907,27 @@ export default function App() {
           {
             onText: (delta) => {
               synthText += delta;
-              updateCommitResponse(masterCm.id, prefix + synthText);
+              updateCommitResponse(r1MergeCm.id, synthText);
             },
           },
         );
         if (!synthText && synthResp.text) {
           synthText = synthResp.text;
-          updateCommitResponse(masterCm.id, prefix + synthText);
+          updateCommitResponse(r1MergeCm.id, synthText);
         }
       } catch (synthErr) {
         if (!isAbortError(synthErr)) {
           updateCommitResponse(
-            masterCm.id,
-            prefix + "(Master synthesis 실패: " + (synthErr as Error).message + ")",
+            r1MergeCm.id,
+            "(Master R1 synthesis 실패: " + (synthErr as Error).message + ")",
           );
         }
       }
-      // Persist final master commit content
-      save(msg.slice(0, 40), cRef.current, masterCm.id, br);
+      // Persist final merge commit content
+      save(msg.slice(0, 40), cRef.current, r1MergeCm.id, br);
 
       const masterCompletedAt = Date.now();
       const sessionCompletedAt = masterCompletedAt;
-      const finalMasterResponse = prefix + (synthText || "");
 
       // Heuristic final verdict for the session
       const detect = (t: string, ...words: string[]) =>
@@ -922,6 +939,7 @@ export default function App() {
             ? "warning"
             : "approved";
 
+      // Master delegation commit (the user-facing intro narration)
       runRecords.push({
         id: masterCm.id,
         role: "master",
@@ -930,8 +948,24 @@ export default function App() {
         startedAt: masterStartedAt,
         completedAt: masterCompletedAt,
         durationMs: masterCompletedAt - masterStartedAt,
-        content: finalMasterResponse,
+        content: MASTER_DELEGATION_TEXT + "\n\n" + MASTER_INTERMEDIATE_TEXT,
         verdict: null,
+        iteration: 1,
+        executorPhase: "draft",
+      });
+      // R1 MasterMerge — the multi-parent synthesis diamond
+      runRecords.push({
+        id: r1MergeCm.id,
+        role: "master",
+        provider: roles.master.provider,
+        model: roles.master.model,
+        startedAt: masterStartedAt,
+        completedAt: masterCompletedAt,
+        durationMs: masterCompletedAt - masterStartedAt,
+        content: synthText,
+        verdict: null,
+        iteration: 1,
+        refinesId: masterCm.id,
       });
       runRecords.push({
         id: execCm.id,
@@ -1365,29 +1399,26 @@ export default function App() {
     });
   };
 
-  const startRound2 = async (masterCmId: string) => {
+  const startRound2 = async (masterMergeCmId: string) => {
     if (thinking) return;
     const allCommits = cRef.current;
-    const masterCm = allCommits.find((c) => c.id === masterCmId);
-    if (!masterCm || masterCm.role !== "master" || masterCm.iteration !== 1) {
-      showToast("Round 2 unavailable — Master R1 commit not found.");
+    const masterMergeCm = allCommits.find((c) => c.id === masterMergeCmId);
+    if (!masterMergeCm || masterMergeCm.role !== "master" || masterMergeCm.iteration !== 1 || !(masterMergeCm.mergeIds || []).length) {
+      showToast("Round 2 unavailable — R1 MasterMerge not found.");
       return;
     }
-    // Find R1 siblings — each is a direct child of masterCm with iteration=1
-    const r1Executor = allCommits.find(
-      (c) => c.parentId === masterCm.id && c.role === "executor" && c.iteration === 1,
-    );
-    const r1Validator = allCommits.find(
-      (c) => c.parentId === masterCm.id && c.role === "validator" && c.iteration === 1,
-    );
-    const r1Critic = allCommits.find(
-      (c) => c.parentId === masterCm.id && c.role === "critic" && c.iteration === 1,
-    );
+    // Anchor for R2 chain bookkeeping = the MasterMerge commit
+    const masterCm = masterMergeCm;
+    const r1ParentIds = masterMergeCm.mergeIds || [];
+    // Each merged parent is one of the 3 worker R1 outs — identify by role
+    const r1Executor = allCommits.find((c) => r1ParentIds.includes(c.id) && c.role === "executor" && c.iteration === 1);
+    const r1Validator = allCommits.find((c) => r1ParentIds.includes(c.id) && c.role === "validator" && c.iteration === 1);
+    const r1Critic = allCommits.find((c) => r1ParentIds.includes(c.id) && c.role === "critic" && c.iteration === 1);
     if (!r1Executor || !r1Validator || !r1Critic) {
-      showToast("Round 2 unavailable — R1 team commits incomplete.");
+      showToast("Round 2 unavailable — R1 worker commits incomplete.");
       return;
     }
-    // Guard: at most one R2 chain per Master
+    // Guard: at most one R2 chain per MasterMerge
     if (allCommits.some((c) => c.iteration === 2 && c.refinesId === masterCm.id)) {
       showToast("Round 2 already ran for this conversation.");
       return;
