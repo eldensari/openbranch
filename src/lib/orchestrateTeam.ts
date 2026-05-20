@@ -3,7 +3,7 @@ import { detectProvider, MODEL_CHOICES } from "./llm";
 
 export const ROLE_SYSTEM_PROMPTS: Record<AgentRole, string> = {
   master:
-    "You are the Master coordinator on an AI validation team. You speak ONLY Korean to the user, briefly and plainly (5살 수준).",
+    "You are the Master coordinator on an AI validation team. Speak to the user briefly and plainly in English, the way you'd explain a technical situation to a non-engineer.",
   executor:
     "You are the Executor on an AI validation team. Generate the most direct, useful answer to the user's request. Be confident and complete. Do NOT add validation caveats — that's another agent's job. If the request is code, write working code.",
   validator:
@@ -90,8 +90,8 @@ export function assignRoles(
   };
 }
 
-export const MASTER_DELEGATION_TEXT = "🟣 팀장 호출됨. Executor에게 작업 분배 중...";
-export const MASTER_INTERMEDIATE_TEXT = "초안 받았어요. Validator + Critic 호출 중...";
+export const MASTER_DELEGATION_TEXT = "🟣 Team lead activated. Delegating to Executor...";
+export const MASTER_INTERMEDIATE_TEXT = "Draft received. Invoking Validator and Critic...";
 
 export function buildMasterRunningResponse(stage: "delegating" | "validating"): string {
   if (stage === "delegating") {
@@ -201,20 +201,20 @@ export type R2SynthesisInput = {
 export function buildR2MergeSynthesisPrompt(s: R2SynthesisInput): string {
   return (
     "You are the Master coordinator. The team just finished ROUND 2. " +
-    "Write a SHORT round-2 report in plain Korean comparing R1 vs R2. The user did NOT see the sub-agent branches.\n\n" +
+    "Write a SHORT round-2 report in plain English comparing Round 1 vs Round 2. The user did NOT see the sub-agent branches.\n\n" +
     "--- Original user request ---\n" + s.userQuestion +
     "\n\n--- Round 1 team synthesis (what you reported before) ---\n" + s.r1Synthesis +
     "\n\n--- Round 2 Executor (" + s.executorModel + ") corrected answer ---\n" + s.r2ExecutorOutput +
     "\n\n--- Round 2 Validator (" + s.validatorModel + ") verdict ---\n" + s.r2ValidatorOutput +
     "\n\n--- Round 2 Critic (" + s.criticModel + ") verdict ---\n" + s.r2CriticOutput +
-    "\n\n--- Write the round-2 report in Korean using EXACTLY this format ---\n\n" +
-    "✅ 2차 검증 완료\n" +
-    "- 변경점: <Round 1 → Round 2 무엇이 수정됨, 한 줄>\n" +
-    "- Validator R2: <verdict + 한 줄 비교>\n" +
-    "- Critic R2: <verdict + 한 줄 비교>\n" +
-    "→ 최종: <검증된 최종 답; 코드면 한 블록만; 여전히 미해결이면 그 이유>\n\n" +
+    "\n\n--- Write the round-2 report in English using EXACTLY this format ---\n\n" +
+    "✅ Round 2 Review Complete\n" +
+    "- Change: <what was fixed from Round 1 → Round 2, one line>\n" +
+    "- Validator R2: <verdict + one-line R1→R2 comparison>\n" +
+    "- Critic R2: <verdict + one-line R1→R2 comparison>\n" +
+    "→ Verified Final Answer: <the verified answer; if code, one block only; if still unresolved, the reason>\n\n" +
     "If BOTH Validator R2 (VERIFIED) AND Critic R2 (APPROVE), include this line at the end:\n" +
-    "🎯 1차 환각 → 2차 수정 입증. 브랜치+머지가 메모리입니다."
+    "🎯 Round 1 hallucination → Round 2 corrected. Branch + merge IS the memory."
   );
 }
 
@@ -317,7 +317,7 @@ export type SynthesisR2Input = {
 export function buildSynthesisR2Prompt(s: SynthesisR2Input): string {
   return (
     "You are the Master coordinator. The team just ran ROUND 2 to fix the issues from round 1. " +
-    "Write a SHORT round-2 report in plain Korean comparing R1 vs R2. The user did NOT see the sub-agent branches.\n\n" +
+    "Write a SHORT round-2 report in plain English comparing Round 1 vs Round 2. The user did NOT see the sub-agent branches.\n\n" +
     "User's original question:\n" + s.userQuestion +
     "\n\n--- Round 1 Executor (" + s.executorModel + ") ---\n" + s.r1ExecutorAnswer +
     "\n\n--- Round 1 Validator (" + s.validatorModel + ") ---\n" + s.r1ValidatorVerdict +
@@ -325,20 +325,20 @@ export function buildSynthesisR2Prompt(s: SynthesisR2Input): string {
     "\n\n--- Round 2 Executor (" + s.executorModel + ", corrected) ---\n" + s.r2ExecutorAnswer +
     "\n\n--- Round 2 Validator (" + s.validatorModel + ") ---\n" + s.r2ValidatorVerdict +
     "\n\n--- Round 2 Critic (" + s.criticModel + ") ---\n" + s.r2CriticVerdict +
-    "\n\n--- Write the round-2 report in Korean using EXACTLY this format ---\n\n" +
-    "✅ 2차 검증 완료\n" +
-    "- Round 1 → Round 2 비교: <무엇이 수정됨, 한 줄>\n" +
-    "- Validator R2: <verdict + 한 줄 R1→R2 비교>\n" +
-    "- Critic R2: <verdict + 한 줄 R1→R2 비교>\n" +
-    "→ 최종: <검증된 최종 답 또는 여전히 미해결 시 그 이유; 코드면 한 블록만>\n\n" +
+    "\n\n--- Write the round-2 report in English using EXACTLY this format ---\n\n" +
+    "✅ Round 2 Review Complete\n" +
+    "- Round 1 → Round 2 change: <what was fixed, one line>\n" +
+    "- Validator R2: <verdict + one-line R1→R2 comparison>\n" +
+    "- Critic R2: <verdict + one-line R1→R2 comparison>\n" +
+    "→ Verified Final Answer: <the verified answer, or the reason it's still unresolved; if code, one block only>\n\n" +
     "If BOTH Validator R2 and Critic R2 approve (VERIFIED + APPROVE), include this line at the end:\n" +
-    "🎯 메모리 기반 학습 입증 — 1차 환각 → 2차 수정 성공."
+    "🎯 Memory-based learning demonstrated — Round 1 hallucination → Round 2 corrected."
   );
 }
 
 export function buildSynthesisPrompt(s: SynthesisInput): string {
   return (
-    "You are the Master coordinator. Synthesize the team's findings into a SHORT report in plain Korean for the user. " +
+    "You are the Master coordinator. Synthesize the team's findings into a SHORT report in plain English for the user. " +
     "Speak as the team lead. The user did NOT see the sub-agent branches; you summarize.\n\n" +
     "User's original question:\n" +
     s.userQuestion +
@@ -354,20 +354,20 @@ export function buildSynthesisPrompt(s: SynthesisInput): string {
     s.criticModel +
     ") verdict:\n" +
     s.criticAnswer +
-    "\n\n---\n\nWrite the final synthesis in Korean using EXACTLY this format:\n\n" +
-    "✅ 팀 검증 완료\n" +
+    "\n\n---\n\nWrite the final synthesis in English using EXACTLY this format:\n\n" +
+    "✅ Team Review Complete\n" +
     "- Executor (" +
     s.executorModel +
-    "): <한 줄 요약>\n" +
+    "): <one-line summary>\n" +
     "- Validator (" +
     s.validatorModel +
-    "): <verdict + 한 줄 이유>\n" +
+    "): <verdict + one-line reasoning>\n" +
     "- Critic (" +
     s.criticModel +
-    "): <verdict + 한 줄 이유>\n" +
-    "→ 검증된 최종 답: <검증된 내용 또는 거부 사유; 코드면 한 블록만 제시>\n\n" +
+    "): <verdict + one-line reasoning>\n" +
+    "→ Verified Final Answer: <the verified content, or the reason for rejection; if code, one block only>\n\n" +
     "If both Validator and Critic flag a hallucination (e.g. non-existent library), the header line MUST be:\n" +
-    "🛑 팀이 환각을 발견했습니다.\n" +
-    "...and the 검증된 최종 답 must provide the verified safe alternative."
+    "🛑 Team Detected Hallucination.\n" +
+    "...and the Verified Final Answer must provide the safe alternative."
   );
 }

@@ -936,7 +936,7 @@ export default function App() {
         if (!isAbortError(synthErr)) {
           updateCommitResponse(
             r1MergeCm.id,
-            "(Master R1 synthesis 실패: " + (synthErr as Error).message + ")",
+            "(Master R1 synthesis failed: " + (synthErr as Error).message + ")",
           );
         }
       }
@@ -1632,7 +1632,7 @@ export default function App() {
         if (!isAbortError(synthErr)) {
           updateCommitResponse(
             r2MergeCm.id,
-            "(Master R2 synthesis 실패: " + (synthErr as Error).message + ")",
+            "(Master R2 synthesis failed: " + (synthErr as Error).message + ")",
           );
         }
       }
