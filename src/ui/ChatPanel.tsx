@@ -813,7 +813,7 @@ export default function ChatPanel(props: Props) {
                         </>
                       )}
                   </div>
-                  {cm.role === "master" && cm.iteration === 1 && (cm.mergeIds || []).length > 0 && /(?:REJECT|🛑)/.test(cm.response || "") && !commits.some((x: any) => x.iteration === 2 && x.refinesId === cm.id) && (
+                  {cm.role === "master" && cm.iteration === 1 && (cm.mergeIds || []).length > 0 && !commits.some((x: any) => x.iteration === 2 && x.refinesId === cm.id) && (
                     <button
                       type="button"
                       onClick={() => props.startRound2?.(cm.id)}
