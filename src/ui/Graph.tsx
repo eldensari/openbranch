@@ -229,6 +229,8 @@ export default function Graph(props: Props) {
 
   useEffect(() => {
     if (!headId) return;
+    const headCommit = commits.find((cm: any) => cm.id === headId);
+    if (headCommit?.liveEvent?.metadata?.storyKind === "attempt" || headCommit?.liveEvent?.metadata?.storyKind === "episode") return;
     setExpandedStepOwners((prev) => {
       if (prev.has(headId)) return prev;
       const next = new Set(prev);
@@ -265,7 +267,7 @@ export default function Graph(props: Props) {
       parentVid: cm.parentId || (hasParent ? "ghost" : null),
       mergeVids: cm.mergeIds || [],
     });
-    if (expandedStepOwners.has(cm.id)) {
+    if (expandedStepOwners.has(cm.id) || cm.liveEvent?.metadata?.storyAutoExpand) {
       appendActivityNodes(
         vnodes,
         cm.id,

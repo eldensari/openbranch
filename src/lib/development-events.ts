@@ -1,4 +1,5 @@
 import type {
+  CommonDevelopmentEvent,
   Commit,
   CommitActivity,
   CommitId,
@@ -7,6 +8,7 @@ import type {
   DevelopmentEventSource,
   DevelopmentEventStatus,
 } from "@/types";
+import { commonEventsToCommits, type DevelopmentGraphView } from "@/lib/common-events";
 
 export const DEVELOPMENT_EVENT_COLORS: Record<DevelopmentEventKind, string> = {
   user_goal: "#71717a",
@@ -201,7 +203,7 @@ export const SAMPLE_DEVELOPMENT_EVENTS: DevelopmentEvent[] = [
     sequence: 10,
     actor: "OpenBranch",
     detail: [
-      "GitHub tracks code history. OpenBranch tracks AI development history.",
+      "GitHub tracks code commits. OpenBranch tracks AI development episodes: goals, plans, builds, failures, fixes, and merges.",
     ],
   },
 ];
@@ -236,7 +238,7 @@ function responseForEvent(event: DevelopmentEvent): string {
     lines.push(event.detail.map((item) => "- " + item).join("\n"));
   }
   if (event.kind === "merge_to_main") {
-    lines.push("**Demo story:** GitHub tracks code history. OpenBranch tracks AI development history.");
+    lines.push("**Demo story:** GitHub tracks code commits. OpenBranch tracks AI development episodes: goals, plans, builds, failures, fixes, and merges.");
   }
   return lines.join("\n\n");
 }
@@ -255,12 +257,58 @@ function activityForEvent(event: DevelopmentEvent, ts: number): CommitActivity {
   };
 }
 
+const DEVELOPMENT_EVENT_TO_COMMON_TYPE: Record<DevelopmentEventKind, CommonDevelopmentEvent["type"]> = {
+  user_goal: "goal",
+  kiro_plan: "plan",
+  kiro_spec: "spec",
+  kiro_task: "task",
+  kiro_build_attempt: "build_attempt",
+  kane_verify: "verify",
+  kane_failure: "fail",
+  ai_fix_branch: "fix_branch",
+  kane_pass: "pass",
+  merge_to_main: "merge",
+};
+
+function developmentEventToCommonEvent(event: DevelopmentEvent, timestamp: string): CommonDevelopmentEvent {
+  const source = event.source === "ai" ? "agent" : event.source;
+  return {
+    id: event.id,
+    timestamp,
+    source,
+    type: DEVELOPMENT_EVENT_TO_COMMON_TYPE[event.kind],
+    status: event.status,
+    label: event.title,
+    parentId: event.parentId,
+    branchId: event.branch,
+    summary: event.summary,
+    detail: event.detail,
+    mergeParentIds: event.mergeParentIds,
+    metadata: {
+      ...(event.metadata || {}),
+      actor: event.actor,
+      demoEventKind: event.kind,
+    },
+  };
+}
+
 export function developmentEventsToCommits(
   events: DevelopmentEvent[],
-  options: { baseTs?: number; stepMs?: number } = {},
+  options: { baseTs?: number; stepMs?: number; view?: DevelopmentGraphView } = {},
 ): Commit[] {
   const baseTs = options.baseTs ?? Date.now();
   const stepMs = options.stepMs ?? 1000;
+  if ((options.view || "story") === "story") {
+    const commonEvents = events
+      .slice()
+      .sort((a, b) => a.sequence - b.sequence)
+      .map((event, index) => {
+        const ts = baseTs + index * stepMs;
+        return developmentEventToCommonEvent(event, event.at ?? new Date(ts).toISOString());
+      });
+    return commonEventsToCommits(commonEvents, { view: "story" });
+  }
+
   return events
     .slice()
     .sort((a, b) => a.sequence - b.sequence)

@@ -99,7 +99,7 @@ export default function ChatPanel(props: Props) {
   const {
     commits, headId, branch, names, parentRef, thread,
     runAiDevelopmentDemo, devDemoRunning,
-    developmentMode, openDemoMode, openLiveMode, liveEventCount, liveEventsError,
+    developmentMode, developmentGraphView, setDevelopmentGraphView, openDemoMode, openLiveMode, liveEventCount, liveEventsError,
     convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
@@ -629,15 +629,37 @@ export default function ChatPanel(props: Props) {
               Live Mode
             </Button>
           </div>
+          {setDevelopmentGraphView && (
+            <div className="flex rounded-md border bg-background p-0.5">
+              <Button
+                type="button"
+                variant={developmentGraphView === "story" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setDevelopmentGraphView("story")}
+                className="h-7 px-2 text-xs"
+              >
+                Story View
+              </Button>
+              <Button
+                type="button"
+                variant={developmentGraphView === "raw" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setDevelopmentGraphView("raw")}
+                className="h-7 px-2 text-xs"
+              >
+                Raw Event View
+              </Button>
+            </div>
+          )}
           {developmentMode === "live" && (
             <span
               className={cn(
                 "max-w-[180px] truncate rounded-md px-2 py-1 text-[11px]",
                 liveEventsError ? "bg-destructive/10 text-destructive" : "bg-[color:var(--branch-5)]/10 text-[color:var(--branch-5)]",
               )}
-              title={liveEventsError || `${liveEventCount || 0} semantic events`}
+              title={liveEventsError || `${liveEventCount || 0} ${developmentGraphView === "raw" ? "raw events" : "story nodes"}`}
             >
-              {liveEventsError || `${liveEventCount || 0} semantic events`}
+              {liveEventsError || `${liveEventCount || 0} ${developmentGraphView === "raw" ? "raw events" : "story nodes"}`}
             </span>
           )}
           {developmentMode !== "live" && runAiDevelopmentDemo && (
@@ -684,7 +706,7 @@ export default function ChatPanel(props: Props) {
                     <span className="text-[10px] text-muted-foreground">Kiro, Kane, fix branch, merge</span>
                   </div>
                   <div className="text-sm text-foreground/90 leading-relaxed">
-                    GitHub tracks code history. OpenBranch tracks AI development history.
+                    GitHub tracks code commits. OpenBranch tracks AI development episodes: goals, plans, builds, failures, fixes, and merges.
                   </div>
                   <div className="mt-1.5 text-[11px] text-muted-foreground">
                     Watch a failed verification branch into an AI fix, pass Kane, and merge back to main.

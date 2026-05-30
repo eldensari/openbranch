@@ -7,6 +7,8 @@ import type {
 
 export const LIVE_EVENTS_URL = "/events.jsonl";
 
+export type DevelopmentGraphView = "story" | "raw";
+
 const SOURCE_LABEL: Record<CommonDevelopmentEvent["source"], string> = {
   user: "User",
   kiro: "Kiro",
@@ -17,10 +19,13 @@ const SOURCE_LABEL: Record<CommonDevelopmentEvent["source"], string> = {
 };
 
 const SEMANTIC_TYPE_LABEL: Record<SemanticDevelopmentEventType, string> = {
+  session: "Session",
   goal: "Goal",
   plan: "Plan",
   spec: "Spec",
   task: "Task",
+  feature_branch: "Feature Branch",
+  episode: "Episode",
   build_attempt: "Build Attempt",
   verify: "Verify",
   fail: "Fail",
@@ -30,10 +35,13 @@ const SEMANTIC_TYPE_LABEL: Record<SemanticDevelopmentEventType, string> = {
 };
 
 const SEMANTIC_STATUS: Record<SemanticDevelopmentEventType, string> = {
+  session: "active",
   goal: "goal",
   plan: "planned",
   spec: "specified",
   task: "tasked",
+  feature_branch: "branching",
+  episode: "building",
   build_attempt: "building",
   verify: "verifying",
   fail: "failed",
@@ -43,10 +51,13 @@ const SEMANTIC_STATUS: Record<SemanticDevelopmentEventType, string> = {
 };
 
 const SEMANTIC_COLORS: Record<SemanticDevelopmentEventType, string> = {
+  session: "#0f766e",
   goal: "#71717a",
   plan: "#2563eb",
   spec: "#2563eb",
   task: "#2563eb",
+  feature_branch: "#7c3aed",
+  episode: "#2563eb",
   build_attempt: "#2563eb",
   verify: "#16a34a",
   fail: "#dc2626",
@@ -99,6 +110,8 @@ function normalizeSemanticType(type?: string, status?: string): SemanticDevelopm
     .replace(/^_+|_+$/g, "");
 
   const direct: Record<string, SemanticDevelopmentEventType> = {
+    session: "session",
+    development_session: "session",
     user_goal: "goal",
     goal: "goal",
     kiro_plan: "plan",
@@ -109,6 +122,11 @@ function normalizeSemanticType(type?: string, status?: string): SemanticDevelopm
     specification: "spec",
     kiro_task: "task",
     task: "task",
+    feature: "feature_branch",
+    feature_branch: "feature_branch",
+    ai_feature_branch: "feature_branch",
+    episode: "episode",
+    development_episode: "episode",
     build: "build_attempt",
     build_attempt: "build_attempt",
     kiro_build: "build_attempt",
@@ -142,8 +160,11 @@ function semanticSourceFor(
   currentSource: CommonDevelopmentEvent["source"],
 ): CommonDevelopmentEvent["source"] {
   if (currentSource !== "agent" && currentSource !== "system") return currentSource;
+  if (type === "session") return "system";
   if (type === "goal") return "user";
+  if (type === "episode") return "agent";
   if (type === "plan" || type === "spec" || type === "task" || type === "build_attempt") return "kiro";
+  if (type === "feature_branch") return "agent";
   if (type === "verify" || type === "fail" || type === "pass") return "kane";
   if (type === "merge") return "merge";
   return "agent";
@@ -392,6 +413,19 @@ function makeSemanticEvent(args: {
   };
 }
 
+function rawEventSummary(event: CommonDevelopmentEvent) {
+  return {
+    id: event.id,
+    timestamp: event.timestamp,
+    source: event.source,
+    type: event.type,
+    status: event.status,
+    label: event.label,
+    branchId: event.branchId,
+    files: event.files,
+  };
+}
+
 function normalizeSemanticEvent(event: CommonDevelopmentEvent, fallbackParentId: string | null): CommonDevelopmentEvent | null {
   const type = normalizeSemanticType(event.type, event.status);
   if (!type) return null;
@@ -439,6 +473,10 @@ function fileGroupToBuildEvent(
     detail: files.map((file) => "Changed " + file),
     intent: intent.key,
     confidence: files.length > 1 ? 0.82 : 0.72,
+    metadata: {
+      rawEvents: group.map(rawEventSummary),
+      changeSummary,
+    },
   });
 }
 
@@ -637,11 +675,683 @@ export function commonEventsToSemanticEvents(events: CommonDevelopmentEvent[]): 
   return output;
 }
 
+type StoryStep = {
+  id: string;
+  kind: CommitActivity["kind"];
+  label: string;
+  detail?: string;
+  status: CommitActivity["status"];
+  source: string;
+  timestamp?: string;
+};
+
+type StoryFeatureInfo = {
+  key: string;
+  title: string;
+  branchId: string;
+};
+
+type StoryAttempt = {
+  build: CommonDevelopmentEvent;
+  verify: CommonDevelopmentEvent | null;
+  outcome: CommonDevelopmentEvent | null;
+  feature: StoryFeatureInfo;
+  fallbackBuildStep?: StoryStep;
+  order: number;
+};
+
+type StoryEpisode = {
+  key: string;
+  title: string;
+  feature: StoryFeatureInfo;
+  attempts: StoryAttempt[];
+  order: number;
+};
+
+function cleanStoryTitle(label: string) {
+  return label
+    .replace(/^Goal:\s*/i, "")
+    .replace(/^(Build|Update|Verify|Pass|Fail|Fix|Kiro)\s+/i, "")
+    .trim();
+}
+
+function metadataValue(event: CommonDevelopmentEvent, keys: string[]) {
+  for (const key of keys) {
+    const value = event.metadata?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function titleFromFeatureKey(key: string) {
+  return titleCase(key.replace(/[-_]+/g, " "));
+}
+
+function featureScore(
+  key: string,
+  files: string[],
+  text: string,
+): { key: string; title: string; score: number } {
+  const joinedFiles = files.map((file) => file.replace(/\\/g, "/")).join(" ").toLowerCase();
+  const joined = (joinedFiles + " " + text.toLowerCase()).trim();
+
+  if (key === "live-event-probe") {
+    return {
+      key,
+      title: "Live Event Probe",
+      score: /\blive-event-probe\b|live event probe|probe/.test(joined) ? 12 : 0,
+    };
+  }
+
+  if (key === "semantic-development-events") {
+    let score = 0;
+    if (/\bsrc\/lib\/common-events\.ts\b/.test(joinedFiles)) score += 6;
+    if (/\bsrc\/lib\/development-events\.ts\b/.test(joinedFiles)) score += 5;
+    if (/\bsrc\/types\.ts\b/.test(joinedFiles)) score += 3;
+    if (/\bsemantic|development event|event schema|adapter|events\.jsonl\b/.test(joined)) score += 3;
+    return { key, title: "Semantic Development Events", score };
+  }
+
+  let score = 0;
+  if (/\bsrc\/ui\/graph\.tsx\b/.test(joinedFiles)) score += 5;
+  if (/\bsrc\/ui\/chatpanel\.tsx\b/.test(joinedFiles)) score += 4;
+  if (/\bsrc\/app\.tsx\b/.test(joinedFiles)) score += 2;
+  if (/\bstory graph|graph ui|story view|raw event view|collapse|node|branch|merge\b/.test(joined)) score += 3;
+  return { key, title: "Story Graph UI", score };
+}
+
+function explicitFeatureKey(events: CommonDevelopmentEvent[]) {
+  for (const event of events) {
+    const explicit = metadataValue(event, ["featureKey", "featureId", "feature", "workUnit", "workUnitId"]);
+    if (explicit) return slugify(explicit.replace(/^feature\//, ""));
+    if (event.branchId?.startsWith("feature/")) return slugify(event.branchId.replace(/^feature\//, ""));
+  }
+  return "";
+}
+
+function inferFeatureInfo(
+  primary: CommonDevelopmentEvent,
+  related: Array<CommonDevelopmentEvent | null | undefined> = [],
+  fallback?: StoryFeatureInfo | null,
+): StoryFeatureInfo {
+  const events = [primary, ...(related.filter(Boolean) as CommonDevelopmentEvent[])];
+  const explicit = explicitFeatureKey(events);
+  if (explicit) {
+    return {
+      key: explicit,
+      title: titleFromFeatureKey(explicit),
+      branchId: "feature/" + explicit,
+    };
+  }
+
+  const files = Array.from(new Set(events.flatMap((event) => event.files || [])));
+  const text = events
+    .map((event) => [event.label, event.summary, event.intent, ...(event.detail || [])].filter(Boolean).join(" "))
+    .join(" ");
+  const candidates = [
+    featureScore("live-event-probe", files, text),
+    featureScore("semantic-development-events", files, text),
+    featureScore("story-graph-ui", files, text),
+  ].sort((a, b) => b.score - a.score);
+
+  if (candidates[0]?.score > 0) {
+    return {
+      key: candidates[0].key,
+      title: candidates[0].title,
+      branchId: "feature/" + candidates[0].key,
+    };
+  }
+
+  const intent = asString(primary.intent);
+  const inferredKey = intent && !["feature", "graph", "style", "config", "docs", "api"].includes(intent)
+    ? slugify(intent)
+    : fallback?.key || slugify(cleanStoryTitle(primary.label) || "development-work");
+  return {
+    key: inferredKey,
+    title: fallback?.key === inferredKey ? fallback.title : titleFromFeatureKey(inferredKey),
+    branchId: "feature/" + inferredKey,
+  };
+}
+
+function storySessionTitle(events: CommonDevelopmentEvent[]) {
+  const goal = events.find((event) => semanticEventType(event) === "goal");
+  const title = cleanStoryTitle(goal?.label || "Track AI development history");
+  return "Session: " + (title || "Development work cycle");
+}
+
+function storyStepDetail(event: CommonDevelopmentEvent, fallback: string) {
+  const lines = [event.summary || fallback];
+  if (event.files?.length) lines.push("Files:\n" + event.files.map((file) => "- " + file).join("\n"));
+  const rawEvents = Array.isArray(event.metadata?.rawEvents) ? event.metadata.rawEvents : [];
+  if (rawEvents.length) {
+    lines.push(
+      "Low-level events:\n" +
+        rawEvents
+          .map((raw) => {
+            if (!isRecord(raw)) return "";
+            return "- " + asString(raw.label, asString(raw.type, "event"));
+          })
+          .filter(Boolean)
+          .join("\n"),
+    );
+  } else if (event.rawEventIds?.length) {
+    lines.push("Raw event IDs: " + event.rawEventIds.join(", "));
+  }
+  return lines.filter(Boolean).join("\n\n");
+}
+
+function stepForEvent(event: CommonDevelopmentEvent, label: string, kind: CommitActivity["kind"]): StoryStep {
+  const type = semanticEventType(event);
+  const failed = type === "fail" || event.status === "failed";
+  return {
+    id: event.id + "-story-step",
+    kind: failed ? "error" : kind,
+    label,
+    detail: storyStepDetail(event, label),
+    status: failed ? "error" : "done",
+    source: event.source,
+    timestamp: event.timestamp,
+  };
+}
+
+function syntheticStoryStep(
+  seed: CommonDevelopmentEvent,
+  label: string,
+  source: CommonDevelopmentEvent["source"],
+  detail: string,
+): StoryStep {
+  return {
+    id: seed.id + "-" + slugify(label) + "-story-step",
+    kind: source === "kane" ? "done" : "tool",
+    label,
+    detail,
+    status: "done",
+    source,
+    timestamp: seed.timestamp,
+  };
+}
+
+function storyStepsForEpisode(
+  build: CommonDevelopmentEvent,
+  verify: CommonDevelopmentEvent | null,
+  outcome: CommonDevelopmentEvent | null,
+  fallbackBuild?: StoryStep,
+) {
+  const steps: StoryStep[] = [
+    fallbackBuild || stepForEvent(build, "Development work", "tool"),
+  ];
+  steps.push(verify ? stepForEvent(verify, "Kane checked the work", "done") : syntheticStoryStep(build, "Kane checked the work", "kane", "Verification is represented as part of this development episode."));
+  if (outcome) {
+    const type = semanticEventType(outcome);
+    steps.push(stepForEvent(outcome, type === "fail" ? "Kane found a problem" : "Kane cleared the episode", type === "fail" ? "error" : "done"));
+  }
+  return steps;
+}
+
+function outcomeForEpisode(outcome: CommonDevelopmentEvent | null) {
+  const type = semanticEventType(outcome);
+  if (type === "fail") return "failed";
+  if (type === "pass") return "passed";
+  return "building";
+}
+
+function attemptChangeSummary(build: CommonDevelopmentEvent) {
+  const changeSummary = metadataValue(build, ["changeSummary"]);
+  if (changeSummary) return changeSummary;
+  if (build.summary) return build.summary;
+  if (build.files?.length) return "Changed " + build.files.length + " file" + (build.files.length === 1 ? "" : "s");
+  return "Updated the feature branch.";
+}
+
+function attemptVerificationSummary(outcome: CommonDevelopmentEvent | null) {
+  const type = semanticEventType(outcome);
+  if (type === "fail") return outcome?.summary || "Kane verification failed.";
+  if (type === "pass") return outcome?.summary || "Kane verification passed.";
+  return "Verification is still in progress.";
+}
+
+function attemptTitleFor(build: CommonDevelopmentEvent, feature: StoryFeatureInfo) {
+  const files = (build.files || []).map((file) => file.replace(/\\/g, "/").toLowerCase());
+  const has = (pattern: RegExp) => files.some((file) => pattern.test(file));
+  if (feature.key === "live-event-probe") return "add live probe";
+  if (feature.key === "semantic-development-events") {
+    if (has(/src\/types\.ts$/) && !has(/common-events|development-events/)) return "extend event types";
+    if (has(/src\/lib\/development-events\.ts$/) && !has(/common-events/)) return "map demo events";
+    if (has(/src\/lib\/common-events\.ts$/)) return "build event adapter";
+    return "build semantic events";
+  }
+  if (feature.key === "story-graph-ui") {
+    if (has(/src\/ui\/graph\.tsx$/)) return "render story graph";
+    if (has(/src\/ui\/chatpanel\.tsx$/)) return "wire story controls";
+    if (has(/src\/app\.tsx$/)) return "connect story mode";
+    return "shape graph UI";
+  }
+  return cleanStoryTitle(build.label).toLowerCase() || "update feature";
+}
+
+function episodeTitleForAttempt(attempt: StoryAttempt) {
+  return titleCase(attemptTitleFor(attempt.build, attempt.feature));
+}
+
+function episodeKeyForAttempt(attempt: StoryAttempt) {
+  return slugify(episodeTitleForAttempt(attempt));
+}
+
+function outcomeForAttempts(attempts: StoryAttempt[]) {
+  const last = attempts[attempts.length - 1];
+  return outcomeForEpisode(last?.outcome || null);
+}
+
+function uniqueAttemptFiles(attempts: StoryAttempt[]) {
+  const seen = new Set<string>();
+  for (const attempt of attempts) {
+    for (const file of attempt.build.files || []) seen.add(file);
+    for (const file of attempt.verify?.files || []) seen.add(file);
+    for (const file of attempt.outcome?.files || []) seen.add(file);
+  }
+  return [...seen];
+}
+
+function rawEventsForAttempts(attempts: StoryAttempt[]) {
+  return attempts.flatMap((attempt) => {
+    const rawEvents = Array.isArray(attempt.build.metadata?.rawEvents) ? attempt.build.metadata.rawEvents : [];
+    return rawEvents.filter(isRecord);
+  });
+}
+
+function formatOutcome(status: string) {
+  if (status === "passed") return "Passed";
+  if (status === "failed") return "Failed";
+  return "In Progress";
+}
+
+function ordinalWord(index: number) {
+  const words = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"];
+  return words[index - 1] || "Pass " + index;
+}
+
+function attemptDetail(attempt: StoryAttempt, attemptNumber: number) {
+  const steps = storyStepsForEpisode(attempt.build, attempt.verify, attempt.outcome, attempt.fallbackBuildStep);
+  const files = attempt.build.files || [];
+  const lines = [
+    ordinalWord(attemptNumber) + " development pass: " + episodeTitleForAttempt(attempt),
+    "What changed: " + attemptChangeSummary(attempt.build),
+    "Verification: " + attemptVerificationSummary(attempt.outcome),
+    "Files changed: " + (files.length ? files.join(", ") : "No file list reported"),
+    "Development arc:\n" +
+      steps
+        .map((step) => "- " + step.label + (step.status === "error" ? " failed" : " completed"))
+        .join("\n"),
+  ];
+  return lines.join("\n\n");
+}
+
+function activityForAttempt(attempt: StoryAttempt, attemptNumber: number): StoryStep {
+  const status = outcomeForEpisode(attempt.outcome);
+  const failed = status === "failed";
+  const title = episodeTitleForAttempt(attempt);
+  return {
+    id: attempt.build.id + "-attempt-summary",
+    kind: failed ? "error" : "tool",
+    label: ordinalWord(attemptNumber) + " pass through " + title + " - " + formatOutcome(status),
+    detail: attemptDetail(attempt, attemptNumber),
+    status: failed ? "error" : "done",
+    source: attempt.build.source,
+    timestamp: attempt.build.timestamp,
+  };
+}
+
+function groupAttemptsIntoEpisodes(attempts: StoryAttempt[]): StoryEpisode[] {
+  const episodes = new Map<string, StoryEpisode>();
+  attempts
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .forEach((attempt) => {
+      const title = episodeTitleForAttempt(attempt);
+      const key = episodeKeyForAttempt(attempt);
+      let episode = episodes.get(key);
+      if (!episode) {
+        episode = {
+          key,
+          title,
+          feature: attempt.feature,
+          attempts: [],
+          order: attempt.order,
+        };
+        episodes.set(key, episode);
+      }
+      episode.attempts.push(attempt);
+    });
+  return [...episodes.values()].sort((a, b) => a.order - b.order);
+}
+
+function makeStoryEpisodeEvent(args: {
+  episode: StoryEpisode;
+  parentId: string | null;
+  branchId: string;
+}): CommonDevelopmentEvent {
+  const { episode, parentId, branchId } = args;
+  const attempts = episode.attempts;
+  const firstAttempt = attempts[0];
+  const lastAttempt = attempts[attempts.length - 1];
+  const outcomeStatus = outcomeForAttempts(attempts);
+  const files = uniqueAttemptFiles(attempts);
+  const rawEvents = rawEventsForAttempts(attempts);
+  const storySteps = attempts.map((attempt, index) => activityForAttempt(attempt, index + 1));
+  const failedAttempts = attempts.filter((attempt) => outcomeForEpisode(attempt.outcome) === "failed").length;
+  const verification = formatOutcome(outcomeStatus);
+  return {
+    ...firstAttempt.build,
+    id: "story_episode_" + stableHash([episode.feature.key, episode.key, firstAttempt.build.id, attempts.length]),
+    type: "episode",
+    status: outcomeStatus,
+    label: episode.title,
+    parentId,
+    branchId,
+    summary:
+      "Attempts: " + attempts.length +
+      ". Outcome: " + verification +
+      ". Files changed: " + (files.length ? files.length : "none reported") + ".",
+    detail: [
+      "Episode: " + episode.title,
+      "Attempts: " + attempts.length,
+      "Outcome: " + verification,
+      failedAttempts ? "Failures: " + failedAttempts : "Failures: 0",
+      "Files changed: " + (files.length ? files.join(", ") : "No file list reported"),
+    ],
+    files,
+    rawEventIds: attempts.flatMap((attempt) => attempt.build.rawEventIds || []),
+    intent: episode.key,
+    confidence: Math.max(...attempts.map((attempt) => attempt.build.confidence || 0), 0.75),
+    metadata: {
+      ...(firstAttempt.build.metadata || {}),
+      storyNode: true,
+      storyKind: "episode",
+      featureKey: episode.feature.key,
+      featureTitle: episode.feature.title,
+      episodeKey: episode.key,
+      attemptCount: attempts.length,
+      failedAttempts,
+      storySteps,
+      childEventIds: attempts.flatMap((attempt) => [attempt.build.id, attempt.verify?.id, attempt.outcome?.id].filter(Boolean) as string[]),
+      lastAttemptId: lastAttempt?.build.id,
+      rawEvents,
+    },
+  };
+}
+
+function visibleStoryParent(event: CommonDevelopmentEvent, fallbackParentId: string | null, output: CommonDevelopmentEvent[]) {
+  return event.parentId && output.some((item) => item.id === event.parentId)
+    ? event.parentId
+    : fallbackParentId;
+}
+
+export function commonEventsToStoryEvents(events: CommonDevelopmentEvent[]): CommonDevelopmentEvent[] {
+  const semanticEvents = commonEventsToSemanticEvents(events);
+  if (!semanticEvents.length) return [];
+
+  const output: CommonDevelopmentEvent[] = [];
+  const first = semanticEvents[0];
+  const hasSession = semanticEvents.some((event) => semanticEventType(event) === "session");
+  const mainBranch = semanticEvents.find((event) => event.branchId === "main")?.branchId || "main";
+  let trunkParentId: string | null = null;
+
+  if (!hasSession) {
+    const session = makeSemanticEvent({
+      type: "session",
+      id: semanticId("session", [first.id || first.timestamp]),
+      timestamp: shiftedIso(first.timestamp, -500),
+      source: "system",
+      label: storySessionTitle(semanticEvents),
+      summary: "A development session groups the goal, planning work, feature branches, attempts, failures, and merges into one story.",
+      parentId: null,
+      branchId: mainBranch,
+      metadata: { storyNode: true, storyKind: "session" },
+    });
+    output.push(session);
+    trunkParentId = session.id;
+  }
+
+  const appendTrunk = (event: CommonDevelopmentEvent) => {
+    const type = semanticEventType(event);
+    const next = {
+      ...event,
+      branchId: mainBranch,
+      parentId: type === "session" ? null : visibleStoryParent(event, trunkParentId, output),
+      metadata: { ...(event.metadata || {}), storyNode: true, storyKind: type || "trunk" },
+    };
+    output.push(next);
+    trunkParentId = next.id;
+  };
+
+  const attempts: StoryAttempt[] = [];
+  const explicitMerges: CommonDevelopmentEvent[] = [];
+  const featureByEventId = new Map<string, StoryFeatureInfo>();
+  let lastFailedAttempt: StoryAttempt | null = null;
+  let activeFixBranch: { event: CommonDevelopmentEvent; feature: StoryFeatureInfo } | null = null;
+  let activeFeature: StoryFeatureInfo | null = null;
+
+  const rememberAttempt = (attempt: StoryAttempt) => {
+    attempts.push(attempt);
+    for (const id of [attempt.build.id, attempt.verify?.id, attempt.outcome?.id].filter(Boolean) as string[]) {
+      featureByEventId.set(id, attempt.feature);
+    }
+    activeFeature = attempt.feature;
+    if (semanticEventType(attempt.outcome) === "fail") {
+      lastFailedAttempt = attempt;
+      activeFixBranch = null;
+    }
+  };
+
+  for (let i = 0; i < semanticEvents.length; i += 1) {
+    const event = semanticEvents[i];
+    const type = semanticEventType(event);
+
+    if (type === "session" || type === "goal" || type === "plan" || type === "spec" || type === "task") {
+      appendTrunk(event);
+      continue;
+    }
+
+    if (type === "build_attempt") {
+      let verify: CommonDevelopmentEvent | null = null;
+      let outcome: CommonDevelopmentEvent | null = null;
+      let consumed = i;
+
+      for (let j = i + 1; j < semanticEvents.length; j += 1) {
+        const next = semanticEvents[j];
+        const nextType = semanticEventType(next);
+        if (next.branchId !== event.branchId && nextType !== "fail") break;
+        if (nextType === "verify" && !verify) {
+          verify = next;
+          consumed = j;
+          continue;
+        }
+        if (nextType === "pass") {
+          outcome = next;
+          consumed = j;
+          continue;
+        }
+        if (nextType === "fail") {
+          outcome = next;
+          consumed = j;
+          break;
+        }
+        break;
+      }
+
+      const feature = inferFeatureInfo(event, [verify, outcome], activeFeature);
+      rememberAttempt({
+        build: event,
+        verify,
+        outcome,
+        feature,
+        order: attempts.length,
+      });
+      i = consumed;
+      continue;
+    }
+
+    if (type === "feature_branch" || type === "fix_branch") {
+      const feature = inferFeatureInfo(event, [], lastFailedAttempt?.feature || activeFeature);
+      activeFixBranch = { event, feature };
+      activeFeature = feature;
+      featureByEventId.set(event.id, feature);
+      continue;
+    }
+
+    if ((type === "pass" || type === "fail") && activeFixBranch) {
+      const fixBuild = makeSemanticEvent({
+        type: "build_attempt",
+        id: semanticId("fix_build", [activeFixBranch.event.id, event.id]),
+        timestamp: shiftedIso(event.timestamp, -500),
+        source: "agent",
+        label: activeFixBranch.event.label.replace(/^Open fix branch for\s+/i, "Fix "),
+        summary: "The AI applies the fix branch changes as another attempt on " + activeFixBranch.feature.branchId + ".",
+        parentId: null,
+        branchId: activeFixBranch.feature.branchId,
+        files: event.files || activeFixBranch.event.files,
+        rawEventIds: event.rawEventIds || activeFixBranch.event.rawEventIds,
+        intent: event.intent || activeFixBranch.event.intent,
+        metadata: activeFixBranch.event.metadata,
+      });
+      const verify = makeSemanticEvent({
+        type: "verify",
+        id: semanticId("fix_verify", [activeFixBranch.event.id, event.id]),
+        timestamp: shiftedIso(event.timestamp, -250),
+        source: "kane",
+        label: "Verify fix attempt",
+        summary: "Kane verifies the retry before the feature branch can merge back.",
+        parentId: fixBuild.id,
+        branchId: activeFixBranch.feature.branchId,
+        files: event.files || activeFixBranch.event.files,
+        rawEventIds: event.rawEventIds || activeFixBranch.event.rawEventIds,
+        intent: event.intent || activeFixBranch.event.intent,
+      });
+      rememberAttempt({
+        build: fixBuild,
+        verify,
+        outcome: event,
+        feature: activeFixBranch.feature,
+        fallbackBuildStep: syntheticStoryStep(fixBuild, "Build", "agent", fixBuild.summary || "The AI builds the retry."),
+        order: attempts.length,
+      });
+      if (type === "pass") activeFixBranch = null;
+      continue;
+    }
+
+    if (type === "merge") {
+      explicitMerges.push(event);
+      continue;
+    }
+  }
+
+  const featureGroups = new Map<string, {
+    feature: StoryFeatureInfo;
+    attempts: StoryAttempt[];
+    merges: CommonDevelopmentEvent[];
+  }>();
+
+  const ensureFeatureGroup = (feature: StoryFeatureInfo) => {
+    let group = featureGroups.get(feature.key);
+    if (!group) {
+      group = { feature, attempts: [], merges: [] };
+      featureGroups.set(feature.key, group);
+    }
+    return group;
+  };
+
+  attempts
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .forEach((attempt) => {
+      ensureFeatureGroup(attempt.feature).attempts.push(attempt);
+    });
+
+  explicitMerges.forEach((merge) => {
+    const feature = (merge.mergeParentIds || [])
+      .map((id) => featureByEventId.get(id))
+      .find(Boolean) || inferFeatureInfo(merge, [], activeFeature);
+    ensureFeatureGroup(feature).merges.push(merge);
+  });
+
+  let mainHeadId = trunkParentId;
+  for (const group of featureGroups.values()) {
+    const firstAttempt = group.attempts[0];
+    const feature = group.feature;
+    const featureBranch = makeSemanticEvent({
+      type: "feature_branch",
+      id: semanticId("feature_branch", [feature.key]),
+      timestamp: shiftedIso(firstAttempt?.build.timestamp || first.timestamp, -250),
+      source: "agent",
+      label: feature.branchId,
+      summary: "Feature branch for " + feature.title + ". Attempts happen on this branch before successful work merges back to main.",
+      parentId: mainHeadId,
+      branchId: feature.branchId,
+      intent: feature.key,
+      metadata: {
+        storyNode: true,
+        storyKind: "feature_branch",
+        featureKey: feature.key,
+        featureTitle: feature.title,
+      },
+    });
+    output.push(featureBranch);
+
+    let featureHeadId: string | null = featureBranch.id;
+    const episodes = groupAttemptsIntoEpisodes(group.attempts);
+    episodes.forEach((episode) => {
+      const episodeEvent = makeStoryEpisodeEvent({
+        episode,
+        parentId: featureHeadId,
+        branchId: feature.branchId,
+      });
+      output.push(episodeEvent);
+      featureHeadId = episodeEvent.id;
+    });
+
+    const lastEpisode = episodes[episodes.length - 1];
+    const lastAttempt = lastEpisode?.attempts[lastEpisode.attempts.length - 1];
+    const completed = semanticEventType(lastAttempt?.outcome) === "pass";
+    if (!lastAttempt || !completed || !featureHeadId) continue;
+
+    const explicitMerge = group.merges[0];
+    const mergeFiles = lastEpisode ? uniqueAttemptFiles(lastEpisode.attempts) : lastAttempt.build.files;
+    const merge = makeSemanticEvent({
+      type: "merge",
+      id: semanticId("feature_merge", [feature.key, featureHeadId, mainHeadId]),
+      timestamp: shiftedIso(lastAttempt.outcome?.timestamp || lastAttempt.build.timestamp, 500),
+      source: "merge",
+      label: "Merge " + feature.branchId + " to main",
+      summary: explicitMerge?.summary || "Successful work from " + feature.branchId + " merges back into main.",
+      parentId: mainHeadId,
+      branchId: mainBranch,
+      mergeParentIds: [featureHeadId],
+      files: mergeFiles,
+      rawEventIds: lastAttempt.build.rawEventIds,
+      intent: feature.key,
+      detail: explicitMerge?.detail,
+      metadata: {
+        ...(explicitMerge?.metadata || {}),
+        storyNode: true,
+        storyKind: "merge",
+        featureKey: feature.key,
+        featureTitle: feature.title,
+      },
+    });
+    output.push(merge);
+    mainHeadId = merge.id;
+  }
+
+  return output;
+}
+
 export function commonEventColor(event?: CommonDevelopmentEvent | null): string | null {
   if (!event) return null;
+  if (event.status === "failed" || event.status === "deleted" || event.type.includes("failure")) return "#dc2626";
+  if (event.status === "passed") return "#16a34a";
+  if (event.status === "merged") return "#d97706";
   const type = semanticEventType(event);
   if (type) return SEMANTIC_COLORS[type];
-  if (event.status === "failed" || event.status === "deleted" || event.type.includes("failure")) return "#dc2626";
   if (event.source === "user") return "#71717a";
   if (event.source === "kiro") return "#2563eb";
   if (event.source === "kane") return "#16a34a";
@@ -659,21 +1369,176 @@ function activityKind(event: CommonDevelopmentEvent): CommitActivity["kind"] {
   const type = semanticEventType(event);
   if (type === "fail" || event.status === "failed" || event.status === "deleted") return "error";
   if (type === "plan" || type === "spec" || type === "task") return "planning";
-  if (type === "build_attempt" || type === "fix_branch" || isFileEvent(event)) return "tool";
+  if (type === "build_attempt" || type === "feature_branch" || type === "fix_branch" || isFileEvent(event)) return "tool";
   return "done";
 }
 
-function responseForEvent(event: CommonDevelopmentEvent): string {
+function humanList(items: string[], limit = 4) {
+  const clean = items.map((item) => item.trim()).filter(Boolean);
+  if (!clean.length) return "";
+  const shown = clean.slice(0, limit);
+  if (clean.length > limit) shown.push(clean.length - limit + " more");
+  if (shown.length === 1) return shown[0];
+  if (shown.length === 2) return shown[0] + " and " + shown[1];
+  return shown.slice(0, -1).join(", ") + ", and " + shown[shown.length - 1];
+}
+
+function storyKind(event: CommonDevelopmentEvent) {
+  return typeof event.metadata?.storyKind === "string" ? event.metadata.storyKind : "";
+}
+
+function featureTitle(event: CommonDevelopmentEvent) {
+  return asString(event.metadata?.featureTitle, titleFromFeatureKey(asString(event.intent, event.branchId.replace(/^feature\//, ""))));
+}
+
+function featureKey(event: CommonDevelopmentEvent) {
+  return asString(event.metadata?.featureKey, asString(event.intent, slugify(event.branchId.replace(/^feature\//, ""))));
+}
+
+function storyPurposeFor(event: CommonDevelopmentEvent) {
+  const key = featureKey(event);
+  if (key === "semantic-development-events") {
+    return "turn raw development activity into story-shaped events the app can explain";
+  }
+  if (key === "live-event-probe") {
+    return "prove that live development events can flow into the graph instead of staying invisible in files";
+  }
+  if (key === "story-graph-ui") {
+    return "make the graph read like a development story rather than a vertical trail of operations";
+  }
+  if (key.includes("adapter")) return "connect low-level build activity to a human-readable development story";
+  if (key.includes("graph")) return "make the graph explain structure and direction more clearly";
+  return "move this feature from an isolated idea toward something that could safely become part of main";
+}
+
+function outcomeNarrative(status: string) {
+  if (status === "passed") return "The episode passed";
+  if (status === "failed") return "The episode ended with a failure";
+  return "The episode is still in progress";
+}
+
+function storyFilesPhrase(files: string[]) {
+  if (!files.length) return "The adapter did not receive a file list, so the story focuses on the development event itself.";
+  return "The work moved through " + humanList(files.map((file) => file.replace(/\\/g, "/"))) + ".";
+}
+
+function episodeNarrative(event: CommonDevelopmentEvent) {
+  const attempts = Number(event.metadata?.attemptCount || 1);
+  const failures = Number(event.metadata?.failedAttempts || 0);
+  const purpose = storyPurposeFor(event);
+  const files = event.files || [];
+  const verification =
+    failures > 0
+      ? "Kane's feedback changed the direction of the work: a failed check became a reason to retry inside the branch instead of pretending the episode was finished."
+      : event.status === "passed"
+        ? "Kane's verification gave this episode a clear stopping point, turning a set of development passes into something OpenBranch could treat as complete."
+        : "Verification has not closed the loop yet, so this episode still reads as work in motion.";
+
+  return (
+    "OpenBranch was trying to " + purpose + ". " +
+    "This episode, " + event.label + ", gathered " + attempts + " development " + (attempts === 1 ? "pass" : "passes") +
+    " into one readable moment instead of asking the user to inspect every retry. " +
+    storyFilesPhrase(files) + " " +
+    verification + " " +
+    outcomeNarrative(event.status) + ", which means the branch now tells a clearer story about why this work mattered and where it can go next."
+  );
+}
+
+function featureBranchNarrative(event: CommonDevelopmentEvent) {
+  const title = featureTitle(event);
+  return (
+    event.label + " opens a focused lane for " + title + ". " +
+    "Instead of mixing this work into main as a stream of isolated events, OpenBranch treats the branch as a place where the AI can explore, retry, and prove the feature. " +
+    "That matters because the branch gives the later episodes context: they are not random attempts, they are steps toward a clearer way to " + storyPurposeFor(event) + "."
+  );
+}
+
+function mergeNarrative(event: CommonDevelopmentEvent) {
+  const title = featureTitle(event);
+  return (
+    "This merge is the moment " + title + " stops being branch-local progress and becomes part of the main development story. " +
+    "The preceding episode had enough verification behind it to carry its work back into main, so OpenBranch can show not only that something changed, but that the change survived review. " +
+    "For the larger story, this is the payoff: the branch produced a coherent result rather than another unfinished trail."
+  );
+}
+
+function trunkNarrative(event: CommonDevelopmentEvent) {
+  const type = semanticEventType(event);
+  if (type === "session") {
+    return "This session frames the work as one development arc. OpenBranch is not only collecting events here; it is giving the goal, planning, branches, verification, and merges a single place to make sense together.";
+  }
+  if (type === "goal") {
+    return "The story starts with the user's goal: " + cleanStoryTitle(event.label) + ". That goal matters because it gives every later branch and episode a reason to exist, so the graph can explain progress instead of merely recording activity.";
+  }
+  if (type === "plan") {
+    return "Kiro turns the goal into a plan, giving the AI work a direction before code starts changing. This planning step matters because it becomes the connective tissue between the user's intent and the later feature branches.";
+  }
+  if (type === "spec") {
+    return "The spec narrows the idea into the rules the development story has to satisfy. It matters because verification can only guide the work if there is a shared understanding of what a good result should look like.";
+  }
+  if (type === "task") {
+    return "This task is where the plan becomes actionable. It gives the later episodes something concrete to complete, so the branch can show progress toward an outcome rather than a pile of disconnected edits.";
+  }
+  return event.summary || event.label;
+}
+
+function storyNarrativeForEvent(event: CommonDevelopmentEvent) {
+  const kind = storyKind(event);
+  if (kind === "episode") return episodeNarrative(event);
+  if (kind === "feature_branch") return featureBranchNarrative(event);
+  if (kind === "merge") return mergeNarrative(event);
+  return trunkNarrative(event);
+}
+
+function technicalDetailsForEvent(event: CommonDevelopmentEvent) {
   const lines = [`**${event.label}**`];
   if (event.summary) lines.push(event.summary);
   if (event.detail?.length) lines.push(event.detail.map((item) => "- " + item).join("\n"));
+  const storySteps = Array.isArray(event.metadata?.storySteps) ? event.metadata.storySteps : [];
+  if (storySteps.length) {
+    const heading = event.metadata?.storyKind === "episode" ? "Attempts" : "Episode steps";
+    lines.push(
+      heading + ":\n" +
+        storySteps
+          .map((step) => {
+            if (!isRecord(step)) return "";
+            return "- " + asString(step.label, "Step");
+          })
+          .filter(Boolean)
+          .join("\n"),
+    );
+  }
   if (event.files?.length) lines.push("Files:\n" + event.files.map((file) => "- " + file).join("\n"));
+  const rawEvents = Array.isArray(event.metadata?.rawEvents) ? event.metadata.rawEvents : [];
+  if (rawEvents.length) {
+    lines.push(
+      "Low-level events:\n" +
+        rawEvents
+          .map((raw) => {
+            if (!isRecord(raw)) return "";
+            return "- " + asString(raw.label, asString(raw.type, "event"));
+          })
+          .filter(Boolean)
+          .join("\n"),
+    );
+  }
   lines.push([
     `Source: ${SOURCE_LABEL[event.source]}`,
     `Type: ${semanticEventType(event) ? SEMANTIC_TYPE_LABEL[semanticEventType(event)!] : event.type}`,
     `Status: ${event.status}`,
     `Branch: ${event.branchId}`,
   ].join("\n"));
+  return lines.join("\n\n");
+}
+
+function responseForEvent(event: CommonDevelopmentEvent): string {
+  if (!event.metadata?.storyNode) return technicalDetailsForEvent(event);
+
+  const lines = [`**${event.label}**`, storyNarrativeForEvent(event), "### Technical details"];
+  const technical = technicalDetailsForEvent(event)
+    .split("\n\n")
+    .filter((section) => section !== `**${event.label}**`);
+  lines.push(...technical);
   return lines.join("\n\n");
 }
 
@@ -692,9 +1557,38 @@ function activityForEvent(event: CommonDevelopmentEvent, ts: number): CommitActi
   };
 }
 
-export function commonEventsToCommits(events: CommonDevelopmentEvent[]): Commit[] {
-  const semanticEvents = commonEventsToSemanticEvents(events);
-  return semanticEvents.map((event, index) => {
+function activitiesForEvent(event: CommonDevelopmentEvent, ts: number): CommitActivity[] {
+  const storySteps = Array.isArray(event.metadata?.storySteps) ? event.metadata.storySteps : [];
+  if (!storySteps.length) return [activityForEvent(event, ts)];
+  return storySteps
+    .filter(isRecord)
+    .map((step, index) => {
+      const stepTs = ts + index * 250;
+      const status = asString(step.status, "done") as CommitActivity["status"];
+      return {
+        id: asString(step.id, event.id + "-story-step-" + index),
+        kind: asString(step.kind, "tool") as CommitActivity["kind"],
+        label: asString(step.label, "Step"),
+        detail: asString(step.detail, undefined as unknown as string),
+        status,
+        source: asString(step.source, event.source),
+        startedAt: stepTs,
+        endedAt: status === "running" || status === "pending" ? undefined : stepTs + 250,
+        durationMs: status === "running" || status === "pending" ? undefined : 250,
+      };
+    });
+}
+
+function visibleEventsForView(events: CommonDevelopmentEvent[], view: DevelopmentGraphView) {
+  return view === "raw" ? commonEventsToSemanticEvents(events) : commonEventsToStoryEvents(events);
+}
+
+export function commonEventsToCommits(
+  events: CommonDevelopmentEvent[],
+  options: { view?: DevelopmentGraphView } = {},
+): Commit[] {
+  const visibleEvents = visibleEventsForView(events, options.view || "story");
+  return visibleEvents.map((event, index) => {
     const ts = Date.parse(event.timestamp);
     const safeTs = Number.isFinite(ts) ? ts : Date.now() + index;
     return {
@@ -707,7 +1601,7 @@ export function commonEventsToCommits(events: CommonDevelopmentEvent[]): Commit[
       response: responseForEvent(event),
       model: SOURCE_LABEL[event.source],
       mode: "code",
-      activities: [activityForEvent(event, safeTs)],
+      activities: activitiesForEvent(event, safeTs),
       liveEvent: event,
       displayLabel: event.label,
     };

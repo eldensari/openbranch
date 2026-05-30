@@ -48,10 +48,13 @@ export type DevelopmentEvent = {
 export type CommonDevelopmentEventSource = "user" | "kiro" | "kane" | "agent" | "merge" | "system";
 
 export type SemanticDevelopmentEventType =
+  | "session"
   | "goal"
   | "plan"
   | "spec"
   | "task"
+  | "feature_branch"
+  | "episode"
   | "build_attempt"
   | "verify"
   | "fail"

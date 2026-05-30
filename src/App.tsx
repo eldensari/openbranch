@@ -9,7 +9,7 @@ import { sidebarBranchKey } from "./storage/sidebar";
 import { loadAllConvsAndClusters, persistConv, persistCluster, deleteConvCascade } from "./storage/conv";
 import { hydrateAttachments } from "./lib/attachments";
 import { QuotaExceededError } from "./lib/storage";
-import { LIVE_EVENTS_URL, commonEventsToCommits, parseEventsJsonl } from "./lib/common-events";
+import { LIVE_EVENTS_URL, commonEventsToCommits, parseEventsJsonl, type DevelopmentGraphView } from "./lib/common-events";
 import { SAMPLE_DEVELOPMENT_EVENTS, developmentEventsToCommits } from "./lib/development-events";
 import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
@@ -117,6 +117,7 @@ export default function App() {
   }>(() => ({ state: neo4jConfigured() ? "idle" : "disabled" }));
   const [devDemoRunning, setDevDemoRunning] = useState(false);
   const [developmentMode, setDevelopmentMode] = useState<"demo" | "live">("demo");
+  const [developmentGraphView, setDevelopmentGraphViewState] = useState<DevelopmentGraphView>("story");
   const [liveEventCount, setLiveEventCount] = useState(0);
   const [liveEventsError, setLiveEventsError] = useState("");
   const devDemoTimers = useRef<ReturnType<typeof window.setTimeout>[]>([]);
@@ -1707,15 +1708,15 @@ export default function App() {
 
   useEffect(() => () => clearDevelopmentDemoTimers(), []);
 
-  const applyLiveEvents = (eventsText: string) => {
+  const applyLiveEvents = (eventsText: string, view: DevelopmentGraphView = developmentGraphView) => {
     const liveEvents = parseEventsJsonl(eventsText);
     const signature = liveEvents.length
-      ? liveEvents.length + ":" + liveEvents[liveEvents.length - 1].id
-      : "0";
+      ? view + ":" + liveEvents.length + ":" + liveEvents[liveEvents.length - 1].id
+      : view + ":0";
     if (signature === liveEventsSignatureRef.current) return;
     liveEventsSignatureRef.current = signature;
 
-    const liveCommits = commonEventsToCommits(liveEvents);
+    const liveCommits = commonEventsToCommits(liveEvents, { view });
     setLiveEventCount(liveCommits.length);
     setCommits(liveCommits);
     cRef.current = liveCommits;
@@ -1725,11 +1726,41 @@ export default function App() {
     if (last) setScrollTarget(last.id);
   };
 
-  const loadLiveEvents = async () => {
+  const loadLiveEvents = async (view: DevelopmentGraphView = developmentGraphView) => {
     const res = await fetch(LIVE_EVENTS_URL + "?t=" + Date.now(), { cache: "no-store" });
     if (!res.ok) throw new Error("events.jsonl returned " + res.status);
-    applyLiveEvents(await res.text());
+    applyLiveEvents(await res.text(), view);
     setLiveEventsError("");
+  };
+
+  const applyDemoGraphView = (view: DevelopmentGraphView) => {
+    const title = "OpenBranch for AI Development";
+    const demoCommits = developmentEventsToCommits(SAMPLE_DEVELOPMENT_EVENTS, {
+      baseTs: Date.now(),
+      stepMs: 1200,
+      view,
+    });
+    setCommits(demoCommits);
+    cRef.current = demoCommits;
+    const last = demoCommits[demoCommits.length - 1];
+    setHeadId(last?.id || null);
+    setBranch(last?.branch || "main");
+    if (last) setScrollTarget(last.id);
+    if (convId?.startsWith("conv:ai_dev_demo:")) {
+      save(title, demoCommits, last?.id || null, last?.branch || "main", null, convId);
+    }
+  };
+
+  const setDevelopmentGraphView = (view: DevelopmentGraphView) => {
+    setDevelopmentGraphViewState(view);
+    liveEventsSignatureRef.current = "";
+    if (developmentMode === "live") {
+      loadLiveEvents(view).catch((e) => setLiveEventsError((e as Error)?.message || "Unable to read events.jsonl"));
+      return;
+    }
+    if (developmentMode === "demo" && convId?.startsWith("conv:ai_dev_demo:")) {
+      applyDemoGraphView(view);
+    }
   };
 
   useEffect(() => {
@@ -1748,7 +1779,7 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [developmentMode]);
+  }, [developmentMode, developmentGraphView]);
 
   const openLiveMode = () => {
     clearDevelopmentDemoTimers();
@@ -1790,6 +1821,7 @@ export default function App() {
     const demoCommits = developmentEventsToCommits(SAMPLE_DEVELOPMENT_EVENTS, {
       baseTs: Date.now(),
       stepMs: 1200,
+      view: developmentGraphView,
     });
 
     setDevDemoRunning(true);
@@ -1840,6 +1872,8 @@ export default function App() {
     runAiDevelopmentDemo,
     devDemoRunning,
     developmentMode,
+    developmentGraphView,
+    setDevelopmentGraphView,
     openDemoMode,
     openLiveMode,
     liveEventCount,
