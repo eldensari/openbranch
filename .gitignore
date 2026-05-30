@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# Internal docs (not for repo)
+openbranch-spec.md
+neptune-spec.md
+bucklebury-spec.md
+
+# Legacy Electron files
+bucklebury.jsx
+electron/
+/assets/
+screenshots/
+DEVELOPMENT.md
+bucklebury-branch-demo.gif
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Misc
+_ferries/
+ferries/
+.claude/
