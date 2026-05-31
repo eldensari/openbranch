@@ -11,6 +11,7 @@ export type DevelopmentGraphView = "story" | "raw";
 
 const SOURCE_LABEL: Record<CommonDevelopmentEvent["source"], string> = {
   user: "User",
+  codex: "Codex",
   kiro: "Kiro",
   kane: "Kane",
   agent: "Agent",
@@ -71,6 +72,7 @@ const FILE_GROUP_SPAN_MS = 180_000;
 
 const VALID_SOURCES = new Set<CommonDevelopmentEvent["source"]>([
   "user",
+  "codex",
   "kiro",
   "kane",
   "agent",
@@ -133,15 +135,23 @@ function normalizeSemanticType(type?: string, status?: string): SemanticDevelopm
     kiro_build_attempt: "build_attempt",
     verify: "verify",
     verification: "verify",
+    verification_started: "verify",
+    kane_verification_started: "verify",
     kane_verify: "verify",
     fail: "fail",
     failed: "fail",
     failure: "fail",
+    verification_failed: "fail",
+    bug_found: "fail",
+    kane_bug_found: "fail",
     kane_fail: "fail",
     kane_failure: "fail",
     pass: "pass",
     passed: "pass",
     success: "pass",
+    verification_passed: "pass",
+    reverification_passed: "pass",
+    re_verification_passed: "pass",
     kane_pass: "pass",
     fix: "fix_branch",
     branch: "fix_branch",
@@ -708,6 +718,17 @@ type StoryEpisode = {
   order: number;
 };
 
+type StoryIdeaProfile = {
+  assumption: string;
+  challenge: string;
+  shift: string;
+  emerged: string;
+  matters: string;
+  explored: string;
+  learned: string;
+  curiosity: string;
+};
+
 function cleanStoryTitle(label: string) {
   return label
     .replace(/^Goal:\s*/i, "")
@@ -905,9 +926,49 @@ function attemptChangeSummary(build: CommonDevelopmentEvent) {
 
 function attemptVerificationSummary(outcome: CommonDevelopmentEvent | null) {
   const type = semanticEventType(outcome);
-  if (type === "fail") return outcome?.summary || "Kane verification failed.";
-  if (type === "pass") return outcome?.summary || "Kane verification passed.";
+  const guidance = kaneGuidanceForEvent(outcome);
+  if (type === "fail") {
+    return guidance.failure
+      ? "Kane tested " + guidance.behavior + " and found: " + guidance.failure
+      : outcome?.summary || "Kane verification failed.";
+  }
+  if (type === "pass") {
+    return guidance.evidence.length
+      ? "Kane verified " + guidance.behavior + " with evidence: " + guidance.evidence[0]
+      : outcome?.summary || "Kane verification passed.";
+  }
   return "Verification is still in progress.";
+}
+
+function metadataString(event: CommonDevelopmentEvent | null | undefined, key: string) {
+  const value = event?.metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function metadataStringArray(event: CommonDevelopmentEvent | null | undefined, key: string) {
+  const value = event?.metadata?.[key];
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
+}
+
+function kaneGuidanceForEvent(event: CommonDevelopmentEvent | null | undefined) {
+  const detailText = (event?.detail || []).join(" ");
+  const behavior = metadataString(event, "kaneBehavior") || event?.label || "this behavior";
+  const failure = metadataString(event, "kaneFailure");
+  const why = metadataString(event, "kaneWhyItMatters");
+  const next = metadataString(event, "kiroNextAction");
+  const evidence = metadataStringArray(event, "kaneEvidence");
+  return {
+    behavior,
+    failure: failure || detailText.match(/Failure:\s*([^]+?)(?: Reason it matters:| Kiro should fix next:| Raw Kane result:|$)/)?.[1]?.trim() || "",
+    why: why || detailText.match(/Reason it matters:\s*([^]+?)(?: Kiro should fix next:| Raw Kane result:|$)/)?.[1]?.trim() || "",
+    next: next || detailText.match(/Kiro should fix next:\s*([^]+?)(?: Raw Kane result:|$)/)?.[1]?.trim() || "",
+    evidence,
+  };
+}
+
+function kaneGuidanceForAttempt(attempt: StoryAttempt | null | undefined) {
+  return kaneGuidanceForEvent(attempt?.outcome || attempt?.verify);
 }
 
 function attemptTitleFor(build: CommonDevelopmentEvent, feature: StoryFeatureInfo) {
@@ -1040,6 +1101,24 @@ function makeStoryEpisodeEvent(args: {
   const storySteps = attempts.map((attempt, index) => activityForAttempt(attempt, index + 1));
   const failedAttempts = attempts.filter((attempt) => outcomeForEpisode(attempt.outcome) === "failed").length;
   const verification = formatOutcome(outcomeStatus);
+  const profile = ideaProfileForKey(episode.feature.key, episode.feature.title);
+  const learning = branchLearningFromAttempts(attempts, profile);
+  const survival = survivalForOutcome(outcomeStatus, failedAttempts);
+  const kaneGuidance = kaneGuidanceForAttempt(lastAttempt);
+  const kaneDetailLines = outcomeStatus === "failed"
+    ? [
+        "Kane tested: " + kaneGuidance.behavior,
+        kaneGuidance.failure ? "Failure: " + kaneGuidance.failure : "",
+        kaneGuidance.why ? "Reason it matters: " + kaneGuidance.why : "",
+        kaneGuidance.next ? "Kiro should fix next: " + kaneGuidance.next : "",
+      ].filter(Boolean)
+    : outcomeStatus === "passed"
+      ? [
+          "Kane verified: " + kaneGuidance.behavior,
+          kaneGuidance.evidence.length ? "Evidence: " + kaneGuidance.evidence.join("; ") : "",
+          "Merge readiness: the branch can move toward merge because Kane verified the acceptance behavior.",
+        ].filter(Boolean)
+      : [];
   return {
     ...firstAttempt.build,
     id: "story_episode_" + stableHash([episode.feature.key, episode.key, firstAttempt.build.id, attempts.length]),
@@ -1049,14 +1128,19 @@ function makeStoryEpisodeEvent(args: {
     parentId,
     branchId,
     summary:
-      "Attempts: " + attempts.length +
-      ". Outcome: " + verification +
-      ". Files changed: " + (files.length ? files.length : "none reported") + ".",
+      "Idea explored: " + profile.explored +
+      ". Learning: " + learning +
+      ". Verification: " + survival,
     detail: [
-      "Episode: " + episode.title,
+      "Original assumption: " + profile.assumption,
+      "Challenge: " + profile.challenge,
+      "How thinking changed: " + profile.shift,
+      "New idea: " + profile.emerged,
+      "Reason to care: " + profile.matters,
       "Attempts: " + attempts.length,
-      "Outcome: " + verification,
-      failedAttempts ? "Failures: " + failedAttempts : "Failures: 0",
+      "Verification outcome: " + verification,
+      "Did the idea survive verification? " + survival,
+      ...kaneDetailLines,
       "Files changed: " + (files.length ? files.join(", ") : "No file list reported"),
     ],
     files,
@@ -1065,6 +1149,7 @@ function makeStoryEpisodeEvent(args: {
     confidence: Math.max(...attempts.map((attempt) => attempt.build.confidence || 0), 0.75),
     metadata: {
       ...(firstAttempt.build.metadata || {}),
+      ...ideaMetadata(profile),
       storyNode: true,
       storyKind: "episode",
       featureKey: episode.feature.key,
@@ -1072,6 +1157,14 @@ function makeStoryEpisodeEvent(args: {
       episodeKey: episode.key,
       attemptCount: attempts.length,
       failedAttempts,
+      experimentLearning: learning,
+      experimentSurvival: survival,
+      curiosityPrompt: branchCuriosityFromAttempts(attempts, profile),
+      kaneBehavior: kaneGuidance.behavior,
+      kaneFailure: kaneGuidance.failure,
+      kaneWhyItMatters: kaneGuidance.why,
+      kiroNextAction: kaneGuidance.next,
+      kaneEvidence: kaneGuidance.evidence,
       storySteps,
       childEventIds: attempts.flatMap((attempt) => [attempt.build.id, attempt.verify?.id, attempt.outcome?.id].filter(Boolean) as string[]),
       lastAttemptId: lastAttempt?.build.id,
@@ -1086,9 +1179,49 @@ function visibleStoryParent(event: CommonDevelopmentEvent, fallbackParentId: str
     : fallbackParentId;
 }
 
+function commonEventsToControlTowerStoryEvents(semanticEvents: CommonDevelopmentEvent[]): CommonDevelopmentEvent[] {
+  const output: CommonDevelopmentEvent[] = [];
+  const first = semanticEvents[0];
+  const hasSession = semanticEvents.some((event) => semanticEventType(event) === "session");
+  const mainBranch = semanticEvents.find((event) => event.branchId === "main")?.branchId || "main";
+  let fallbackParentId: string | null = null;
+
+  if (first && !hasSession) {
+    const session = makeSemanticEvent({
+      type: "session",
+      id: semanticId("control_tower_session", [first.id || first.timestamp]),
+      timestamp: shiftedIso(first.timestamp, -500),
+      source: "system",
+      label: "Control Tower: Kiro/Kane/Codex loop",
+      summary: "OpenBranch coordinates the goal, build handoff, Kane verification, next action, fix, re-verification, and accepted idea.",
+      parentId: null,
+      branchId: mainBranch,
+      metadata: { controlTowerStep: true, storyNode: true, storyKind: "control_tower" },
+    });
+    output.push(session);
+    fallbackParentId = session.id;
+  }
+
+  for (const event of semanticEvents) {
+    const type = semanticEventType(event);
+    const next = {
+      ...event,
+      parentId: type === "session" ? null : visibleStoryParent(event, fallbackParentId, output),
+      metadata: { ...(event.metadata || {}), controlTowerStep: true, storyNode: true, storyKind: "control_tower" },
+    };
+    output.push(next);
+    fallbackParentId = next.id;
+  }
+
+  return output;
+}
+
 export function commonEventsToStoryEvents(events: CommonDevelopmentEvent[]): CommonDevelopmentEvent[] {
   const semanticEvents = commonEventsToSemanticEvents(events);
   if (!semanticEvents.length) return [];
+  if (semanticEvents.some((event) => event.metadata?.controlTowerStep)) {
+    return commonEventsToControlTowerStoryEvents(semanticEvents);
+  }
 
   const output: CommonDevelopmentEvent[] = [];
   const first = semanticEvents[0];
@@ -1278,21 +1411,30 @@ export function commonEventsToStoryEvents(events: CommonDevelopmentEvent[]): Com
   for (const group of featureGroups.values()) {
     const firstAttempt = group.attempts[0];
     const feature = group.feature;
+    const profile = ideaProfileForKey(feature.key, feature.title);
+    const branchFailures = group.attempts.filter((attempt) => outcomeForEpisode(attempt.outcome) === "failed").length;
+    const branchOutcome = outcomeForAttempts(group.attempts);
+    const branchLearning = branchLearningFromAttempts(group.attempts, profile);
+    const branchSurvival = survivalForOutcome(branchOutcome, branchFailures);
     const featureBranch = makeSemanticEvent({
       type: "feature_branch",
       id: semanticId("feature_branch", [feature.key]),
       timestamp: shiftedIso(firstAttempt?.build.timestamp || first.timestamp, -250),
       source: "agent",
-      label: feature.branchId,
-      summary: "Feature branch for " + feature.title + ". Attempts happen on this branch before successful work merges back to main.",
+      label: "Experiment: " + feature.title,
+      summary: "Idea explored: " + profile.explored + ". Learning: " + branchLearning + ". Verification: " + branchSurvival,
       parentId: mainHeadId,
       branchId: feature.branchId,
       intent: feature.key,
       metadata: {
+        ...ideaMetadata(profile),
         storyNode: true,
         storyKind: "feature_branch",
         featureKey: feature.key,
         featureTitle: feature.title,
+        experimentLearning: branchLearning,
+        experimentSurvival: branchSurvival,
+        curiosityPrompt: branchCuriosityFromAttempts(group.attempts, profile),
       },
     });
     output.push(featureBranch);
@@ -1321,21 +1463,29 @@ export function commonEventsToStoryEvents(events: CommonDevelopmentEvent[]): Com
       id: semanticId("feature_merge", [feature.key, featureHeadId, mainHeadId]),
       timestamp: shiftedIso(lastAttempt.outcome?.timestamp || lastAttempt.build.timestamp, 500),
       source: "merge",
-      label: "Merge " + feature.branchId + " to main",
-      summary: explicitMerge?.summary || "Successful work from " + feature.branchId + " merges back into main.",
+      label: "Merge lesson: " + feature.title,
+      summary: explicitMerge?.summary || "Idea carried forward: " + profile.emerged + ". It matters because " + profile.matters + ".",
       parentId: mainHeadId,
       branchId: mainBranch,
       mergeParentIds: [featureHeadId],
       files: mergeFiles,
       rawEventIds: lastAttempt.build.rawEventIds,
       intent: feature.key,
-      detail: explicitMerge?.detail,
+      detail: explicitMerge?.detail || [
+        "Idea carried forward: " + profile.emerged,
+        "Evidence: " + branchSurvival,
+        "Learning kept: " + branchLearning,
+      ],
       metadata: {
         ...(explicitMerge?.metadata || {}),
+        ...ideaMetadata(profile),
         storyNode: true,
         storyKind: "merge",
         featureKey: feature.key,
         featureTitle: feature.title,
+        experimentLearning: branchLearning,
+        experimentSurvival: branchSurvival,
+        curiosityPrompt: "The next main-line node can now build on this carried-forward idea instead of reopening the same question.",
       },
     });
     output.push(merge);
@@ -1353,6 +1503,7 @@ export function commonEventColor(event?: CommonDevelopmentEvent | null): string 
   const type = semanticEventType(event);
   if (type) return SEMANTIC_COLORS[type];
   if (event.source === "user") return "#71717a";
+  if (event.source === "codex") return "#2563eb";
   if (event.source === "kiro") return "#2563eb";
   if (event.source === "kane") return "#16a34a";
   if (event.source === "merge") return "#d97706";
@@ -1395,6 +1546,118 @@ function featureKey(event: CommonDevelopmentEvent) {
   return asString(event.metadata?.featureKey, asString(event.intent, slugify(event.branchId.replace(/^feature\//, ""))));
 }
 
+function ideaProfileForKey(key: string, title: string): StoryIdeaProfile {
+  if (key === "semantic-development-events") {
+    return {
+      assumption: "raw agent activity would become useful once OpenBranch gave every important moment a stable graph event",
+      challenge: "file edits and tool output showed motion but still hid why the product understanding was changing",
+      shift: "the thinking moved from recording actions to grouping evidence by intent, branch, and verification",
+      emerged: "a semantic event adapter that turns goals, plans, attempts, checks, failures, retries, passes, and ideas chosen for main into story nodes",
+      matters: "the graph can show how an AI build learned its way toward a product decision",
+      explored: "whether Kiro and Kane signals can become an idea history instead of a task log",
+      learned: "the smallest useful story unit is not a file change; it is a verified idea moving through a branch",
+      curiosity: "The next node asks whether the graph can make that learning visible without flattening it into a report.",
+    };
+  }
+
+  if (key === "live-event-probe") {
+    return {
+      assumption: "a live file-event feed would prove OpenBranch could watch development as it happened",
+      challenge: "a live feed becomes noise unless each signal explains what the project learned",
+      shift: "the thinking moved from proving the feed exists to asking how live signals become evidence for an evolving idea",
+      emerged: "a live probe that tests whether the story can update while the project is still changing",
+      matters: "OpenBranch can become a living development history instead of a recap written after the fact",
+      explored: "whether live development activity can be translated into story nodes as the work unfolds",
+      learned: "live events need interpretation before they become useful history",
+      curiosity: "The next node shows whether live evidence can still feel coherent once it reaches the graph.",
+    };
+  }
+
+  if (key === "story-graph-ui") {
+    return {
+      assumption: "a graph of nodes, colors, and branches would be enough to explain AI development",
+      challenge: "structure alone still makes users infer the reason behind each branch",
+      shift: "the thinking moved from showing topology to inviting the user through a sequence of idea changes",
+      emerged: "a Story View where each click answers what idea changed, what survived, and why the next node matters",
+      matters: "the graph becomes a product-thinking surface, not just a visualization of operations",
+      explored: "whether the existing OpenBranch graph can make branches feel like experiments",
+      learned: "users need the graph to explain the thought behind the shape, not only the shape itself",
+      curiosity: "The next node tests whether that shape can pull the reader forward.",
+    };
+  }
+
+  return {
+    assumption: title + " could move forward as a normal implementation branch",
+    challenge: "the branch still had to prove what changed in the product understanding, not just what changed in code",
+    shift: "the thinking moved from tracking work done to asking what idea the branch tested",
+    emerged: "a clearer product idea for " + title,
+    matters: "future readers can understand why this work deserved to become part of the main story",
+    explored: "whether " + title + " should become part of the product direction",
+    learned: "the branch only matters if verification can turn its changes into confidence",
+    curiosity: "The next node reveals what verification taught the project about this idea.",
+  };
+}
+
+function ideaProfileForEvent(event: CommonDevelopmentEvent) {
+  return ideaProfileForKey(featureKey(event), featureTitle(event));
+}
+
+function ideaMetadata(profile: StoryIdeaProfile) {
+  return {
+    ideaAssumption: profile.assumption,
+    ideaChallenge: profile.challenge,
+    ideaShift: profile.shift,
+    ideaEmergence: profile.emerged,
+    ideaMatters: profile.matters,
+    experimentIdea: profile.explored,
+    experimentLearning: profile.learned,
+    curiosityPrompt: profile.curiosity,
+  };
+}
+
+function ideaField(event: CommonDevelopmentEvent, key: string, fallback: string) {
+  return asString(event.metadata?.[key], fallback);
+}
+
+function survivalForOutcome(status: string, failures: number) {
+  if (status === "passed" && failures > 0) {
+    return "Yes, but only after verification exposed the weak assumption and forced the branch to revise it.";
+  }
+  if (status === "passed") {
+    return "Yes. Kane's check gave the idea enough confidence to keep moving.";
+  }
+  if (status === "failed") {
+    return "Not yet. Kane turned the limitation into the next thing the branch has to understand.";
+  }
+  return "Not yet. Verification is still the open question.";
+}
+
+function branchLearningFromAttempts(attempts: StoryAttempt[], profile: StoryIdeaProfile) {
+  const failures = attempts.filter((attempt) => outcomeForEpisode(attempt.outcome) === "failed").length;
+  const passed = outcomeForAttempts(attempts) === "passed";
+  if (failures > 0 && passed) {
+    return profile.learned + "; the failed pass also showed that the graph must preserve the retry path, not erase it.";
+  }
+  if (failures > 0) {
+    return profile.learned + "; the current lesson is that the first version has not explained enough to survive verification.";
+  }
+  if (passed) {
+    return profile.learned + "; verification confirmed the idea without needing a visible correction.";
+  }
+  return profile.learned + "; the branch is still gathering evidence.";
+}
+
+function branchCuriosityFromAttempts(attempts: StoryAttempt[], profile: StoryIdeaProfile) {
+  const failures = attempts.filter((attempt) => outcomeForEpisode(attempt.outcome) === "failed").length;
+  const outcome = outcomeForAttempts(attempts);
+  if (outcome === "passed" && failures > 0) {
+    return "The next node shows the moment the failed assumption became a better idea.";
+  }
+  if (outcome === "passed") return "The next node shows how Kane turned the hypothesis into confidence.";
+  if (outcome === "failed") return "The next node shows what broke the original assumption.";
+  return profile.curiosity;
+}
+
 function storyPurposeFor(event: CommonDevelopmentEvent) {
   const key = featureKey(event);
   if (key === "semantic-development-events") {
@@ -1422,68 +1685,456 @@ function storyFilesPhrase(files: string[]) {
   return "The work moved through " + humanList(files.map((file) => file.replace(/\\/g, "/"))) + ".";
 }
 
+function storyMarkdown(parts: Array<string | null | undefined>) {
+  return parts.filter(Boolean).join("\n\n");
+}
+
+function storyBullet(label: string, value: string) {
+  return "- **" + label + ":** " + value;
+}
+
+function storyQuote(label: string, value: string) {
+  return "> **" + label + ":** " + value;
+}
+
+function storyCodeBlock(lines: string[]) {
+  return ["```text", ...lines, "```"].join("\n");
+}
+
+function compactStoryLine(value: string, limit = 86) {
+  const clean = value.replace(/\s+/g, " ").trim();
+  if (clean.length <= limit) return clean;
+  return clean.slice(0, limit - 1).replace(/\s+\S*$/, "") + "...";
+}
+
+function sentenceLead(value: string) {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean ? clean.charAt(0).toUpperCase() + clean.slice(1) : clean;
+}
+
 function episodeNarrative(event: CommonDevelopmentEvent) {
   const attempts = Number(event.metadata?.attemptCount || 1);
   const failures = Number(event.metadata?.failedAttempts || 0);
-  const purpose = storyPurposeFor(event);
-  const files = event.files || [];
-  const verification =
-    failures > 0
-      ? "Kane's feedback changed the direction of the work: a failed check became a reason to retry inside the branch instead of pretending the episode was finished."
-      : event.status === "passed"
-        ? "Kane's verification gave this episode a clear stopping point, turning a set of development passes into something OpenBranch could treat as complete."
-        : "Verification has not closed the loop yet, so this episode still reads as work in motion.";
+  const profile = ideaProfileForEvent(event);
+  const assumption = ideaField(event, "ideaAssumption", profile.assumption);
+  const challenge = ideaField(event, "ideaChallenge", profile.challenge);
+  const shift = ideaField(event, "ideaShift", profile.shift);
+  const emerged = ideaField(event, "ideaEmergence", profile.emerged);
+  const matters = ideaField(event, "ideaMatters", profile.matters);
+  const explored = ideaField(event, "experimentIdea", profile.explored);
+  const learned = ideaField(event, "experimentLearning", profile.learned);
+  const survived = ideaField(event, "experimentSurvival", survivalForOutcome(event.status, failures));
+  const curiosity = ideaField(event, "curiosityPrompt", profile.curiosity);
+  const kaneGuidance = kaneGuidanceForEvent(event);
 
-  return (
-    "OpenBranch was trying to " + purpose + ". " +
-    "This episode, " + event.label + ", gathered " + attempts + " development " + (attempts === 1 ? "pass" : "passes") +
-    " into one readable moment instead of asking the user to inspect every retry. " +
-    storyFilesPhrase(files) + " " +
-    verification + " " +
-    outcomeNarrative(event.status) + ", which means the branch now tells a clearer story about why this work mattered and where it can go next."
-  );
+  if (failures > 0) {
+    const failureBullets = [
+      storyBullet("Kane tested", compactStoryLine(kaneGuidance.behavior, 112)),
+      kaneGuidance.failure ? storyBullet("What failed", compactStoryLine(kaneGuidance.failure, 112)) : "",
+      kaneGuidance.why ? storyBullet("Reason it matters", compactStoryLine(kaneGuidance.why, 112)) : "",
+      kaneGuidance.next ? storyBullet("Kiro should fix next", compactStoryLine(kaneGuidance.next, 112)) : "",
+    ].filter(Boolean).join("\n");
+    return storyMarkdown([
+      "### The useful failure",
+      "Kane did something valuable here: it made the weak assumption visible before the branch could pretend it was finished.",
+      "> \"This is not ready to become product truth yet.\"",
+      "That turns the branch from implementation into inquiry.",
+      storyCodeBlock([
+        "assumption -> failed check -> sharper idea",
+        compactStoryLine(assumption, 72) + " -> " + compactStoryLine(challenge, 72),
+      ]),
+      [
+        storyBullet("New idea", compactStoryLine(emerged, 112)),
+        storyBullet("What changed", compactStoryLine(shift, 112)),
+        storyBullet("Survived verification?", compactStoryLine(survived, 112)),
+      ].join("\n"),
+      failureBullets,
+      sentenceLead(matters),
+      "The next interesting question is whether the fix branch keeps the lesson or only patches the symptom.",
+    ]);
+  }
+
+  if (event.status === "passed") {
+    const passBullets = [
+      storyBullet("Behavior verified", compactStoryLine(kaneGuidance.behavior, 112)),
+      kaneGuidance.evidence.length ? storyBullet("Evidence", compactStoryLine(kaneGuidance.evidence[0], 112)) : "",
+      storyBullet("Merge direction", "the branch can move toward merge because Kane verified the acceptance behavior"),
+    ].filter(Boolean).join("\n");
+    return storyMarkdown([
+      "### Kane's answer",
+      "The branch asked a very specific question: can " + explored + "?",
+      "Kane's answer is yes, and that matters because the idea now has evidence instead of confidence by assertion.",
+      [
+        storyBullet("What survived", compactStoryLine(survived, 112)),
+        storyBullet("Development passes", String(attempts)),
+        storyBullet("Lesson kept", compactStoryLine(learned, 112)),
+      ].join("\n"),
+      passBullets,
+      "> " + compactStoryLine(emerged, 120),
+      "The next click should show whether main treats that evidence as worth carrying forward.",
+    ]);
+  }
+
+  return storyMarkdown([
+    "This episode is still a live question. The branch has a direction, but Kane has not turned it into trust yet.",
+    "### Open question",
+    "Can " + explored + "?",
+    [
+      storyBullet("Starting belief", compactStoryLine(assumption, 112)),
+      storyBullet("Pressure point", compactStoryLine(challenge, 112)),
+      storyBullet("Early lesson", compactStoryLine(learned, 112)),
+    ].join("\n"),
+    "What makes it interesting: " + sentenceLead(curiosity).replace(/\.$/, "") + ".",
+  ]);
 }
 
 function featureBranchNarrative(event: CommonDevelopmentEvent) {
+  const key = featureKey(event);
   const title = featureTitle(event);
-  return (
-    event.label + " opens a focused lane for " + title + ". " +
-    "Instead of mixing this work into main as a stream of isolated events, OpenBranch treats the branch as a place where the AI can explore, retry, and prove the feature. " +
-    "That matters because the branch gives the later episodes context: they are not random attempts, they are steps toward a clearer way to " + storyPurposeFor(event) + "."
-  );
+  const profile = ideaProfileForEvent(event);
+  const assumption = ideaField(event, "ideaAssumption", profile.assumption);
+  const challenge = ideaField(event, "ideaChallenge", profile.challenge);
+  const explored = ideaField(event, "experimentIdea", profile.explored);
+  const learned = ideaField(event, "experimentLearning", profile.learned);
+  const survived = ideaField(event, "experimentSurvival", "Not yet. Verification is still the open question.");
+  const curiosity = ideaField(event, "curiosityPrompt", profile.curiosity);
+
+  if (key === "semantic-development-events") {
+    return storyMarkdown([
+      "### Question",
+      "Can Kiro and Kane signals become an idea history instead of a task log?",
+      "**Experiment:** isolate the branch and see whether raw agent activity can be grouped by intent, branch, and verification.",
+      "**Lesson so far:** " + compactStoryLine(learned, 118),
+      "**Verification:** " + compactStoryLine(survived, 118),
+      "This is interesting because the branch is not just a place for work. It is a place for OpenBranch to change its mind.",
+      "> " + curiosity,
+    ]);
+  }
+
+  if (key === "story-graph-ui") {
+    return storyMarkdown([
+      "### Before / after",
+      "| Before | After |",
+      "| --- | --- |",
+      "| A graph shows structure. | A graph explains why the structure matters. |",
+      "| Nodes name events. | Nodes reveal the question each event is testing. |",
+      "| A branch is a visual fork. | A branch is an experiment with evidence. |",
+      "The branch is testing " + title + " by asking whether " + compactStoryLine(explored, 98) + ".",
+      "The useful tension: " + compactStoryLine(challenge, 112),
+    ]);
+  }
+
+  return storyMarkdown([
+    "This branch opens a contained experiment: can " + title + " become part of the product direction without flattening the story?",
+    [
+      storyBullet("Question", "Can " + compactStoryLine(explored, 106) + "?"),
+      storyBullet("Starting belief", compactStoryLine(assumption, 106)),
+      storyBullet("Friction", compactStoryLine(challenge, 106)),
+      storyBullet("Current lesson", compactStoryLine(learned, 110)),
+      storyBullet("Verification", compactStoryLine(survived, 110)),
+    ].join("\n"),
+    "The reason to care: this is where the product gets permission to be wrong before main has to remember anything.",
+    "A good next question: " + curiosity,
+  ]);
 }
 
 function mergeNarrative(event: CommonDevelopmentEvent) {
   const title = featureTitle(event);
-  return (
-    "This merge is the moment " + title + " stops being branch-local progress and becomes part of the main development story. " +
-    "The preceding episode had enough verification behind it to carry its work back into main, so OpenBranch can show not only that something changed, but that the change survived review. " +
-    "For the larger story, this is the payoff: the branch produced a coherent result rather than another unfinished trail."
-  );
+  const profile = ideaProfileForEvent(event);
+  const shift = ideaField(event, "ideaShift", profile.shift);
+  const emerged = ideaField(event, "ideaEmergence", profile.emerged);
+  const learned = ideaField(event, "experimentLearning", profile.learned);
+  const survived = ideaField(event, "experimentSurvival", "Yes. Verification gave the idea enough confidence to keep moving.");
+  const matters = ideaField(event, "ideaMatters", profile.matters);
+  const curiosity = ideaField(event, "curiosityPrompt", "The next main-line node can build from this carried-forward idea.");
+
+  if (featureKey(event) === "story-graph-ui") {
+    return storyMarkdown([
+      "### The graph inherits a lesson",
+      "The " + title + " branch returns with more than a UI improvement. It returns with a claim about how OpenBranch should explain development history.",
+      storyQuote("Kept", emerged),
+      "Main absorbs the part that survived Kane, not every detail of the experiment.",
+      [
+        storyBullet("Changed belief", compactStoryLine(shift, 112)),
+        storyBullet("Evidence", compactStoryLine(survived, 112)),
+        storyBullet("Lesson", compactStoryLine(learned, 112)),
+      ].join("\n"),
+      sentenceLead(matters),
+    ]);
+  }
+
+  return storyMarkdown([
+    "### Why main says yes",
+    "OpenBranch accepts the " + title + " branch because it changed what the product now believes, not merely because a check turned green.",
+    storyQuote("Carried forward", emerged),
+    [
+      storyBullet("Before the branch", compactStoryLine(shift, 112)),
+      storyBullet("Kept from the experiment", compactStoryLine(learned, 112)),
+      storyBullet("Evidence", compactStoryLine(survived, 112)),
+    ].join("\n"),
+    sentenceLead(matters),
+    "That leaves main with a better next question: " + curiosity,
+  ]);
 }
 
 function trunkNarrative(event: CommonDevelopmentEvent) {
   const type = semanticEventType(event);
   if (type === "session") {
-    return "This session frames the work as one development arc. OpenBranch is not only collecting events here; it is giving the goal, planning, branches, verification, and merges a single place to make sense together.";
+    return storyMarkdown([
+      "OpenBranch is treating this session less like a log and more like a trail of changing beliefs.",
+      "> **Thesis:** AI development history should show how ideas evolve, not only what agents did.",
+      "The interesting question is simple: when an agent branches, fails, retries, and merges, what did the project learn?",
+      "That frame turns every later node into a small test of understanding.",
+    ]);
   }
   if (type === "goal") {
-    return "The story starts with the user's goal: " + cleanStoryTitle(event.label) + ". That goal matters because it gives every later branch and episode a reason to exist, so the graph can explain progress instead of merely recording activity.";
+    return storyMarkdown([
+      "### The bet",
+      "The user is betting that GitHub-style history can expand from code changes into AI development history.",
+      [
+        storyBullet("Ambition", "preserve evolving understanding"),
+        storyBullet("Tension", "AI work changes through plans, failed checks, retries, and lessons, not just diffs"),
+      ].join("\n"),
+      "The next useful question is how Kiro turns that ambition into something testable.",
+    ]);
   }
   if (type === "plan") {
-    return "Kiro turns the goal into a plan, giving the AI work a direction before code starts changing. This planning step matters because it becomes the connective tissue between the user's intent and the later feature branches.";
+    return storyMarkdown([
+      "### Hypothesis",
+      "> The graph needs semantic development events, not raw logs.",
+      "If that is true, the story needs a translation layer:",
+      storyCodeBlock(["raw activity -> semantic events -> idea history"]),
+      "Now the plan has a sharper job: prove each branch can explain what it is trying to learn.",
+    ]);
   }
   if (type === "spec") {
-    return "The spec narrows the idea into the rules the development story has to satisfy. It matters because verification can only guide the work if there is a shared understanding of what a good result should look like.";
+    return storyMarkdown([
+      "### The rule change",
+      "Before: a label could name an event.",
+      "After: an event needs enough context to explain a change in understanding.",
+      "A useful signal now carries:",
+      [
+        "- source",
+        "- status",
+        "- parentage",
+        "- branch identity",
+        "- the question being tested",
+      ].join("\n"),
+      "That makes verification meaningful instead of decorative.",
+    ]);
   }
   if (type === "task") {
-    return "This task is where the plan becomes actionable. It gives the later episodes something concrete to complete, so the branch can show progress toward an outcome rather than a pile of disconnected edits.";
+    return storyMarkdown([
+      "### The handoff",
+      "**Old question:** Did we add the events?",
+      "**Better question:** Did the idea survive Kane's verification?",
+      "That shift turns implementation into a learning loop. The next branch gets to test whether this frame holds.",
+    ]);
+  }
+  return event.summary || event.label;
+}
+
+function controlTowerNarrative(event: CommonDevelopmentEvent) {
+  const type = semanticEventType(event);
+  const guidance = kaneGuidanceForEvent(event);
+  const kiroExecuted = event.metadata?.kiroExecuted === true;
+  const kaneExecuted = event.metadata?.kaneExecuted === true;
+  const kaneAttempted = event.metadata?.kaneExecutionAttempted === true;
+  const existingKaneRun = event.metadata?.existingKaneRun === true;
+  const executionFailure = event.metadata?.executionFailure === true;
+  const codexPmStage = asString(event.metadata?.codexPmStage);
+  const codexPmExecuted = event.metadata?.codexPmExecuted === true;
+  const codexPmFallback = event.metadata?.codexPmFallback === true;
+  if (type === "session") {
+    return storyMarkdown([
+      "OpenBranch is acting as the control tower for this loop.",
+      storyCodeBlock([
+        "goal -> build -> verify -> debug instruction -> fix -> re-verify -> accept",
+      ]),
+      "The important change is agency: OpenBranch is not only watching the story, it is producing the files and instructions the next agent can use.",
+    ]);
+  }
+  if (type === "goal") {
+    return storyMarkdown([
+      "### Goal proposed",
+      event.summary || "OpenBranch created the development goal.",
+      "The handoff file is `.tmp/openbranch-goal.md`, so Kiro and Codex can start from the same source of truth.",
+    ]);
+  }
+  if (event.source === "codex" && codexPmFallback) {
+    return storyMarkdown([
+      "### Codex PM fallback mode",
+      event.summary || "OpenBranch prepared the PM handoff locally because no Codex/OpenAI API execution was available.",
+      [
+        storyBullet("Model requested", asString(event.metadata?.codexPmModel, "not configured")),
+        storyBullet("Execution evidence", "fallback only; `.tmp/codex-run.log` records why the API did not run"),
+        storyBullet("Next agent", "Kiro still receives `.tmp/kiro-build-task.md`, so the demo can continue"),
+      ].join("\n"),
+    ]);
+  }
+  if (event.source === "codex" && codexPmStage === "reframed_goal" && codexPmExecuted) {
+    return storyMarkdown([
+      "### Codex PM reframed goal",
+      event.summary || "The real Codex PM API turned the user request into a tighter product goal.",
+      storyQuote("Reframed goal", compactStoryLine(event.detail?.[0] || event.summary || "", 160)),
+      "Execution evidence lives in `.tmp/codex-run.log`.",
+    ]);
+  }
+  if (event.source === "codex" && codexPmStage === "plan_generated" && codexPmExecuted) {
+    return storyMarkdown([
+      "### Codex PM plan generated",
+      event.summary || "The real Codex PM API generated the development plan, acceptance criteria, Kiro task, and Kane task.",
+      [
+        storyBullet("Execution evidence", "`.tmp/codex-run.log`"),
+        storyBullet("Kiro task", "`.tmp/kiro-build-task.md`"),
+        storyBullet("Kane task", "`.tmp/kane-verification-task.md`"),
+      ].join("\n"),
+    ]);
+  }
+  if (event.source === "codex" && codexPmStage === "accepted_lesson" && codexPmExecuted) {
+    return storyMarkdown([
+      "### Codex PM accepted lesson",
+      event.summary || "The real Codex PM API reviewed Kane feedback and wrote the lesson OpenBranch should preserve.",
+      [
+        storyBullet("Evidence", "`.tmp/codex-run.log` and `.tmp/kane-result.json`"),
+        storyBullet("Merge direction", "the PM acceptance is now attached to the final OpenBranch merge"),
+      ].join("\n"),
+    ]);
+  }
+  if (type === "build_attempt") {
+    if (!kiroExecuted) {
+      return storyMarkdown([
+        "### Kiro task prepared",
+        event.summary || "OpenBranch prepared a builder task for Kiro.",
+        [
+          storyBullet("Branch", event.branchId),
+          storyBullet("Execution evidence", "not present yet; see Technical Details for the handoff and logs"),
+          storyBullet("Behavior Kane will check", compactStoryLine(guidance.behavior, 112)),
+        ].join("\n"),
+      ]);
+    }
+    return storyMarkdown([
+      "### Kiro Builder executed",
+      event.summary || "OpenBranch invoked Kiro with the builder task.",
+      [
+        storyBullet("Branch", event.branchId),
+        storyBullet("Execution evidence", "`.tmp/kiro-run.log`"),
+        storyBullet("Behavior Kane will check", compactStoryLine(guidance.behavior, 112)),
+      ].join("\n"),
+      "This is an execution claim only. It does not claim implementation unless the run log or file diff proves it.",
+    ]);
+  }
+  if (type === "verify") {
+    if (existingKaneRun) {
+      return storyMarkdown([
+        "### Kane result ingested",
+        event.summary || "OpenBranch ingested an existing Kane Power result.",
+        storyQuote("Behavior", guidance.behavior),
+        "This is evidence from Kane, but OpenBranch is not claiming it triggered that run.",
+      ]);
+    }
+    if (!kaneExecuted) {
+      return storyMarkdown([
+        "### Kane verification prepared",
+        event.summary || "OpenBranch prepared the verifier task.",
+        storyQuote("Behavior", guidance.behavior),
+        "The verifier is not marked executed until `.tmp/kane-run.log` shows a Kane CLI process was started.",
+      ]);
+    }
+    return storyMarkdown([
+      "### Kane Verifier executed",
+      "OpenBranch started Kane CLI and captured the verifier run.",
+      storyQuote("Behavior", guidance.behavior),
+      "Execution evidence lives in `.tmp/kane-run.log`; parsed result evidence lives in `.tmp/kane-result.json`.",
+      "The result will either become a debugging instruction or acceptance evidence.",
+    ]);
+  }
+  if (type === "fail") {
+    if (executionFailure || (kaneAttempted && event.metadata?.kaneVerified === false)) {
+      return storyMarkdown([
+        "### Verifier did not complete",
+        "This node records a real execution gap instead of pretending a browser check passed or failed product behavior.",
+        [
+          storyBullet("Behavior requested", compactStoryLine(guidance.behavior, 112)),
+          storyBullet("What blocked it", compactStoryLine(guidance.failure || event.summary || "Kane did not return a passing verifier result.", 112)),
+          storyBullet("Evidence", "`.tmp/kane-run.log` and `.tmp/kane-result.json`"),
+          storyBullet("Kiro should fix next", compactStoryLine(guidance.next || "Repair the verifier setup or app behavior, then rerun Kane.", 112)),
+        ].join("\n"),
+      ]);
+    }
+    if (existingKaneRun) {
+      return storyMarkdown([
+        "### Existing Kane result failed",
+        "OpenBranch ingested a real Kane Power result that already existed locally.",
+        [
+          storyBullet("Kane tested", compactStoryLine(guidance.behavior, 112)),
+          storyBullet("What failed", compactStoryLine(guidance.failure || event.summary || "Kane reported a failure.", 112)),
+          storyBullet("Execution claim", "ingested evidence only; this OpenBranch run did not start Kane"),
+        ].join("\n"),
+      ]);
+    }
+    return storyMarkdown([
+      "### Kane found the break",
+      "This is the loop doing its job: a browser check turned uncertainty into a concrete repair target.",
+      [
+        storyBullet("Kane tested", compactStoryLine(guidance.behavior, 112)),
+        storyBullet("What failed", compactStoryLine(guidance.failure || event.summary || "Kane reported a failure.", 112)),
+        storyBullet("Reason it matters", compactStoryLine(guidance.why || "The branch cannot be accepted until this behavior holds.", 112)),
+        storyBullet("Kiro should fix next", compactStoryLine(guidance.next || "Patch the branch and rerun Kane.", 112)),
+      ].join("\n"),
+    ]);
+  }
+  if (type === "task") {
+    return storyMarkdown([
+      "### Debug instruction generated",
+      event.summary || "OpenBranch wrote the next action for Kiro/Codex.",
+      "The useful artifact is `.tmp/kiro-next-action.md`: it turns Kane's result into the next fix instruction.",
+    ]);
+  }
+  if (type === "fix_branch") {
+    return storyMarkdown([
+      "### Fix attempted",
+      event.summary || "Kiro/Codex applies the repair on a fix branch.",
+      "This keeps the failed idea visible while the retry gets its own verification path.",
+    ]);
+  }
+  if (type === "pass") {
+    if (existingKaneRun) {
+      return storyMarkdown([
+        "### Existing Kane result passed",
+        "OpenBranch ingested real Kane evidence that was already on disk.",
+        [
+          storyBullet("Behavior verified", compactStoryLine(guidance.behavior, 112)),
+          storyBullet("Evidence", compactStoryLine(guidance.evidence[0] || event.summary || "Kane returned a passing result.", 112)),
+          storyBullet("Execution claim", "ingested evidence only; this OpenBranch run did not start Kane"),
+        ].join("\n"),
+      ]);
+    }
+    return storyMarkdown([
+      kaneExecuted ? "### Kane Verifier passed" : "### Passing result ingested",
+      kaneExecuted
+        ? "The Kane CLI run produced passing evidence for the requested behavior."
+        : "OpenBranch has a passing result, but Technical Details should be checked before treating it as a fresh verifier run.",
+      [
+        storyBullet("Behavior verified", compactStoryLine(guidance.behavior, 112)),
+        storyBullet("Evidence", compactStoryLine(guidance.evidence[0] || event.summary || "Kane returned a passing result.", 112)),
+        storyBullet("Merge direction", "the branch can move toward acceptance because the checked behavior survived"),
+      ].join("\n"),
+    ]);
+  }
+  if (type === "merge") {
+    return storyMarkdown([
+      event.label === "Accepted Lesson" ? "### Accepted Lesson" : "### Idea accepted",
+      event.summary || "The verified idea is accepted back into main.",
+      "OpenBranch records the accepted idea with the verification trail still attached.",
+    ]);
   }
   return event.summary || event.label;
 }
 
 function storyNarrativeForEvent(event: CommonDevelopmentEvent) {
   const kind = storyKind(event);
+  if (event.metadata?.controlTowerStep) return controlTowerNarrative(event);
   if (kind === "episode") return episodeNarrative(event);
   if (kind === "feature_branch") return featureBranchNarrative(event);
   if (kind === "merge") return mergeNarrative(event);
@@ -1494,6 +2145,20 @@ function technicalDetailsForEvent(event: CommonDevelopmentEvent) {
   const lines = [`**${event.label}**`];
   if (event.summary) lines.push(event.summary);
   if (event.detail?.length) lines.push(event.detail.map((item) => "- " + item).join("\n"));
+  const executionCommand = asString(event.metadata?.executionCommand);
+  const executionArtifacts = toArrayOfStrings(event.metadata?.executionArtifacts);
+  if (executionCommand || executionArtifacts?.length) {
+    lines.push(
+      [
+        "Execution evidence:",
+        executionCommand ? "- Command: " + executionCommand : "",
+        typeof event.metadata?.executionExitStatus === "number" ? "- Exit status: " + event.metadata.executionExitStatus : "",
+        ...(executionArtifacts || []).map((artifact) => "- Artifact: " + artifact),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
   const storySteps = Array.isArray(event.metadata?.storySteps) ? event.metadata.storySteps : [];
   if (storySteps.length) {
     const heading = event.metadata?.storyKind === "episode" ? "Attempts" : "Episode steps";
@@ -1531,15 +2196,16 @@ function technicalDetailsForEvent(event: CommonDevelopmentEvent) {
   return lines.join("\n\n");
 }
 
+function technicalDetailsBodyForEvent(event: CommonDevelopmentEvent) {
+  return technicalDetailsForEvent(event)
+    .split("\n\n")
+    .filter((section) => section !== `**${event.label}**`)
+    .join("\n\n");
+}
+
 function responseForEvent(event: CommonDevelopmentEvent): string {
   if (!event.metadata?.storyNode) return technicalDetailsForEvent(event);
-
-  const lines = [`**${event.label}**`, storyNarrativeForEvent(event), "### Technical details"];
-  const technical = technicalDetailsForEvent(event)
-    .split("\n\n")
-    .filter((section) => section !== `**${event.label}**`);
-  lines.push(...technical);
-  return lines.join("\n\n");
+  return [`**${event.label}**`, storyNarrativeForEvent(event)].join("\n\n");
 }
 
 function activityForEvent(event: CommonDevelopmentEvent, ts: number): CommitActivity {
@@ -1603,6 +2269,7 @@ export function commonEventsToCommits(
       mode: "code",
       activities: activitiesForEvent(event, safeTs),
       liveEvent: event,
+      storyTechnicalDetails: event.metadata?.storyNode ? technicalDetailsBodyForEvent(event) : undefined,
       displayLabel: event.label,
     };
   });

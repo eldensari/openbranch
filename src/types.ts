@@ -45,7 +45,7 @@ export type DevelopmentEvent = {
   metadata?: Record<string, unknown>;
 };
 
-export type CommonDevelopmentEventSource = "user" | "kiro" | "kane" | "agent" | "merge" | "system";
+export type CommonDevelopmentEventSource = "user" | "codex" | "kiro" | "kane" | "agent" | "merge" | "system";
 
 export type SemanticDevelopmentEventType =
   | "session"
@@ -204,6 +204,7 @@ export type Commit = {
   iteration?: number;
   developmentEvent?: DevelopmentEvent;
   liveEvent?: CommonDevelopmentEvent;
+  storyTechnicalDetails?: string;
   displayLabel?: string;
   tags?: string[];
   // Round 2 sub-roles for executor (kept on the same `role: "executor"` so badges color the same)

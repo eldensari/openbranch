@@ -1,133 +1,349 @@
-# 🌿 OpenBranch
+# OpenBranch for AI Development
 
-**Branch to explore in your chat**
+Kane CLI Hack Day submission.
 
-A nonlinear chat app for LLM conversations. 
+OpenBranch is a control tower for AI development. Codex PM keeps the goal
+through the OpenAI/Codex API, Kiro is the builder surface, Kane verifies when
+its CLI actually runs, and OpenBranch records the loop as a visual development
+story.
 
-![OpenBranch screenshot](https://openbranch.app/screenshot.png)
+Git shows what changed in code. OpenBranch shows how an AI development idea
+moved through planning, building, verification, failure, repair, and
+acceptance.
 
-## Features
+## What It Is
 
-- **Branch** — Edit any message to fork a new branch and explore a different direction
-- **Merge** — Combine insights from multiple branches into one thread
-- **Graph visualization** — See the shape of your reasoning as a git-style commit graph
-- **Dark / Light mode** — Toggle with one click
-- **BYOK** — Bring Your Own Key. Supports Anthropic, OpenAI, and Gemini
-- **🟣 AI Team Validation** — Every message runs a 4-role live team (Master · Executor · Validator · Critic), see below
+OpenBranch turns AI development work into a live graph and Story View. Instead
+of reading scattered terminal output, agent notes, and verification logs, a
+judge can watch the idea move through the loop:
 
-## Multi-Agent Team Validation
+1. User goal
+2. Kiro plan or build attempt
+3. Kane verification
+4. Failure and fix branch, if needed
+5. Kane pass
+6. Accepted idea merged back into the main story
 
-> **Branch+merge IS the multi-agent primitive — made literal here.**
->
-> OpenBranch already has git-style branches and merge commits. The AI team
-> doesn't bolt orchestration on top — it *uses* the existing primitives. Three
-> persistent worker branches (🟢 Executor, 🟡 Validator, 🔴 Critic) sprout from
-> the user's message and live across rounds. Master's synthesis on the main
-> thread is literally a multi-parent **merge commit** that pulls the three
-> worker outputs together. Each round adds another merge.
+## Roles
 
-```
-Master:  [User]──[R1 MasterMerge◆]──[R2 MasterMerge◆]──→
-            ↓↓↓        ↑                  ↑
-            │││        │ merges 3         │ merges 3
-            │││        │                  │
-🟢 Exec: ────→[R1]──→[R2 Review◆]──→[R2 Execute]──→
-🟡 Val:  ────→[R1]──→[R2 Review◆]──→[R2 Execute]──→
-🔴 Crit: ────→[R1]──→[R2 Review◆]──→[R2 Execute]──→
+- Codex = PM / goal keeper
+- Kiro = Builder
+- Kane = Verifier
+- OpenBranch = control tower + memory + story layer
 
-◆ = multi-parent merge node (diamond in the graph)
-```
+## Current Integration Status
 
-**Context discipline:** every node sees ONLY its declared parents — no global
-thread state. Lineage IS the prompt:
+- Codex: yes, real API execution is available through `OPENAI_API_KEY` using
+  the configured `OPENBRANCH_PM_MODEL`. The PM writes
+  `.tmp/codex-run.log`, generates the development plan, acceptance criteria,
+  Kiro build task, Kane verification task, and post-Kane next action. If no API
+  key is present, OpenBranch falls back to `Codex PM fallback mode` and does not
+  claim API execution.
+- Kiro: yes, real CLI invocation is available through `kiro chat --mode ask
+  --add-file .tmp/kiro-build-task.md ...`. The current MVP proves Kiro can be
+  invoked and can consume the task file; it does not claim Kiro implemented code
+  unless `.tmp/kiro-run.log` or a later diff proves implementation.
+- Kane: yes, real Kane CLI execution is available through `kane-cli run ... --agent`. The
+  current real-loop run invoked Kane against `http://127.0.0.1:5173` and passed.
+  OpenBranch still supports ingesting existing Kane Power sessions; those are
+  labeled as ingested results, not as executions triggered by OpenBranch.
 
-- R1 Executor: original prompt
-- R1 Validator/Critic: prompt + R1 Executor
-- R1 MasterMerge: the 3 R1 outs → Korean synthesis
-- R2 Review (each worker): own R1 + R1 MasterMerge → strategy plan
-- R2 Execute (each worker): own R2 Review + original prompt → new output
-- R2 MasterMerge: the 3 R2 Executes → Korean comparison report
+## Problem
 
-The first message auto-triggers Round 1. When R1 Master synthesis contains a
-REJECT, a **🔄 Re-run with team feedback** button appears on the diamond.
-Clicking it adds **7 new nodes** (3 Review merges + 3 Execute children +
-1 R2 MasterMerge) — capped at R2, no R3+.
+AI development is becoming a loop of planning, code generation, browser
+testing, repair, and retry. The work is real, but the history is hard to see.
+Git records code changes after the fact; OpenBranch records the development
+process while it happens.
 
-Inspired by AWS Strands' `Swarm` orchestration (Module 3 of the AWS
-"Stop AI Agent Hallucinations" workshop). Strands does this with Python state
-in code; OpenBranch does it with branching + merging as the literal primitive.
+## How the Loop Works
 
-## Neo4j Graph Storage
+The MVP uses a file-based event bridge plus a real execution runner:
 
-Every validation session is stored as a queryable graph in **Neo4j Aura** — the
-same graph database used in Module 1 (Graph-RAG) of the AWS workshop.
+1. Codex writes the goal and keeps the loop pointed at the requested outcome.
+2. Kiro receives `.tmp/kiro-build-task.md` and, in real-loop mode, OpenBranch
+   invokes Kiro CLI and records `.tmp/kiro-run.log`.
+3. Kane receives `.tmp/kane-verification-task.md` and, in real-loop mode,
+   OpenBranch invokes Kane CLI and records `.tmp/kane-run.log`.
+4. OpenBranch ingests Kane CLI stdout or Kane Power output into `events.jsonl`.
+5. If Kane fails, OpenBranch creates a fix branch and writes Kiro's next action.
+6. If Kane passes, OpenBranch records the accepted idea and shows the merge back
+   into the main development story.
 
-Configure via the bottom-right `💾` badge or via `VITE_NEO4J_URI`,
-`VITE_NEO4J_USERNAME`, `VITE_NEO4J_PASSWORD` env vars. If unconfigured, the
-team flow still runs; only the persistence step is skipped.
+Events are JSONL records with fields such as `id`, `type`, `source`, `status`,
+`branch`, `parentId`, `title`, `summary`, `ts`, and `payload`.
 
-Schema:
+## Run the Demo
 
-```
-(:Session {id, user_prompt, started_at, completed_at, total_duration_ms, final_verdict})
-  -[:CONTAINS]-> (:AgentRun {
-      id, role, provider, model, started_at, completed_at,
-      duration_ms, content, verdict, iteration, executor_phase
-  })
-
-// R1 worker lineage
-(:AgentRun {role:'executor'})  -[:WROTE_FOR]->  (:Session)
-(:AgentRun {role:'validator'}) -[:VERIFIED]->   (:AgentRun {role:'executor'})
-(:AgentRun {role:'critic'})    -[:CRITIQUED]->  (:AgentRun {role:'executor'})
-
-// Synthesis merges — multi-parent diamond nodes
-(:AgentRun:SynthesisMerge {round})
-  -[:MERGES]-> (:AgentRun)  // 3 edges per merge: exec + val + crit
-
-// R2 refinement lineage
-(:AgentRun {iteration:2}) -[:REFINES]-> (:AgentRun {iteration:1})
-```
-
-Future analysis queries:
-
-- Which model combinations are most reliable?
-- Which models does Validator most often flag?
-- What patterns appear in rejected sessions?
-
-## Bedrock-Ready
-
-The validation pattern is provider-agnostic. To use Amazon Bedrock-hosted
-models, swap the base URL in `src/lib/llm.ts` — the role logic in
-`src/lib/orchestrateTeam.ts` stays identical.
-
-## Examples
-
-- [`examples/code-hallucination.md`](examples/code-hallucination.md) — the default demo (asyncpg-listen)
-- [`examples/travel-hallucination.md`](examples/travel-hallucination.md) — same pattern, local-knowledge domain
-
-## Tech Stack
-
-- [Vite](https://vitejs.dev/) + [React](https://react.dev/) + [Tailwind CSS](https://tailwindcss.com/)
-- Deployed on [Netlify](https://www.netlify.com/)
-- All data stored in `localStorage` — no server, no sign-up
-
-## Getting Started
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Start the app:
+
+```bash
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Optional environment for the real Codex PM:
+
+```bash
+OPENAI_API_KEY=...
+OPENBRANCH_PM_MODEL=gpt-5.2
+```
+
+The CLI commands load `.env.local`, `.env`, `OPENBRANCH_ENV_FILE`, or
+`--env-file <path>` when present, so a local untracked env file is enough for
+judge/demo runs.
+
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173), switch to `Code Mode`, keep
+`Story View` selected, type this prompt, and press Enter:
+
+```text
+Improve the AI Team Loop status card visibility
+```
+
+`Shift+Tab` toggles between `Chat Mode` for discussion and `Code Mode` for the
+AI Team Loop.
+
+OpenBranch starts a fresh AI Team Loop session and unfolds three rounds:
+
+```text
+Round 1: Codex interprets -> Kiro first attempt -> Kane failure
+Round 2: Codex reframes -> Kiro fix branch -> Kane partial pass
+Round 3: Codex narrows -> Kiro finalizes -> Kane pass -> accepted lesson
+```
+
+The prompt submit path writes the handoff files, appends `events.jsonl`, and
+updates the graph without requiring separate Kane, Ingest, Next, Accept, or
+Codex button clicks. The branches show the first experiment, the visibility fix,
+the verification pass, and the merge back to the main story.
+
+Deterministic demo command:
+
+```bash
+npm run openbranch:team-story -- "Improve the AI Team Loop status card visibility"
+```
+
+This command appends a new three-round story with an initial failure, a
+correction, a pass, and an accepted lesson. When real Kane Power output is
+available, OpenBranch references it; if Kane only has a single pass or no local
+session output is available, the earlier failure/pass rounds are marked as
+demo-safe synthesized verification.
+
+Those debugging actions are still available under `Manual tools`, but the main
+demo path is one prompt.
+
+OpenBranch improves OpenBranch:
+
+```bash
+npm run openbranch:self-improve -- --env-file .env.local
+```
+
+This is the real self-improvement demo. It requires `OPENAI_API_KEY` in the
+untracked `.env.local`, asks Codex PM for the goal, acceptance criteria, Kiro
+task, Kane task, and accepted lesson, invokes Kiro with the generated task,
+applies one deterministic allowlisted UI patch, runs `npm run typecheck`,
+`npm run build`, and then runs real `kane-cli` against
+`http://127.0.0.1:5173`.
+
+Each run creates a unique session id, appends the story to `events.jsonl`, saves
+the latest report files in `.tmp`, preserves a non-overwritten copy under
+`.tmp/self-improve-sessions/<session-id>/`, and exposes the saved session to the
+app so it appears in Recents after restart.
+
+Emergency fallback Mock Demo:
+
+```bash
+npm run openbranch:self-improve:mock
+```
+
+The app also exposes a visible `Run Mock Demo` button near `Code Mode`. This
+creates a new `Mock Demo` session without API keys or Kiro, labels PM/Kiro as
+simulated, attempts a real Kane CLI case when Kane is available, and clearly
+marks fixture fallback when Kane cannot provide the pass evidence. It writes:
+
+```text
+.tmp/self-improve-mock-report.md
+.tmp/kane-case-results.json
+```
+
+Secondary/manual control-loop command:
+
+```bash
+npm run openbranch:loop -- --reset
+```
+
+Real execution loop:
+
+```bash
+npm run openbranch:real-loop -- --reset
+```
+
+This command asks the real Codex PM API for the plan when an API key is
+available, writes capability reports, invokes Kiro when available, invokes Kane
+when available, stores execution logs, and appends the real execution story to
+`events.jsonl`.
+
+To point at a specific env file:
+
+```bash
+npm run openbranch:real-loop -- --env-file .env.local --reset
+```
+
+To make the loop fail fast unless the PM API actually runs:
+
+```bash
+npm run openbranch:real-loop -- --env-file .env.local --require-codex-api --reset
+```
+
+Codex PM API smoke test:
+
+```bash
+npm run codex:test
+```
+
+This command reads `OPENAI_API_KEY`, calls the configured PM model, generates a
+small plan, and writes `.tmp/codex-run.log`. Without a key it exits non-zero so
+the missing real API evidence is visible.
+
+```bash
+npm run codex:test -- --env-file .env.local
+```
+
+Optional Kane Power helpers:
+
+```bash
+npm run kane:watch
+npm run kane:ingest -- --latest-session
+```
+
+## Kane Power Integration
+
+Kane Power writes verification session output here:
+
+```text
+~/.testmuai/kaneai/sessions/<session-id>/runs/<run>/run-test/actions.ndjson
+```
+
+OpenBranch prefers real Kane Power output when it is available. The adapter can
+ingest the latest local Kane Power session with:
+
+```bash
+npm run kane:ingest -- --latest-session
+```
+
+It can also watch the Kane Power session directory:
+
+```bash
+npm run kane:watch
+```
+
+In this shell, direct `kane-cli` is not currently on PATH. The app therefore
+supports ingesting real Kane Power session output from the local session
+directory. When direct Kane CLI output is available, the same adapter is
+structured to parse Kane's agent NDJSON stream.
+
+## Real vs Fallback Mode
+
+Real-loop mode invokes Kane CLI directly when `kane-cli` is available and stores
+the run in `.tmp/kane-run.log` plus `.tmp/kane-result.json`.
+
+Ingest mode uses the latest Kane Power `actions.ndjson` file from the local
+session directory. That is real Kane evidence, but OpenBranch labels it as an
+ingested result unless this run launched Kane itself.
+
+Fallback mode uses bundled fixtures only for demo safety, so the live graph can
+still run if no Kane session output is available on the judge machine. The loop
+prefers real execution, then real session ingestion, then fixtures.
+
+## Generated Files
+
+- `events.jsonl` - live OpenBranch development events
+- `.tmp/integration-surfaces.json` - detected Kiro, Kane, and Codex surfaces
+- `.tmp/codex-run.log` - Codex PM prompt, model, generated plan, timestamp, and API status
+- `.tmp/codex-pm-plan.json` - latest Codex PM plan used by the real-loop runner
+- `.tmp/codex-pm-feedback.json` - Codex PM response after Kane feedback, when the API runs
+- `.tmp/kiro-capabilities.json` - Kiro CLI findings and claim boundary
+- `.tmp/kane-capabilities.json` - Kane CLI/Power findings and latest run status
+- `.tmp/kiro-run.log` - Kiro command, status, stdout, stderr
+- `.tmp/kane-run.log` - Kane command, status, stdout, stderr
+- `.tmp/openbranch-goal.md` - goal handoff for Kiro
+- `.tmp/codex-goal.md` - goal keeper handoff for Codex
+- `.tmp/kiro-build-task.md` - builder task for Kiro
+- `.tmp/kane-verification-task.md` - verifier task for Kane
+- `.tmp/kane-result.json` - normalized Kane verification result
+- `.tmp/kiro-next-action.md` - next builder action after Kane verification
+- `~/.testmuai/kaneai/sessions/<session-id>/runs/<run>/run-test/actions.ndjson`
+  - real Kane Power verification events
+
+## Live Demo Story
+
+The demo shows OpenBranch recording an AI development loop:
+
+```text
+User Goal -> Codex PM Reframed Goal -> Codex PM Plan Generated -> Kiro Builder Executed -> Kane Verifier Executed -> Verification Passed -> Codex PM Accepted Lesson -> Accepted Lesson
+```
+
+If `OPENAI_API_KEY` is missing, the Codex node is labeled `Codex PM fallback
+mode` instead, and the Kiro/Kane demo still runs.
+
+The point is not just that the app was tested. The point is that the testing,
+failure, repair, and acceptance become visible as a reusable development
+history.
+
+## 3-Minute Demo Script for Judges
+
+1. Start the app:
+
+```bash
+npm run dev
+```
+
+2. In the browser, open [http://localhost:5173](http://localhost:5173), switch
+   to `Live Mode`, and select `Story View`.
+
+3. Type one development prompt into the chat box and press Enter.
+
+4. Point out the role progress message: Codex is planning, Kiro is preparing,
+   Kane is checking, and OpenBranch is recording the story.
+
+5. Point out the Kane verification event. In real-loop mode the event includes
+   the exact Kane CLI command, exit status, `.tmp/kane-run.log`, and
+   `.tmp/kane-result.json`.
+
+6. Open or mention `.tmp/kiro-next-action.md` to show the builder's next step.
+
+7. Return to Story View and show the accepted idea. The final judge takeaway:
+   OpenBranch shows how an AI development idea moved from goal to verification
+   to acceptance.
+
+## Why This Matters
+
+AI teams need more than generated code. They need an auditable memory of what
+the agents tried, where verification failed, what changed next, and why the
+result was accepted. OpenBranch makes that loop visible.
+
+## Hackathon Scoring Fit
+
+- Kane CLI usage: ingests real Kane Power `actions.ndjson` session output and is
+  now able to trigger `kane-cli run ... --agent` directly when the CLI is
+  available.
+- Built with Kiro: treats Kiro as the Builder, generates Kiro-ready build and
+  next-action files, and records Kiro CLI invocation separately from any claim
+  that code was implemented.
+- Works live: prompt submit writes the local file bridge and updates
+  `events.jsonl`; the loop command remains available as a manual fallback.
+- Idea/usefulness: gives AI development teams a shared control tower for
+  planning, verification, repair, and acceptance.
+- Craft/polish: includes Story View, graph events, real/fallback verification
+  paths, and concise judge-facing commands.
 
 ## Contact
 
-Built by [Elden Sari](https://github.com/eldensari) — reach out at eldensari@proton.me
+Built by [Elden Sari](https://github.com/eldengu).
 
 ## License
 
 Apache-2.0
-
----
-
-[openbranch.app](https://openbranch.app)

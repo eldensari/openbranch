@@ -1,0 +1,17 @@
+{
+  "event": "reverification_passed",
+  "run_id": "kane-demo-002",
+  "behavior": "Run AI Development Demo button sequentially adds live story nodes",
+  "branch": "feature/kane-live-demo",
+  "feature": "kane-live-demo",
+  "files": [
+    "src/lib/common-events.ts",
+    "scripts/kane-result-adapter.mjs"
+  ],
+  "reverify": true,
+  "evidence": [
+    "Story View now includes Kane tested, failure, reason it matters, and Kiro next action.",
+    "Raw Event View retains the original Kane result payload."
+  ],
+  "why_it_matters": "The branch can move toward merge because Kane verified the behavior that closes the Kiro feedback loop."
+}

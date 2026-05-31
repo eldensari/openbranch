@@ -203,7 +203,7 @@ export const SAMPLE_DEVELOPMENT_EVENTS: DevelopmentEvent[] = [
     sequence: 10,
     actor: "OpenBranch",
     detail: [
-      "GitHub tracks code commits. OpenBranch tracks AI development episodes: goals, plans, builds, failures, fixes, and merges.",
+      "GitHub tracks code history. OpenBranch tracks AI development history as ideas evolve through assumptions, experiments, verification, and ideas carried into main.",
     ],
   },
 ];
@@ -238,7 +238,7 @@ function responseForEvent(event: DevelopmentEvent): string {
     lines.push(event.detail.map((item) => "- " + item).join("\n"));
   }
   if (event.kind === "merge_to_main") {
-    lines.push("**Demo story:** GitHub tracks code commits. OpenBranch tracks AI development episodes: goals, plans, builds, failures, fixes, and merges.");
+    lines.push("**Demo story:** GitHub tracks code history. OpenBranch tracks AI development history as ideas evolve.");
   }
   return lines.join("\n\n");
 }
