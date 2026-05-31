@@ -7,6 +7,7 @@ const DEFAULT_IGNORES = new Set([
   ".vite",
   ".idea",
   ".claude",
+  ".tmp",
   "node_modules",
   "dist",
   "build",

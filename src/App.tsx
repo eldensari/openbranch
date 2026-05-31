@@ -11,6 +11,12 @@ import { hydrateAttachments } from "./lib/attachments";
 import { QuotaExceededError } from "./lib/storage";
 import { LIVE_EVENTS_URL, commonEventsToCommits, parseEventsJsonl, type DevelopmentGraphView } from "./lib/common-events";
 import { SAMPLE_DEVELOPMENT_EVENTS, developmentEventsToCommits } from "./lib/development-events";
+import {
+  createControlTowerAction,
+  DEFAULT_CONTROL_TOWER_CONTEXT,
+  type LoopAction,
+  type LoopArtifact,
+} from "./lib/integrations/loop-controller";
 import AppSidebar from "./ui/Sidebar";
 import ChatPanel from "./ui/ChatPanel";
 import { SidebarProvider } from "./components/ui/sidebar";
@@ -116,10 +122,13 @@ export default function App() {
     lastSessionId?: string;
   }>(() => ({ state: neo4jConfigured() ? "idle" : "disabled" }));
   const [devDemoRunning, setDevDemoRunning] = useState(false);
+  const [mockDemoRunning, setMockDemoRunning] = useState(false);
   const [developmentMode, setDevelopmentMode] = useState<"demo" | "live">("demo");
   const [developmentGraphView, setDevelopmentGraphViewState] = useState<DevelopmentGraphView>("story");
   const [liveEventCount, setLiveEventCount] = useState(0);
   const [liveEventsError, setLiveEventsError] = useState("");
+  const [teamLoopStatus, setTeamLoopStatus] = useState<any>(null);
+  const [activeTeamLoopSessionId, setActiveTeamLoopSessionId] = useState<string | null>(null);
   const devDemoTimers = useRef<ReturnType<typeof window.setTimeout>[]>([]);
   const liveEventsSignatureRef = useRef("");
   const dragging = useRef(false);
@@ -149,6 +158,68 @@ export default function App() {
         setGraph(true);
       }
     }
+    let cancelled = false;
+    const importSelfImproveSession = async () => {
+      try {
+        const res = await fetch("/api/openbranch/self-improve-session?t=" + Date.now(), { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        const sessions = Array.isArray(data?.sessions)
+          ? data.sessions
+          : data?.session
+            ? [data.session]
+            : [];
+        const importedConvs: any[] = [];
+        const importedClusters: any[] = [];
+        for (const session of sessions) {
+          if (!session?.id || !Array.isArray(session.events)) continue;
+          const conversationId = session.conversationId || "conv:self_improve:" + session.id;
+          if (storage.get(conversationId)?.value) continue;
+          const commits = commonEventsToCommits(session.events, { view: "story" });
+          const last = commits[commits.length - 1];
+          const createdAt = session.timestamp || new Date().toISOString();
+          const clusterId = session.clusterId || "cluster:" + conversationId;
+          const cv = {
+            id: conversationId,
+            title: session.title || "OpenBranch Improves OpenBranch",
+            commits,
+            headId: last?.id || null,
+            branch: last?.branch || "main",
+            parentRef: null,
+            createdAt,
+            u: createdAt,
+            clusterId,
+            labels: ["Self-Improvement", "Real Evidence"],
+            branchTitles: {},
+          };
+          const cluster = {
+            id: clusterId,
+            title: "OpenBranch Self-Improvement",
+            parentId: null,
+            auto: false,
+            createdAt,
+            u: createdAt,
+          };
+          persistConv(cv);
+          persistCluster(cluster);
+          importedConvs.push(cv);
+          importedClusters.push(cluster);
+        }
+        if (cancelled || !importedConvs.length) return;
+        setClusters((prev) => [
+          ...importedClusters,
+          ...prev.filter((item) => !importedClusters.some((cluster) => cluster.id === item.id)),
+        ]);
+        setConvs((prev) => [
+          ...importedConvs,
+          ...prev.filter((item) => !importedConvs.some((cv) => cv.id === item.id)),
+        ]);
+      } catch {}
+    };
+    importSelfImproveSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1064,6 +1135,316 @@ export default function App() {
       abortRef.current = null; setPending(null); setThinking(false);
     }
   };
+
+  const teamLoopRoleRows = (status: "running" | "done" | "error", kaneMode?: string, demoKind?: "mock" | "real") => {
+    const mock = demoKind === "mock";
+    return [
+      {
+        id: "codex",
+        label: mock ? "Mock PM is planning" : "Codex PM is planning",
+        detail: mock ? "Simulated; no API key required" : "Goal keeper and success criteria",
+        status,
+      },
+      {
+        id: "kiro",
+        label: mock ? "Mock Kiro is building" : "Kiro Builder is preparing the task",
+        detail: mock ? "Simulated; no Kiro required" : "Builder handoff and next action",
+        status,
+      },
+      {
+        id: "kane",
+        label: "Kane Verifier is checking behavior",
+        detail: mock
+          ? kaneMode === "real_kane_cli"
+            ? "Real Kane CLI case supplied pass evidence"
+            : kaneMode === "real_kane_cli_with_fixture_fallback"
+              ? "Kane CLI attempted; pass uses fixture fallback"
+              : kaneMode === "fixture_fallback"
+                ? "Fixture fallback because Kane CLI could not run"
+                : "Trying real Kane CLI, then fixture fallback if needed"
+          : kaneMode === "kane_power"
+            ? "Using real Kane Power session output"
+            : kaneMode === "fixture"
+              ? "Using fallback fixtures because no real Kane output was found"
+              : "Looking for Kane Power output",
+        status,
+      },
+      {
+        id: "openbranch",
+        label: mock ? "OpenBranch is writing Mock Demo" : "OpenBranch is writing the story",
+        detail: "Events become graph and Story View nodes",
+        status,
+      },
+    ];
+  };
+
+  const startOpenBranchTeamLoop = async (msg, atts, useSearch) => {
+    clearDevelopmentDemoTimers();
+    stop();
+    setDevelopmentMode("live");
+    setDevelopmentGraphViewState("story");
+    liveEventsSignatureRef.current = "";
+    setLiveEventsError("");
+    setDevDemoRunning(false);
+    setMockDemoRunning(false);
+    setEditId(null);
+    setBranchFromId(null);
+    setNewFromRef(null);
+    setMm(false);
+    setSel([]);
+    setSelectMode(false);
+    clearSelectRange();
+    setParentRef(null);
+    setConvId(null);
+    setActiveTeamLoopSessionId(null);
+    setGraph(true);
+    setPending(msg);
+    setThinking(true);
+    setStreamingDraft(null);
+    streamingDraftRef.current = null;
+    setTeamLoopStatus({
+      message: "OpenBranch started the AI Team Loop for this prompt.",
+      prompt: msg,
+      phase: "running",
+      roles: teamLoopRoleRows("running"),
+      generatedFiles: [],
+    });
+
+    const ac = new AbortController();
+    abortRef.current = ac;
+    try {
+      const res = await fetch("/api/openbranch/team-loop", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        cache: "no-store",
+        signal: ac.signal,
+        body: JSON.stringify({ prompt: msg, reset: false, attachments: atts || [], webSearch: useSearch }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || "Unable to start AI Team Loop.");
+      }
+      const sessionId = String(data.sessionId || "");
+      if (!sessionId) throw new Error("AI Team Loop did not return a session id.");
+
+      const eventsText = data.eventsText || await fetch(LIVE_EVENTS_URL + "?t=" + Date.now(), { cache: "no-store" }).then((r) => {
+        if (!r.ok) throw new Error("events.jsonl returned " + r.status);
+        return r.text();
+      });
+      const liveEvents = parseEventsJsonl(eventsText).filter((event) => event.metadata?.teamLoopSessionId === sessionId);
+      liveEventsSignatureRef.current = liveEvents.length
+        ? sessionId + ":story:" + liveEvents.length + ":" + liveEvents[liveEvents.length - 1].id
+        : sessionId + ":story:0";
+      const liveCommits = commonEventsToCommits(liveEvents, { view: "story" });
+      const sessionTitle = msg.trim() || data.title || "AI Team Loop";
+      const sessionConvId = "conv:team_loop:" + sessionId;
+
+      setActiveTeamLoopSessionId(sessionId);
+      setLiveEventCount(liveCommits.length);
+      const last = liveCommits[liveCommits.length - 1];
+      setConvId(sessionConvId);
+      setParentRef(null);
+      setCommits([]);
+      cRef.current = [];
+      setHeadId(null);
+      setBranch("main");
+      save(sessionTitle, [], null, "main", null, sessionConvId);
+      setDevDemoRunning(liveCommits.length > 0);
+
+      liveCommits.forEach((commit, index) => {
+        const timer = window.setTimeout(() => {
+          const partial = liveCommits.slice(0, index + 1);
+          const done = index === liveCommits.length - 1;
+          setCommits(partial);
+          cRef.current = partial;
+          setHeadId(commit.id);
+          setBranch(done ? "main" : commit.branch);
+          setScrollTarget(commit.id);
+          save(sessionTitle, partial, commit.id, done ? "main" : commit.branch, null, sessionConvId);
+
+          if (done) {
+            setDevDemoRunning(false);
+            devDemoTimers.current = [];
+          }
+        }, 150 + index * 450);
+        devDemoTimers.current.push(timer);
+      });
+      if (!liveCommits.length) {
+        setDevDemoRunning(false);
+        save(sessionTitle, [], null, "main", null, sessionConvId);
+      }
+      setTeamLoopStatus({
+        message: last
+          ? "OpenBranch is unfolding the AI Team Loop story for this prompt."
+          : "OpenBranch started the AI Team Loop for this prompt.",
+        prompt: msg,
+        phase: "done",
+        mode: data.mode,
+        verificationMode: data.verificationMode,
+        sourceFile: data.sourceFile,
+        generatedFiles: data.generatedFiles || [],
+        roles: teamLoopRoleRows("done", data.mode),
+      });
+      showToast("OpenBranch started the AI Team Loop for this prompt.", "success");
+    } catch (e) {
+      if (isAbortError(e)) {
+        setMockDemoRunning(false);
+        setDevDemoRunning(false);
+        return;
+      }
+      const message = (e as Error)?.message || "Unable to start AI Team Loop.";
+      setTeamLoopStatus({
+        message: "OpenBranch tried to start the AI Team Loop, but the file bridge did not respond.",
+        prompt: msg,
+        phase: "error",
+        roles: teamLoopRoleRows("error"),
+        error: message,
+      });
+      setLiveEventsError(message);
+      showToast(message);
+    } finally {
+      abortRef.current = null;
+      setPending(null);
+      setThinking(false);
+    }
+  };
+
+  const runMockDemo = async () => {
+    clearDevelopmentDemoTimers();
+    stop();
+    setDevelopmentMode("live");
+    setDevelopmentGraphViewState("story");
+    liveEventsSignatureRef.current = "";
+    setLiveEventsError("");
+    setDevDemoRunning(false);
+    setMockDemoRunning(true);
+    setEditId(null);
+    setBranchFromId(null);
+    setNewFromRef(null);
+    setMm(false);
+    setSel([]);
+    setSelectMode(false);
+    clearSelectRange();
+    setAttachments([]);
+    setInput("");
+    setParentRef(null);
+    setConvId(null);
+    setActiveTeamLoopSessionId(null);
+    setGraph(true);
+    setPending("Run Mock Demo");
+    setThinking(true);
+    setStreamingDraft(null);
+    streamingDraftRef.current = null;
+    setTeamLoopStatus({
+      title: "Mock Demo session",
+      message: "Running fallback Mock Demo. PM and Kiro are simulated; Kane is real when available.",
+      prompt: "Run Mock Demo",
+      phase: "running",
+      mode: "mock_demo",
+      roles: teamLoopRoleRows("running", "checking", "mock"),
+      generatedFiles: [],
+    });
+
+    const ac = new AbortController();
+    abortRef.current = ac;
+    try {
+      const res = await fetch("/api/openbranch/self-improve-mock", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        cache: "no-store",
+        signal: ac.signal,
+        body: JSON.stringify({ reset: false }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || "Unable to start Mock Demo.");
+      }
+      const sessionId = String(data.sessionId || "");
+      if (!sessionId) throw new Error("Mock Demo did not return a session id.");
+
+      const eventsText = data.eventsText || await fetch(LIVE_EVENTS_URL + "?t=" + Date.now(), { cache: "no-store" }).then((r) => {
+        if (!r.ok) throw new Error("events.jsonl returned " + r.status);
+        return r.text();
+      });
+      const liveEvents = parseEventsJsonl(eventsText).filter((event) => event.metadata?.teamLoopSessionId === sessionId);
+      liveEventsSignatureRef.current = liveEvents.length
+        ? sessionId + ":story:" + liveEvents.length + ":" + liveEvents[liveEvents.length - 1].id
+        : sessionId + ":story:0";
+      const liveCommits = commonEventsToCommits(liveEvents, { view: "story" });
+      const sessionTitle = data.title || "Mock Demo: Self-Improvement Fallback";
+      const sessionConvId = "conv:mock_demo:" + sessionId;
+
+      setActiveTeamLoopSessionId(sessionId);
+      setLiveEventCount(liveCommits.length);
+      const last = liveCommits[liveCommits.length - 1];
+      setConvId(sessionConvId);
+      setParentRef(null);
+      setCommits([]);
+      cRef.current = [];
+      setHeadId(null);
+      setBranch("main");
+      save(sessionTitle, [], null, "main", null, sessionConvId);
+      setDevDemoRunning(liveCommits.length > 0);
+
+      liveCommits.forEach((commit, index) => {
+        const timer = window.setTimeout(() => {
+          const partial = liveCommits.slice(0, index + 1);
+          const done = index === liveCommits.length - 1;
+          setCommits(partial);
+          cRef.current = partial;
+          setHeadId(commit.id);
+          setBranch(done ? "main" : commit.branch);
+          setScrollTarget(commit.id);
+          save(sessionTitle, partial, commit.id, done ? "main" : commit.branch, null, sessionConvId);
+
+          if (done) {
+            setDevDemoRunning(false);
+            setMockDemoRunning(false);
+            devDemoTimers.current = [];
+          }
+        }, 120 + index * 430);
+        devDemoTimers.current.push(timer);
+      });
+      if (!liveCommits.length) {
+        setDevDemoRunning(false);
+        setMockDemoRunning(false);
+        save(sessionTitle, [], null, "main", null, sessionConvId);
+      }
+      setTeamLoopStatus({
+        title: "Mock Demo session",
+        message: "Mock Demo created: PM/Kiro are simulated, Kane source is labeled in Story View.",
+        prompt: "Run Mock Demo",
+        phase: "done",
+        mode: data.mode,
+        verificationMode: data.verificationMode,
+        sourceFile: data.sourceFile,
+        generatedFiles: data.generatedFiles || [],
+        roles: teamLoopRoleRows("done", data.kaneMode, "mock"),
+      });
+      showToast("Mock Demo session created.", "success");
+    } catch (e) {
+      if (isAbortError(e)) return;
+      const message = (e as Error)?.message || "Unable to start Mock Demo.";
+      setMockDemoRunning(false);
+      setDevDemoRunning(false);
+      setTeamLoopStatus({
+        title: "Mock Demo failed",
+        message: "OpenBranch could not start the fallback Mock Demo.",
+        prompt: "Run Mock Demo",
+        phase: "error",
+        mode: "mock_demo",
+        roles: teamLoopRoleRows("error", "fixture_fallback", "mock"),
+        error: message,
+      });
+      setLiveEventsError(message);
+      showToast(message);
+    } finally {
+      abortRef.current = null;
+      setPending(null);
+      setThinking(false);
+    }
+  };
+
   const send = async (forkBranch = false) => {
     if ((!input.trim() && !attachments.length) || thinking) return;
     const msg = input.trim();
@@ -1113,8 +1494,8 @@ export default function App() {
       setBranch(br);
     }
 
-    if (isTeamRun) {
-      await sendTeam(pid, br, msg, atts, useSearch);
+    if (isTeamRun && developmentMode === "live") {
+      await startOpenBranchTeamLoop(msg, atts, useSearch);
     } else {
       await sendNormal(pid, br, msg, atts, useSearch);
     }
@@ -1708,11 +2089,19 @@ export default function App() {
 
   useEffect(() => () => clearDevelopmentDemoTimers(), []);
 
-  const applyLiveEvents = (eventsText: string, view: DevelopmentGraphView = developmentGraphView) => {
-    const liveEvents = parseEventsJsonl(eventsText);
+  const applyLiveEvents = (
+    eventsText: string,
+    view: DevelopmentGraphView = developmentGraphView,
+    sessionId: string | null = activeTeamLoopSessionId,
+  ) => {
+    const parsedEvents = parseEventsJsonl(eventsText);
+    const liveEvents = sessionId
+      ? parsedEvents.filter((event) => event.metadata?.teamLoopSessionId === sessionId)
+      : parsedEvents;
+    const scope = sessionId || "all";
     const signature = liveEvents.length
-      ? view + ":" + liveEvents.length + ":" + liveEvents[liveEvents.length - 1].id
-      : view + ":0";
+      ? scope + ":" + view + ":" + liveEvents.length + ":" + liveEvents[liveEvents.length - 1].id
+      : scope + ":" + view + ":0";
     if (signature === liveEventsSignatureRef.current) return;
     liveEventsSignatureRef.current = signature;
 
@@ -1726,10 +2115,13 @@ export default function App() {
     if (last) setScrollTarget(last.id);
   };
 
-  const loadLiveEvents = async (view: DevelopmentGraphView = developmentGraphView) => {
+  const loadLiveEvents = async (
+    view: DevelopmentGraphView = developmentGraphView,
+    sessionId: string | null = activeTeamLoopSessionId,
+  ) => {
     const res = await fetch(LIVE_EVENTS_URL + "?t=" + Date.now(), { cache: "no-store" });
     if (!res.ok) throw new Error("events.jsonl returned " + res.status);
-    applyLiveEvents(await res.text(), view);
+    applyLiveEvents(await res.text(), view, sessionId);
     setLiveEventsError("");
   };
 
@@ -1755,7 +2147,9 @@ export default function App() {
     setDevelopmentGraphViewState(view);
     liveEventsSignatureRef.current = "";
     if (developmentMode === "live") {
-      loadLiveEvents(view).catch((e) => setLiveEventsError((e as Error)?.message || "Unable to read events.jsonl"));
+      if (activeTeamLoopSessionId) {
+        loadLiveEvents(view, activeTeamLoopSessionId).catch((e) => setLiveEventsError((e as Error)?.message || "Unable to read events.jsonl"));
+      }
       return;
     }
     if (developmentMode === "demo" && convId?.startsWith("conv:ai_dev_demo:")) {
@@ -1764,11 +2158,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (developmentMode !== "live") return;
+    if (developmentMode !== "live" || !activeTeamLoopSessionId || devDemoRunning) return;
     let cancelled = false;
     const tick = async () => {
       try {
-        await loadLiveEvents();
+        await loadLiveEvents(developmentGraphView, activeTeamLoopSessionId);
       } catch (e) {
         if (!cancelled) setLiveEventsError((e as Error)?.message || "Unable to read events.jsonl");
       }
@@ -1779,13 +2173,14 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [developmentMode, developmentGraphView]);
+  }, [developmentMode, developmentGraphView, activeTeamLoopSessionId, devDemoRunning]);
 
   const openLiveMode = () => {
     clearDevelopmentDemoTimers();
     stop();
     setDevelopmentMode("live");
     setDevDemoRunning(false);
+    setMockDemoRunning(false);
     setEditId(null);
     setBranchFromId(null);
     setNewFromRef(null);
@@ -1802,12 +2197,30 @@ export default function App() {
     setParentRef(null);
     setConvId(null);
     setGraph(true);
-    loadLiveEvents().catch((e) => setLiveEventsError((e as Error)?.message || "Unable to read events.jsonl"));
+    setLiveEventsError("");
+    liveEventsSignatureRef.current = "";
+    if (activeTeamLoopSessionId) {
+      setConvId("conv:team_loop:" + activeTeamLoopSessionId);
+      loadLiveEvents(developmentGraphView, activeTeamLoopSessionId).catch((e) => setLiveEventsError((e as Error)?.message || "Unable to read events.jsonl"));
+    } else {
+      setCommits([]);
+      cRef.current = [];
+      setHeadId(null);
+      setBranch("main");
+      setLiveEventCount(0);
+      setTeamLoopStatus(null);
+    }
   };
 
   const openDemoMode = () => {
     setDevelopmentMode("demo");
+    setMockDemoRunning(false);
     setLiveEventsError("");
+  };
+
+  const toggleInteractionMode = () => {
+    if (developmentMode === "live") openDemoMode();
+    else openLiveMode();
   };
 
   const runAiDevelopmentDemo = () => {
@@ -1815,6 +2228,7 @@ export default function App() {
     stop();
     setDevelopmentMode("demo");
     setLiveEventsError("");
+    setMockDemoRunning(false);
 
     const title = "OpenBranch for AI Development";
     const newId = "conv:ai_dev_demo:" + Date.now();
@@ -1867,17 +2281,50 @@ export default function App() {
     });
   };
 
+  const downloadControlTowerArtifact = (artifact: LoopArtifact) => {
+    const blob = new Blob([artifact.content], { type: artifact.mime || "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = artifact.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const runControlTowerAction = (action: LoopAction) => {
+    const result = createControlTowerAction(action, DEFAULT_CONTROL_TOWER_CONTEXT);
+    const artifacts = result.artifacts || [];
+    artifacts.forEach(downloadControlTowerArtifact);
+    const command = result.commands?.[0]?.command;
+    if (command) copyToClipboard(command);
+    showToast(
+      artifacts.length
+        ? result.label + ": downloaded " + artifacts.map((artifact) => artifact.path).join(", ")
+        : command
+          ? result.label + ": copied command"
+          : result.summary,
+      "success",
+    );
+  };
+
   const chatProps = {
     commits, headId, branch, names, parentRef, thread,
     runAiDevelopmentDemo,
     devDemoRunning,
+    runMockDemo,
+    mockDemoRunning,
     developmentMode,
     developmentGraphView,
     setDevelopmentGraphView,
     openDemoMode,
     openLiveMode,
+    toggleInteractionMode,
+    runControlTowerAction,
     liveEventCount,
     liveEventsError,
+    teamLoopStatus,
     startRound2,
     convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,

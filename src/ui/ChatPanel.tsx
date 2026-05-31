@@ -99,7 +99,9 @@ export default function ChatPanel(props: Props) {
   const {
     commits, headId, branch, names, parentRef, thread,
     runAiDevelopmentDemo, devDemoRunning,
-    developmentMode, developmentGraphView, setDevelopmentGraphView, openDemoMode, openLiveMode, liveEventCount, liveEventsError,
+    runMockDemo, mockDemoRunning,
+    developmentMode, developmentGraphView, setDevelopmentGraphView, openDemoMode, openLiveMode, toggleInteractionMode, liveEventCount, liveEventsError, teamLoopStatus,
+    runControlTowerAction,
     convs, convId, activeTags, tagPool,
     input, setInput, inputRef, endRef,
     attachments, setAttachments,
@@ -263,8 +265,104 @@ export default function ChatPanel(props: Props) {
   };
 
   const hasContent = (input && input.trim().length > 0) || (attachments && attachments.length > 0);
-  const primaryActionLabel = branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : "Send";
+  const primaryActionLabel = branchFromId ? "Branch" : editId ? "Edit" : mm ? "Merge" : developmentMode === "live" ? "Start AI Team Loop" : "Send";
   const primaryActionDisabled = !hasContent || (mm && !sel.length);
+  const teamLoopRoleLegend = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+      <span><span className="font-medium text-foreground">Codex</span> = PM</span>
+      <span><span className="font-medium text-foreground">Kiro</span> = Builder</span>
+      <span><span className="font-medium text-foreground">Kane</span> = Verifier</span>
+      <span><span className="font-medium text-foreground">OpenBranch</span> = Story</span>
+    </div>
+  );
+  const teamLoopComposerHeader = !branchFromId && !editId && !mm && (
+    <div className="border-b border-border/50 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {developmentMode === "live" ? (
+          <>
+        <span className="rounded-full bg-[color:var(--branch-1)]/10 px-2.5 py-1 text-[11px] font-semibold text-[color:var(--branch-1)]">
+          Code Mode - AI Team Loop
+        </span>
+        {teamLoopRoleLegend}
+          </>
+        ) : (
+          <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+            Chat Mode - Discussion
+          </span>
+        )}
+      </div>
+      <div className="mt-2 text-xs text-muted-foreground">
+        {developmentMode === "live"
+          ? "Type a development prompt. Codex plans, Kiro builds, Kane verifies, and OpenBranch records the story."
+          : "Use Chat Mode for discussion. Press Shift+Tab to switch to Code Mode when you want the AI Team Loop."}
+      </div>
+    </div>
+  );
+  const teamLoopStatusCard = teamLoopStatus && (
+    <div
+      className={cn(
+        "team-pop rounded-lg border px-4 py-3 text-sm shadow-sm",
+        teamLoopStatus.phase === "error"
+          ? "border-destructive/30 bg-destructive/5"
+          : "border-[color:var(--branch-1)]/30 bg-[color:var(--branch-1)]/5",
+      )}
+    >
+      <div className="font-semibold text-foreground">
+        {teamLoopStatus.title || "AI Team Loop started"}
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground">
+        {teamLoopStatus.message || "OpenBranch started the AI Team Loop for this prompt."}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground" data-openbranch-self-improve="role-map">
+        <span><span className="font-medium text-foreground">Codex</span> = PM</span>
+        <span><span className="font-medium text-foreground">Kiro</span> = Builder</span>
+        <span><span className="font-medium text-foreground">Kane</span> = Verifier</span>
+        <span><span className="font-medium text-foreground">OpenBranch</span> = Story</span>
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground line-clamp-2">
+        {teamLoopStatus.prompt}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {(teamLoopStatus.roles || []).map((role: any) => {
+          const errored = role.status === "error";
+          const done = role.status === "done";
+          return (
+            <div key={role.id} className="flex min-w-0 items-start gap-2 rounded-md bg-background/65 px-2.5 py-2">
+              <span
+                className={cn(
+                  "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
+                  errored
+                    ? "border-destructive text-destructive"
+                    : done
+                      ? "border-[color:var(--branch-4)] bg-[color:var(--branch-4)] text-white"
+                      : "border-[color:var(--branch-1)] text-[color:var(--branch-1)]",
+                )}
+              >
+                {errored ? <X className="size-2.5" /> : done ? <Check className="size-2.5" /> : <span className="size-1.5 rounded-full bg-current animate-pulse" />}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-foreground">
+                  {role.label}
+                  {!done && !errored && <RunningDots />}
+                </span>
+                {role.detail && <span className="block truncate text-xs text-muted-foreground">{role.detail}</span>}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {teamLoopStatus.generatedFiles?.length > 0 && (
+        <div className="mt-3 truncate text-xs text-muted-foreground">
+          Generated {teamLoopStatus.generatedFiles.join(", ")}
+        </div>
+      )}
+      {teamLoopStatus.error && (
+        <div className="mt-3 text-xs text-destructive">
+          {teamLoopStatus.error}
+        </div>
+      )}
+    </div>
+  );
 
   const attachmentChipRow = attachments && attachments.length > 0 && (
     <div className="flex flex-wrap gap-2 border-b border-border/50 px-3 pt-3 pb-3">
@@ -309,6 +407,7 @@ export default function ChatPanel(props: Props) {
           : "",
       )}
     >
+      {teamLoopComposerHeader}
       {attachmentChipRow}
       <div className="flex flex-col px-4 pt-3 pb-2">
         <Textarea
@@ -316,6 +415,11 @@ export default function ChatPanel(props: Props) {
           value={input}
           onChange={(e: any) => setInput(e.target.value)}
           onKeyDown={(e: any) => {
+            if (e.key === "Tab" && e.shiftKey) {
+              e.preventDefault();
+              toggleInteractionMode?.();
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               if (mm && sel.length) { merge(); return; }
@@ -344,6 +448,7 @@ export default function ChatPanel(props: Props) {
             : editId ? "Edit your question..."
             : newFromRef ? "Start new conversation..."
             : mm ? "Merge instruction..."
+            : developmentMode === "live" ? "Describe what you want Codex, Kiro, and Kane to build and verify..."
             : thread.length === 0 ? "How can I help you today?"
             : "Reply..."
           }
@@ -617,7 +722,7 @@ export default function ChatPanel(props: Props) {
               onClick={openDemoMode}
               className="h-7 px-2 text-xs"
             >
-              Demo Mode
+              Chat Mode
             </Button>
             <Button
               type="button"
@@ -626,9 +731,23 @@ export default function ChatPanel(props: Props) {
               onClick={openLiveMode}
               className="h-7 px-2 text-xs"
             >
-              Live Mode
+              Code Mode
             </Button>
           </div>
+          {runMockDemo && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={runMockDemo}
+              disabled={mockDemoRunning}
+              className="h-8 max-w-[190px] gap-2 border-amber-500/60 bg-amber-500/10 px-3 text-xs font-semibold text-amber-700 hover:bg-amber-500/15 dark:text-amber-300"
+              title="Run fallback Mock Demo"
+            >
+              <GitBranch className="size-3.5 shrink-0" />
+              <span className="truncate">{mockDemoRunning ? "Running Mock Demo" : "Run Mock Demo"}</span>
+            </Button>
+          )}
           {setDevelopmentGraphView && (
             <div className="flex rounded-md border bg-background p-0.5">
               <Button
@@ -650,6 +769,61 @@ export default function ChatPanel(props: Props) {
                 Raw Event View
               </Button>
             </div>
+          )}
+          {runControlTowerAction && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+                  title="Manual tools"
+                  aria-label="Manual tools"
+                >
+                  <MoreHorizontal className="size-3.5" />
+                  Manual tools
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[15rem] rounded-2xl p-1">
+                <DropdownMenuItem
+                  onSelect={() => runControlTowerAction("run_kane_verification")}
+                  className="gap-3 py-2"
+                >
+                  <Globe className="size-4" />
+                  Run Kane verification
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => runControlTowerAction("ingest_kane_result")}
+                  className="gap-3 py-2"
+                >
+                  <FileText className="size-4" />
+                  Ingest Kane result
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => runControlTowerAction("generate_kiro_next_action")}
+                  className="gap-3 py-2"
+                >
+                  <ChevronRight className="size-4" />
+                  Generate Kiro next action
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => runControlTowerAction("mark_idea_accepted")}
+                  className="gap-3 py-2"
+                >
+                  <Check className="size-4" />
+                  Mark idea accepted
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => runControlTowerAction("export_codex_goal")}
+                  className="gap-3 py-2"
+                >
+                  <GitBranch className="size-4" />
+                  Export Codex goal
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {developmentMode === "live" && (
             <span
@@ -693,6 +867,7 @@ export default function ChatPanel(props: Props) {
             <div className="flex flex-col items-center gap-8">
               <div className="text-3xl font-semibold tracking-tight">Where should we start?</div>
               <div className="w-full max-w-[760px]">{composer}</div>
+              {teamLoopStatusCard && <div className="w-full max-w-[760px]">{teamLoopStatusCard}</div>}
               {developmentMode !== "live" && runAiDevelopmentDemo && (
                 <button
                   type="button"
@@ -705,11 +880,17 @@ export default function ChatPanel(props: Props) {
                     <span className="text-xs font-semibold tracking-wide text-[color:var(--branch-1)]">Run AI Development Demo</span>
                     <span className="text-[10px] text-muted-foreground">Kiro, Kane, fix branch, merge</span>
                   </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground" data-openbranch-self-improve="demo-role-map">
+                    <span><span className="font-medium text-foreground">Codex</span> = PM</span>
+                    <span><span className="font-medium text-foreground">Kiro</span> = Builder</span>
+                    <span><span className="font-medium text-foreground">Kane</span> = Verifier</span>
+                    <span><span className="font-medium text-foreground">OpenBranch</span> = Story</span>
+                  </div>
                   <div className="text-sm text-foreground/90 leading-relaxed">
-                    GitHub tracks code commits. OpenBranch tracks AI development episodes: goals, plans, builds, failures, fixes, and merges.
+                    GitHub tracks code history. OpenBranch tracks AI development history as ideas evolve.
                   </div>
                   <div className="mt-1.5 text-[11px] text-muted-foreground">
-                    Watch a failed verification branch into an AI fix, pass Kane, and merge back to main.
+                    Watch an assumption turn into an experiment, learn from Kane, and become an accepted product idea.
                   </div>
                 </button>
               )}
@@ -718,6 +899,7 @@ export default function ChatPanel(props: Props) {
         ) : (
           <div className="flex min-h-full w-full flex-col">
             <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-8 px-6">
+              {teamLoopStatusCard}
               {thread.map((cm: any) => {
                 const isMrg = (cm.mergeIds || []).length > 0;
                 const cmSources = getCommitSources(cm);
@@ -903,6 +1085,16 @@ export default function ChatPanel(props: Props) {
                           {cm.citations?.length > 0 && renderCitationChips(cm.citations)}
                         </>
                       )}
+                    {cm.storyTechnicalDetails && (
+                      <details className="mt-3 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-[14px] leading-relaxed text-muted-foreground">
+                        <summary className="cursor-pointer select-none text-[13px] font-medium text-foreground">
+                          Technical details
+                        </summary>
+                        <div className="mt-2 border-t border-border/60 pt-2">
+                          {renderMd(cm.storyTechnicalDetails)}
+                        </div>
+                      </details>
+                    )}
                   </div>
                   {cm.role === "master" && cm.iteration === 1 && (cm.mergeIds || []).length > 0 && !commits.some((x: any) => x.iteration === 2 && x.refinesId === cm.id) && (
                     <button
