@@ -36,6 +36,7 @@ Thumbs.db
 *.err
 *.out
 .tmp/
+events.jsonl
 
 # Misc
 _ferries/
